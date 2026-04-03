@@ -1,0 +1,290 @@
+import assert from 'node:assert/strict';
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+type JsonRpcResponse = {
+  jsonrpc: '2.0';
+  id?: number;
+  result?: any;
+  error?: any;
+  method?: string;
+  params?: any;
+};
+
+function createTempEnv(): { baseDir: string; projectDir: string; homeDir: string } {
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cw-mcp-stdio-test-'));
+  const projectDir = path.join(baseDir, 'project');
+  const homeDir = path.join(baseDir, 'home');
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.mkdirSync(path.join(homeDir, '.contextatlas'), { recursive: true });
+  return { baseDir, projectDir, homeDir };
+}
+
+class McpStdIoClient {
+  private readonly proc: ChildProcessWithoutNullStreams;
+  private buffer = '';
+  private readonly pending = new Map<number, (value: JsonRpcResponse) => void>();
+
+  constructor(projectDir: string, homeDir: string) {
+    this.proc = spawn('node', [path.join(REPO_ROOT, 'dist/index.js'), 'mcp'], {
+      cwd: projectDir,
+      env: {
+        ...process.env,
+        HOME: homeDir,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    this.proc.stdout.setEncoding('utf8');
+    this.proc.stdout.on('data', (chunk: string) => {
+      this.buffer += chunk;
+      let idx = this.buffer.indexOf('\n');
+      while (idx >= 0) {
+        const line = this.buffer.slice(0, idx).trim();
+        this.buffer = this.buffer.slice(idx + 1);
+        if (line) {
+          const message = JSON.parse(line) as JsonRpcResponse;
+          if (typeof message.id === 'number') {
+            const resolve = this.pending.get(message.id);
+            if (resolve) {
+              this.pending.delete(message.id);
+              resolve(message);
+            }
+          }
+        }
+        idx = this.buffer.indexOf('\n');
+      }
+    });
+  }
+
+  async call(
+    id: number,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<JsonRpcResponse> {
+    const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
+    const result = new Promise<JsonRpcResponse>((resolve) => {
+      this.pending.set(id, resolve);
+    });
+    this.proc.stdin.write(`${payload}\n`);
+    return result;
+  }
+
+  async initialize(): Promise<void> {
+    const init = await this.call(1, 'initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'contextatlas-test', version: '1.0' },
+    });
+    assert.ok(init.result);
+    this.proc.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })}\n`,
+    );
+  }
+
+  async close(): Promise<void> {
+    this.proc.kill('SIGTERM');
+    await new Promise<void>((resolve) => {
+      this.proc.on('exit', () => resolve());
+    });
+  }
+}
+
+test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', async () => {
+  const { baseDir, projectDir, homeDir } = createTempEnv();
+  const client = new McpStdIoClient(projectDir, homeDir);
+
+  try {
+    await client.initialize();
+
+    const tools = await client.call(2, 'tools/list', {});
+    const toolNames = tools.result.tools.map((tool: { name: string }) => tool.name);
+    assert.ok(toolNames.includes('find_memory'));
+    assert.ok(toolNames.includes('maintain_memory_catalog'));
+    assert.ok(toolNames.includes('prune_long_term_memories'));
+
+    await client.call(3, 'tools/call', {
+      name: 'record_memory',
+      arguments: {
+        name: 'proto-module',
+        responsibility: 'proto responsibility',
+        dir: 'src/proto',
+        files: ['proto.ts'],
+        exports: ['proto-module'],
+        endpoints: [],
+        imports: [],
+        external: [],
+        dataFlow: 'proto flow',
+        keyPatterns: ['proto'],
+      },
+    });
+
+    const find = await client.call(4, 'tools/call', {
+      name: 'find_memory',
+      arguments: { query: 'proto-module', format: 'json' },
+    });
+    const findPayload = JSON.parse(find.result.content[0].text);
+    assert.equal(findPayload.tool, 'find_memory');
+    assert.equal(findPayload.result_count, 1);
+
+    const check = await client.call(5, 'tools/call', {
+      name: 'maintain_memory_catalog',
+      arguments: { action: 'check', format: 'json' },
+    });
+    const checkPayload = JSON.parse(check.result.content[0].text);
+    assert.equal(checkPayload.tool, 'check_memory_consistency');
+    assert.equal(checkPayload.status, 'ok');
+
+    const profile = await client.call(6, 'tools/call', {
+      name: 'get_project_profile',
+      arguments: { format: 'json' },
+    });
+    const profilePayload = JSON.parse(profile.result.content[0].text);
+    assert.equal(profilePayload.tool, 'get_project_profile');
+    assert.equal(profilePayload.status, 'not_found');
+    assert.equal(profilePayload.profile, null);
+
+    const loaded = await client.call(7, 'tools/call', {
+      name: 'load_module_memory',
+      arguments: { moduleName: 'proto-module', format: 'json' },
+    });
+    const loadedPayload = JSON.parse(loaded.result.content[0].text);
+    assert.equal(loadedPayload.tool, 'load_module_memory');
+    assert.equal(loadedPayload.result_count, 1);
+
+    const catalog = await client.call(8, 'tools/call', {
+      name: 'list_memory_catalog',
+      arguments: { includeDetails: true, format: 'json' },
+    });
+    const catalogPayload = JSON.parse(catalog.result.content[0].text);
+    assert.equal(catalogPayload.tool, 'list_memory_catalog');
+    assert.ok(catalogPayload.catalog.modules['proto-module']);
+
+    const deleted = await client.call(9, 'tools/call', {
+      name: 'delete_memory',
+      arguments: { name: 'proto-module', format: 'json' },
+    });
+    const deletedPayload = JSON.parse(deleted.result.content[0].text);
+    assert.equal(deletedPayload.tool, 'delete_memory');
+    assert.equal(deletedPayload.status, 'deleted');
+
+    const rebuilt = await client.call(10, 'tools/call', {
+      name: 'maintain_memory_catalog',
+      arguments: { action: 'rebuild', format: 'json' },
+    });
+    const rebuiltPayload = JSON.parse(rebuilt.result.content[0].text);
+    assert.equal(rebuiltPayload.tool, 'rebuild_memory_catalog');
+    assert.equal(rebuiltPayload.status, 'rebuilt');
+
+    await client.call(11, 'tools/call', {
+      name: 'record_long_term_memory',
+      arguments: {
+        type: 'reference',
+        title: '过期监控面板',
+        summary: '旧 dashboard https://grafana.example.com/legacy',
+        links: ['https://grafana.example.com/legacy'],
+        validUntil: '2020-01-01',
+        format: 'json',
+      },
+    });
+
+    const longTermList = await client.call(12, 'tools/call', {
+      name: 'list_long_term_memories',
+      arguments: { types: ['reference'], format: 'json' },
+    });
+    const longTermListPayload = JSON.parse(longTermList.result.content[0].text);
+    assert.equal(longTermListPayload.tool, 'list_long_term_memories');
+    assert.equal(longTermListPayload.result_count, 0);
+
+    const pruned = await client.call(13, 'tools/call', {
+      name: 'prune_long_term_memories',
+      arguments: { types: ['reference'], dryRun: false, format: 'json' },
+    });
+    const prunedPayload = JSON.parse(pruned.result.content[0].text);
+    assert.equal(prunedPayload.tool, 'prune_long_term_memories');
+    assert.equal(prunedPayload.pruned_count, 1);
+  } finally {
+    await client.close();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('MCP stdio exposes JSON-enabled hub tools with parseable payloads', async () => {
+  const { baseDir, projectDir, homeDir } = createTempEnv();
+  const client = new McpStdIoClient(projectDir, homeDir);
+
+  try {
+    await client.initialize();
+
+    await client.call(2, 'tools/call', {
+      name: 'record_memory',
+      arguments: {
+        name: 'hub-batch-module',
+        responsibility: 'hub batch responsibility',
+        dir: 'src/hub-batch',
+        files: ['hub.ts'],
+        exports: ['hub-batch-module'],
+        endpoints: [],
+        imports: [],
+        external: [],
+        dataFlow: 'hub batch flow',
+        keyPatterns: ['hub-batch'],
+      },
+    });
+
+    const projects = await client.call(3, 'tools/call', {
+      name: 'list_projects',
+      arguments: { format: 'json' },
+    });
+    const projectsPayload = JSON.parse(projects.result.content[0].text);
+    assert.equal(projectsPayload.tool, 'list_projects');
+    assert.equal(projectsPayload.result_count, 1);
+    const projectId = projectsPayload.projects[0].id;
+
+    const shared = await client.call(4, 'tools/call', {
+      name: 'query_shared_memories',
+      arguments: { queryText: 'hub-batch-module', mode: 'fts', format: 'json' },
+    });
+    const sharedPayload = JSON.parse(shared.result.content[0].text);
+    assert.equal(sharedPayload.tool, 'query_shared_memories');
+    assert.equal(sharedPayload.result_count, 1);
+
+    const deps = await client.call(5, 'tools/call', {
+      name: 'get_dependency_chain',
+      arguments: {
+        project: projectId,
+        module: 'hub-batch-module',
+        recursive: true,
+        format: 'json',
+      },
+    });
+    const depsPayload = JSON.parse(deps.result.content[0].text);
+    assert.equal(depsPayload.tool, 'get_dependency_chain');
+    assert.equal(depsPayload.result_count, 0);
+
+    const fts = await client.call(6, 'tools/call', {
+      name: 'query_shared_memories',
+      arguments: { queryText: 'hub-batch-module', mode: 'fts', format: 'json' },
+    });
+    const ftsPayload = JSON.parse(fts.result.content[0].text);
+    assert.equal(ftsPayload.tool, 'query_shared_memories');
+    assert.equal(ftsPayload.result_count, 1);
+
+    const stats = await client.call(7, 'tools/call', {
+      name: 'get_memory_stats',
+      arguments: { format: 'json' },
+    });
+    const statsPayload = JSON.parse(stats.result.content[0].text);
+    assert.equal(statsPayload.tool, 'get_memory_stats');
+    assert.ok(statsPayload.stats);
+  } finally {
+    await client.close();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});

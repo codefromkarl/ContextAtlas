@@ -1,0 +1,80 @@
+{
+  "name": "@codefromkarl/context-atlas",
+  "version": "0.0.7",
+  "description": "AI context infrastructure for code retrieval, project memory, and repository intelligence",
+  "license": "MIT",
+  "author": "codefromkarl",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codefromkarl/ContextAtlas.git"
+  },
+  "homepage": "https://github.com/codefromkarl/ContextAtlas#readme",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "contextatlas": "dist/index.js",
+    "cw": "dist/index.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --sourcemap --clean",
+    "build:release": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --clean",
+    "dev": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --sourcemap --watch",
+    "fmt": "biome check --write ./src"
+  },
+  "dependencies": {
+    "@keqingmoe/tree-sitter": "^0.26.2",
+    "@lancedb/lancedb": "^0.22.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "better-sqlite3": "^12.2.0",
+    "cac": "^6.7.14",
+    "chardet": "^2.1.1",
+    "dotenv": "^17.2.3",
+    "fdir": "^6.5.0",
+    "iconv-lite": "^0.7.1",
+    "ignore": "^7.0.5",
+    "p-limit": "^7.2.0",
+    "pino": "^10.1.0",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "0.25.0",
+    "tree-sitter-java": "0.23.5",
+    "tree-sitter-javascript": "0.25.0",
+    "tree-sitter-python": "0.25.0",
+    "tree-sitter-rust": "0.24.0",
+    "tree-sitter-typescript": "0.23.2",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.10",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "knip": "^5.78.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@keqingmoe/tree-sitter",
+      "better-sqlite3",
+      "esbuild",
+      "tree-sitter-c",
+      "tree-sitter-c-sharp",
+      "tree-sitter-cpp",
+      "tree-sitter-go",
+      "tree-sitter-java",
+      "tree-sitter-javascript",
+      "tree-sitter-python",
+      "tree-sitter-rust",
+      "tree-sitter-typescript"
+    ]
+  }
+}

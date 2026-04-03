@@ -157,47 +157,39 @@ src/
 
 ## 部署与使用
 
-### 安装
+快速上手仅需 3 步，完整部署指南（含 5 种场景、MCP 集成、配套提示词）见 [部署手册](./docs/DEPLOYMENT.md)。
+
+### 快速开始
 
 ```bash
 npm install -g @codefromkarl/context-atlas
-```
-
-### 初始化
-
-```bash
 contextatlas init
-```
-
-生成配置文件 `~/.contextatlas/.env`，填入 Embedding 和 Rerank API 密钥：
-
-```bash
-EMBEDDINGS_API_KEY=your-api-key
-EMBEDDINGS_BASE_URL=https://api.siliconflow.cn/v1/embeddings
-EMBEDDINGS_MODEL=BAAI/bge-m3
-RERANK_API_KEY=your-api-key
-RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
-RERANK_MODEL=BAAI/bge-reranker-v2-m3
-```
-
-### 索引代码库
-
-```bash
+# 编辑 ~/.contextatlas/.env，填入 API 密钥
 contextatlas index /path/to/repo
 contextatlas daemon start
-```
-
-### 搜索代码
-
-```bash
 cw search --information-request "用户认证流程是如何实现的？"
 ```
 
-### 启动 MCP 服务器
+### MCP 集成
 
 ```bash
 contextatlas mcp
 ```
+
+Claude Desktop 配置示例（`claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "contextatlas": {
+      "command": "contextatlas",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+> 详细的 MCP 集成配置、Cursor/Windsurf 适配、配套系统提示词模板，见 [部署手册 → 配套提示词](./docs/DEPLOYMENT.md#配套提示词)。
 
 ## 观测与优化
 
@@ -217,6 +209,7 @@ contextatlas usage:index-report --days 7
 
 | 文档 | 内容 |
 |------|------|
+| [部署手册](./docs/DEPLOYMENT.md) | 5 种部署场景、MCP 集成、配套提示词、运维监控 |
 | [CLI 命令参考](./docs/CLI.md) | 所有 CLI 命令：检索、索引、记忆、Hub、监控 |
 | [MCP 工具参考](./docs/MCP.md) | 15 个 MCP 工具总览、配置、调用示例 |
 | [项目记忆详解](./PROJECT_MEMORY.md) | Feature Memory、Decision Record、Catalog 路由 |

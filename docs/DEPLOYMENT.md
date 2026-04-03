@@ -1,0 +1,440 @@
+# 部署手册
+
+## 目录
+
+- [环境要求](#环境要求)
+- [安装方式](#安装方式)
+- [配置详解](#配置详解)
+- [部署场景](#部署场景)
+  - [场景一：本地 CLI 使用](#场景一本地-cli-使用)
+  - [场景二：Claude Desktop MCP 集成](#场景二claude-desktop-mcp-集成)
+  - [场景三：Cursor / Windsurf MCP 集成](#场景三cursor--windsurf-mcp-集成)
+  - [场景四：多项目共享 Hub](#场景四多项目共享-hub)
+  - [场景五：CI/CD 预索引](#场景五cicd-预索引)
+- [配套提示词](#配套提示词)
+  - [系统提示词模板](#系统提示词模板)
+  - [工具使用策略提示词](#工具使用策略提示词)
+  - [记忆记录提示词](#记忆记录提示词)
+- [运维与监控](#运维与监控)
+- [故障排查](#故障排查)
+
+---
+
+## 环境要求
+
+| 组件 | 最低版本 | 推荐版本 |
+|------|---------|---------|
+| Node.js | 20.x | 22.x LTS |
+| pnpm | 8.x | 10.x |
+| 磁盘空间 | 2 GB | 5 GB（含索引） |
+| 内存 | 4 GB | 8 GB（大型项目） |
+
+---
+
+## 安装方式
+
+### npm 全局安装（推荐）
+
+```bash
+npm install -g @codefromkarl/context-atlas
+```
+
+### pnpm 全局安装
+
+```bash
+pnpm add -g @codefromkarl/context-atlas
+```
+
+### 从源码构建
+
+```bash
+git clone https://github.com/codefromkarl/ContextAtlas.git
+cd ContextAtlas
+pnpm install
+pnpm build
+# 使用
+node dist/index.js
+```
+
+---
+
+## 配置详解
+
+运行 `contextatlas init` 后生成 `~/.contextatlas/.env`：
+
+```bash
+# ─── Embedding API ─────────────────────────────────────────
+EMBEDDINGS_API_KEY=your-api-key
+EMBEDDINGS_BASE_URL=https://api.siliconflow.cn/v1/embeddings
+EMBEDDINGS_MODEL=BAAI/bge-m3
+EMBEDDINGS_MAX_CONCURRENCY=10        # 并发请求数，根据 API 配额调整
+EMBEDDINGS_BATCH_SIZE=20             # 每批处理文件数
+EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS=200 # 请求间隔（ms），避免限流
+EMBEDDINGS_DIMENSIONS=1024           # 向量维度
+
+# ─── Rerank API ────────────────────────────────────────────
+RERANK_API_KEY=your-api-key
+RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
+RERANK_MODEL=BAAI/bge-reranker-v2-m3
+RERANK_TOP_N=20                      # 精排后返回数量
+
+# ─── 可选配置 ──────────────────────────────────────────────
+# IGNORE_PATTERNS=.venv,node_modules,dist,.git
+# CONTEXTATLAS_BASE_DIR=~/.contextatlas
+# CONTEXTATLAS_USAGE_DB_PATH=~/.contextatlas/usage-tracker.db
+```
+
+### 配置项说明
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `EMBEDDINGS_API_KEY` | ✅ | Embedding 服务 API Key |
+| `EMBEDDINGS_BASE_URL` | ✅ | Embedding API 地址 |
+| `EMBEDDINGS_MODEL` | ✅ | 模型名称 |
+| `RERANK_API_KEY` | ✅ | Rerank 服务 API Key |
+| `RERANK_BASE_URL` | ✅ | Rerank API 地址 |
+| `RERANK_MODEL` | ✅ | Rerank 模型名称 |
+| `EMBEDDINGS_MAX_CONCURRENCY` | 否 | 默认 10，降低可避免 API 限流 |
+| `IGNORE_PATTERNS` | 否 | 逗号分隔的忽略路径 |
+
+---
+
+## 部署场景
+
+### 场景一：本地 CLI 使用
+
+适合个人开发者快速检索代码。
+
+```bash
+# 1. 安装
+npm install -g @codefromkarl/context-atlas
+
+# 2. 初始化
+contextatlas init
+
+# 3. 编辑 ~/.contextatlas/.env，填入 API 密钥
+
+# 4. 索引项目
+contextatlas index /path/to/your/project
+
+# 5. 启动守护进程（后台消费索引队列）
+contextatlas daemon start
+
+# 6. 搜索
+cw search --information-request "用户登录流程是如何实现的？"
+```
+
+### 场景二：Claude Desktop MCP 集成
+
+适合在 Claude Desktop 中获得代码检索能力。
+
+**1. 编辑 Claude Desktop 配置：**
+
+macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "contextatlas": {
+      "command": "contextatlas",
+      "args": ["mcp"],
+      "env": {
+        "EMBEDDINGS_API_KEY": "your-key",
+        "EMBEDDINGS_BASE_URL": "https://api.siliconflow.cn/v1/embeddings",
+        "EMBEDDINGS_MODEL": "BAAI/bge-m3",
+        "RERANK_API_KEY": "your-key",
+        "RERANK_BASE_URL": "https://api.siliconflow.cn/v1/rerank",
+        "RERANK_MODEL": "BAAI/bge-reranker-v2-m3"
+      }
+    }
+  }
+}
+```
+
+**2. 重启 Claude Desktop**，确认 MCP 工具列表中出现 ContextAtlas 的 15 个工具。
+
+**3. 在对话中直接使用**，无需额外提示词——工具已自动注册。
+
+### 场景三：Cursor / Windsurf MCP 集成
+
+**Cursor**（Settings → Features → MCP）：
+
+```json
+{
+  "mcpServers": {
+    "contextatlas": {
+      "command": "contextatlas",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Windsurf**（`.cursor/mcp.json` 或项目级配置）：
+
+```json
+{
+  "mcpServers": {
+    "contextatlas": {
+      "command": "contextatlas",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### 场景四：多项目共享 Hub
+
+适合团队在多个项目间共享模块知识。
+
+```bash
+# 1. 注册所有项目
+contextatlas hub:register-project /path/to/project-a --name "ProjectA"
+contextatlas hub:register-project /path/to/project-b --name "ProjectB"
+
+# 2. 分别为每个项目建立索引
+contextatlas index /path/to/project-a
+contextatlas index /path/to/project-b
+
+# 3. 启动守护进程
+contextatlas daemon start
+
+# 4. 跨项目搜索
+contextatlas hub:search --category auth
+
+# 5. 建立项目间关系
+contextatlas hub:link ProjectA AuthService ProjectB AuthLib depends_on
+```
+
+### 场景五：CI/CD 预索引
+
+在 CI 流程中自动索引，确保 AI 始终获取最新代码上下文。
+
+```yaml
+# GitHub Actions 示例
+- name: Index codebase
+  run: |
+    npm install -g @codefromkarl/context-atlas
+    contextatlas init
+    contextatlas index . --force
+    contextatlas daemon once
+  env:
+    EMBEDDINGS_API_KEY: ${{ secrets.EMBEDDINGS_API_KEY }}
+    RERANK_API_KEY: ${{ secrets.RERANK_API_KEY }}
+```
+
+---
+
+## 配套提示词
+
+### 系统提示词模板
+
+将以下内容添加到 AI 助手的系统提示中，确保正确使用 ContextAtlas：
+
+```
+## ContextAtlas 使用指南
+
+你拥有 ContextAtlas MCP 工具，用于检索和理解当前代码库。
+
+### 核心原则
+
+1. **先检索，后编码**：在修改任何代码前，必须使用 codebase-retrieval 了解现有实现
+2. **先查记忆，后检索**：使用 find_memory 检查是否已有模块知识，避免重复工作
+3. **完成后回写**：开发完成后用 record_memory 记录新模块的稳定知识
+
+### 工具调用顺序
+
+面对新任务时：
+1. find_memory({ query: "关键词" }) — 检查是否已有模块记忆
+2. codebase-retrieval({ information_request: "描述目标" }) — 检索相关代码
+3. 阅读返回的代码，理解实现
+4. 制定修改计划
+5. 实施修改
+6. record_memory({ name, responsibility, dir, ... }) — 回写新模块知识
+
+### 查询技巧
+
+- information_request 用自然语言描述"代码在做什么"，而非类名
+- technical_terms 填入你 100% 确定存在的类名/函数名
+- 如果首次搜索结果太宽泛，增加 technical_terms 缩小范围
+
+### 不要做的事
+
+- 不要猜测文件路径，用 codebase-retrieval 搜索
+- 不要凭记忆写代码，总是先检索验证
+- 不要在未理解现有实现的情况下直接修改
+```
+
+### 工具使用策略提示词
+
+```
+## ContextAtlas 工具选择策略
+
+| 你的意图 | 使用工具 | 示例 |
+|---------|---------|------|
+| "这个模块在哪里？" | find_memory | find_memory({ query: "auth" }) |
+| "代码是怎么实现的？" | codebase-retrieval | codebase-retrieval({ information_request: "用户登录流程" }) |
+| "这个函数的签名是什么？" | codebase-retrieval + technical_terms | codebase-retrieval({ information_request: "登录函数", technical_terms: ["login"] }) |
+| "其他项目有类似实现吗？" | query_shared_memories | query_shared_memories({ category: "auth" }) |
+| "这个模块依赖什么？" | get_dependency_chain | get_dependency_chain({ project: "ctx", module: "SearchService" }) |
+| "记录这个新模块" | record_memory | record_memory({ name: "AuthService", responsibility: "...", dir: "src/auth/" }) |
+| "记录架构决策" | record_decision | record_decision({ id: "2026-04-03-auth", title: "...", decision: "..." }) |
+| "会话结束，保存知识" | session_end | session_end({ summary: "创建了 AuthService..." }) |
+```
+
+### 记忆记录提示词
+
+```
+## 记忆记录规范
+
+### Feature Memory 记录时机
+- 新建模块超过 3 个文件
+- 实现新的 API 端点
+- 添加新的服务层/中间件
+- 修改了模块的公开接口
+
+### Feature Memory 必填字段
+```json
+{
+  "name": "模块名（kebab-case）",
+  "responsibility": "一句话描述模块职责",
+  "dir": "源码目录路径",
+  "files": ["主要文件列表"],
+  "exports": ["导出的符号"],
+  "imports": ["内部依赖模块"],
+  "external": ["外部依赖库"],
+  "dataFlow": "数据流向描述"
+}
+```
+
+### Decision Record 记录时机
+- 选择了特定的架构方案
+- 在多个方案中做出了取舍
+- 引入了新的依赖或技术
+- 改变了现有的设计模式
+
+### Decision Record 必填字段
+```json
+{
+  "id": "日期-简短描述",
+  "title": "决策标题",
+  "context": "背景和问题",
+  "decision": "做了什么决定",
+  "rationale": "为什么这样决定",
+  "alternatives": [
+    { "name": "方案A", "pros": ["优点"], "cons": ["缺点"] }
+  ]
+}
+```
+```
+
+---
+
+## 运维与监控
+
+### 索引状态检查
+
+```bash
+# 查看检索性能报告
+contextatlas monitor:retrieval --days 7
+
+# 查看索引优化建议
+contextatlas usage:index-report --days 7
+```
+
+### 守护进程管理
+
+```bash
+# 启动常驻守护进程
+contextatlas daemon start
+
+# 单次执行（适合 CI）
+contextatlas daemon once
+
+# 查看队列状态（通过 usage report）
+contextatlas usage:index-report
+```
+
+### 数据目录
+
+```text
+~/.contextatlas/
+├── .env                           # 配置文件
+├── memory-hub.db                  # 项目记忆主存储
+├── usage-tracker.db               # 使用追踪数据
+├── logs/                          # 运行日志
+│   └── app.YYYY-MM-DD.log
+└── <projectId>/                   # 各项目的索引快照
+    ├── current                    # 当前活跃快照（符号链接）
+    └── snapshots/                 # 历史快照
+        ├── snap-...
+        └── snap-...
+```
+
+### 清理与维护
+
+```bash
+# 清理过期的长期记忆
+contextatlas memory:prune-long-term --include-stale
+
+# 重建记忆目录索引
+contextatlas memory:rebuild-catalog
+
+# 检查记忆一致性
+contextatlas memory:check-consistency
+```
+
+---
+
+## 故障排查
+
+### 索引失败
+
+**症状**：`contextatlas index` 报错或卡住
+
+**排查**：
+```bash
+# 查看日志
+cat ~/.contextatlas/logs/app.$(date +%Y-%m-%d).log
+
+# 强制重建索引
+contextatlas index /path/to/repo --force
+```
+
+### API 限流
+
+**症状**：Embedding 请求返回 429 错误
+
+**解决**：
+```bash
+# 降低并发和批次大小
+EMBEDDINGS_MAX_CONCURRENCY=5
+EMBEDDINGS_BATCH_SIZE=10
+EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS=500
+```
+
+### MCP 工具未出现
+
+**症状**：AI 助手中看不到 ContextAtlas 工具
+
+**排查**：
+1. 确认 `contextatlas mcp` 能正常启动（手动运行测试）
+2. 检查 MCP 配置文件路径是否正确
+3. 重启 AI 助手应用
+4. 查看 MCP 日志输出
+
+### 搜索结果为空
+
+**排查**：
+```bash
+# 确认索引已建立
+contextatlas usage:index-report
+
+# 检查项目是否已索引
+ls ~/.contextatlas/
+
+# 重新索引
+contextatlas index /path/to/repo --force
+contextatlas daemon once
+```

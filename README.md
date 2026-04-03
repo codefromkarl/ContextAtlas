@@ -17,53 +17,17 @@
 - 用**长期记忆**保存无法从代码稳定推导的协作规则和用户偏好
 - 用**异步索引**和**检索遥测**让系统可观测、可优化
 
-## 架构设计
+## 总体思路
+
+### 架构设计
 
 <p align="center">
   <img src="架构图.png" alt="ContextAtlas 架构设计图" width="800" />
 </p>
 
-## 快速开始
+### 核心概念
 
-### 安装
-
-```bash
-npm install -g @codefromkarl/context-atlas
-```
-
-### 初始化
-
-```bash
-contextatlas init
-```
-
-生成配置文件 `~/.contextatlas/.env`，填入 Embedding 和 Rerank API 密钥：
-
-```bash
-EMBEDDINGS_API_KEY=your-api-key
-EMBEDDINGS_BASE_URL=https://api.siliconflow.cn/v1/embeddings
-EMBEDDINGS_MODEL=BAAI/bge-m3
-RERANK_API_KEY=your-api-key
-RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
-RERANK_MODEL=BAAI/bge-reranker-v2-m3
-```
-
-### 索引代码库
-
-```bash
-contextatlas index /path/to/repo
-contextatlas daemon start
-```
-
-### 搜索代码
-
-```bash
-cw search --information-request "用户认证流程是如何实现的？"
-```
-
-## 核心概念
-
-### 混合检索
+#### 混合检索
 
 检索链路：**向量召回 → FTS 词法召回 → RRF 融合 → Rerank 精排 → 上下文扩展 → Token 打包**
 
@@ -74,9 +38,9 @@ cw search --information-request "用户认证流程是如何实现的？"
 - **GraphExpander**：三阶段上下文扩展（邻居 / 面包屑 / 导入解析）
 - **ContextPacker**：在 token 预算内保留最有价值的上下文
 
-### 项目记忆
+#### 项目记忆
 
-项目记忆的主存储是 `~/.contextatlas/memory-hub.db`（SQLite），包含三类信息：
+主存储是 `~/.contextatlas/memory-hub.db`（SQLite），包含三类信息：
 
 | 类型 | 内容 |
 |------|------|
@@ -86,11 +50,11 @@ cw search --information-request "用户认证流程是如何实现的？"
 
 记忆路由采用渐进式加载：`Catalog（路由索引）→ Global（全局约定）→ Feature（按需加载）`。
 
-### 长期记忆
+#### 长期记忆
 
 只保存**无法从仓库稳定推导**的信息：用户偏好、协作规则、项目级非代码状态、外部参考链接。支持过期、核验和 stale 清理。
 
-### 跨项目 Hub
+#### 跨项目 Hub
 
 在多个项目间共享和复用模块知识：
 
@@ -99,7 +63,7 @@ cw search --information-request "用户认证流程是如何实现的？"
 - 关系图谱（depends_on / extends / references / implements）
 - 递归依赖链分析
 
-## 架构概览
+### 架构概览
 
 ```mermaid
 flowchart TB
@@ -166,6 +130,50 @@ src/
 ├── storage/              # 快照布局与原子切换
 ├── usage/                # 使用追踪与索引优化
 └── utils/                # 日志与通用工具
+```
+
+## 部署与使用
+
+### 安装
+
+```bash
+npm install -g @codefromkarl/context-atlas
+```
+
+### 初始化
+
+```bash
+contextatlas init
+```
+
+生成配置文件 `~/.contextatlas/.env`，填入 Embedding 和 Rerank API 密钥：
+
+```bash
+EMBEDDINGS_API_KEY=your-api-key
+EMBEDDINGS_BASE_URL=https://api.siliconflow.cn/v1/embeddings
+EMBEDDINGS_MODEL=BAAI/bge-m3
+RERANK_API_KEY=your-api-key
+RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
+RERANK_MODEL=BAAI/bge-reranker-v2-m3
+```
+
+### 索引代码库
+
+```bash
+contextatlas index /path/to/repo
+contextatlas daemon start
+```
+
+### 搜索代码
+
+```bash
+cw search --information-request "用户认证流程是如何实现的？"
+```
+
+### 启动 MCP 服务器
+
+```bash
+contextatlas mcp
 ```
 
 ## 观测与优化

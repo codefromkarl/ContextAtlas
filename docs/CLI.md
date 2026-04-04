@@ -83,6 +83,21 @@ contextatlas usage:index-report
 contextatlas usage:index-report --json
 contextatlas usage:index-report --days 7
 contextatlas usage:index-report --days 7 --project-id <projectId>
+
+# 索引健康度
+contextatlas health:check
+contextatlas health:check --json
+contextatlas health:check --project-id <projectId>
+
+# 告警评估
+contextatlas alert:eval
+contextatlas alert:eval --json
+
+# 告警配置
+contextatlas alert:config --list
+contextatlas alert:config --enable <rule-id>
+contextatlas alert:config --disable <rule-id>
+contextatlas alert:config --reset
 ```
 
 ## MCP 服务器

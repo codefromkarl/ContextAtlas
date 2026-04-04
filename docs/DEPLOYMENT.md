@@ -341,6 +341,12 @@ contextatlas monitor:retrieval --days 7
 
 # 查看索引优化建议
 contextatlas usage:index-report --days 7
+
+# 检查索引系统健康度
+contextatlas health:check
+
+# 评估告警
+contextatlas alert:eval
 ```
 
 ### 守护进程管理

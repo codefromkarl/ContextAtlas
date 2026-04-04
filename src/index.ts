@@ -301,6 +301,119 @@ cli
   });
 
 // ===========================================
+// Observability & Health CLI Commands
+// ===========================================
+
+cli
+  .command('health:check', '检查索引系统健康状态（队列/快照/守护进程）')
+  .option('--project-id <id>', '按项目 ID 过滤')
+  .option('--json', '以 JSON 输出报告')
+  .action(async (options: { projectId?: string; json?: boolean }) => {
+    const { analyzeIndexHealth, formatIndexHealthReport } = await import(
+      './monitoring/indexHealth.js'
+    );
+    try {
+      const report = analyzeIndexHealth({
+        projectIds: options.projectId ? [options.projectId] : undefined,
+      });
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`${formatIndexHealthReport(report)}\n`);
+    } catch (err) {
+      const error = err as Error;
+      logger.error({ error: error.message }, '生成健康报告失败');
+      process.exit(1);
+    }
+  });
+
+cli
+  .command('alert:eval', '评估当前指标并触发告警')
+  .option('--json', '以 JSON 输出')
+  .action(async (options: { json?: boolean }) => {
+    const { analyzeIndexHealth } = await import('./monitoring/indexHealth.js');
+    const { evaluateAlerts, formatAlertReport } = await import('./monitoring/alertEngine.js');
+    try {
+      const health = analyzeIndexHealth();
+      const result = evaluateAlerts(health as unknown as Record<string, unknown>);
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`${formatAlertReport(result)}\n`);
+    } catch (err) {
+      const error = err as Error;
+      logger.error({ error: error.message }, '告警评估失败');
+      process.exit(1);
+    }
+  });
+
+cli
+  .command('alert:config', '管理告警规则配置')
+  .option('--list', '列出所有告警规则')
+  .option('--enable <id>', '启用指定规则')
+  .option('--disable <id>', '禁用指定规则')
+  .option('--reset', '重置为默认配置')
+  .action(
+    async (options: { list?: boolean; enable?: string; disable?: string; reset?: boolean }) => {
+      const { loadAlertConfig, saveAlertConfig } = await import('./monitoring/alertEngine.js');
+      try {
+        if (options.reset) {
+          const {
+            loadAlertConfig: _lc,
+            saveAlertConfig: save,
+            defaultConfig,
+          } = await import('./monitoring/alertEngine.js');
+          save(defaultConfig());
+          process.stdout.write('Alert config reset to defaults.\n');
+          return;
+        }
+
+        const config = loadAlertConfig();
+
+        if (options.enable) {
+          const rule = config.rules.find((r) => r.id === options.enable);
+          if (rule) {
+            rule.enabled = true;
+            saveAlertConfig(config);
+            process.stdout.write(`Rule "${rule.name}" enabled.\n`);
+          } else {
+            process.stderr.write(`Rule not found: ${options.enable}\n`);
+            process.exit(1);
+          }
+          return;
+        }
+
+        if (options.disable) {
+          const rule = config.rules.find((r) => r.id === options.disable);
+          if (rule) {
+            rule.enabled = false;
+            saveAlertConfig(config);
+            process.stdout.write(`Rule "${rule.name}" disabled.\n`);
+          } else {
+            process.stderr.write(`Rule not found: ${options.disable}\n`);
+            process.exit(1);
+          }
+          return;
+        }
+
+        process.stdout.write('Alert Rules:\n');
+        for (const rule of config.rules) {
+          const status = rule.enabled ? '✅' : '❌';
+          process.stdout.write(
+            `  ${status} ${rule.id}: ${rule.name} (${rule.metric} ${rule.operator} ${rule.threshold}) [${rule.severity}]\n`,
+          );
+        }
+      } catch (err) {
+        const error = err as Error;
+        logger.error({ error: error.message }, '告警配置管理失败');
+        process.exit(1);
+      }
+    },
+  );
+
+// ===========================================
 // Project Memory CLI Commands
 // ===========================================
 

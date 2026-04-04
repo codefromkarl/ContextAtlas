@@ -89,9 +89,13 @@ class McpStdIoClient {
   }
 
   async close(): Promise<void> {
-    this.proc.kill('SIGTERM');
+    if (this.proc.exitCode !== null || this.proc.killed) {
+      return;
+    }
+
     await new Promise<void>((resolve) => {
-      this.proc.on('exit', () => resolve());
+      this.proc.once('exit', () => resolve());
+      this.proc.kill('SIGTERM');
     });
   }
 }
@@ -107,7 +111,7 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     const toolNames = tools.result.tools.map((tool: { name: string }) => tool.name);
     assert.ok(toolNames.includes('find_memory'));
     assert.ok(toolNames.includes('maintain_memory_catalog'));
-    assert.ok(toolNames.includes('prune_long_term_memories'));
+    assert.ok(toolNames.includes('manage_long_term_memory'));
 
     await client.call(3, 'tools/call', {
       name: 'record_memory',
@@ -195,20 +199,52 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     });
 
     const longTermList = await client.call(12, 'tools/call', {
-      name: 'list_long_term_memories',
-      arguments: { types: ['reference'], format: 'json' },
+      name: 'manage_long_term_memory',
+      arguments: { action: 'list', types: ['reference'], format: 'json' },
     });
     const longTermListPayload = JSON.parse(longTermList.result.content[0].text);
-    assert.equal(longTermListPayload.tool, 'list_long_term_memories');
-    assert.equal(longTermListPayload.result_count, 0);
+    assert.equal(longTermListPayload.tool, 'manage_long_term_memory');
+    assert.equal(longTermListPayload.action, 'list');
+    assert.equal(longTermListPayload.result_count, 1);
 
     const pruned = await client.call(13, 'tools/call', {
-      name: 'prune_long_term_memories',
-      arguments: { types: ['reference'], dryRun: false, format: 'json' },
+      name: 'manage_long_term_memory',
+      arguments: {
+        action: 'prune',
+        types: ['reference'],
+        includeExpired: true,
+        dryRun: false,
+        format: 'json',
+      },
     });
     const prunedPayload = JSON.parse(pruned.result.content[0].text);
-    assert.equal(prunedPayload.tool, 'prune_long_term_memories');
+    assert.equal(prunedPayload.tool, 'manage_long_term_memory');
+    assert.equal(prunedPayload.action, 'prune');
     assert.equal(prunedPayload.pruned_count, 1);
+  } finally {
+    await client.close();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('MCP stdio returns structured tool errors for invalid arguments', async () => {
+  const { baseDir, projectDir, homeDir } = createTempEnv();
+  const client = new McpStdIoClient(projectDir, homeDir);
+
+  try {
+    await client.initialize();
+
+    const invalid = await client.call(20, 'tools/call', {
+      name: 'find_memory',
+      arguments: { query: 'ContextAtlas', format: 'markdown' },
+    });
+
+    assert.ok(invalid.result);
+    assert.equal(invalid.result.isError, true);
+    assert.equal(invalid.result.content[0].type, 'text');
+    assert.match(invalid.result.content[0].text, /Invalid arguments for find_memory/);
+    assert.match(invalid.result.content[0].text, /text/);
+    assert.match(invalid.result.content[0].text, /json/);
   } finally {
     await client.close();
     fs.rmSync(baseDir, { recursive: true, force: true });
@@ -239,11 +275,12 @@ test('MCP stdio exposes JSON-enabled hub tools with parseable payloads', async (
     });
 
     const projects = await client.call(3, 'tools/call', {
-      name: 'list_projects',
-      arguments: { format: 'json' },
+      name: 'manage_projects',
+      arguments: { action: 'list', format: 'json' },
     });
     const projectsPayload = JSON.parse(projects.result.content[0].text);
-    assert.equal(projectsPayload.tool, 'list_projects');
+    assert.equal(projectsPayload.tool, 'manage_projects');
+    assert.equal(projectsPayload.action, 'list');
     assert.equal(projectsPayload.result_count, 1);
     const projectId = projectsPayload.projects[0].id;
 
@@ -277,11 +314,12 @@ test('MCP stdio exposes JSON-enabled hub tools with parseable payloads', async (
     assert.equal(ftsPayload.result_count, 1);
 
     const stats = await client.call(7, 'tools/call', {
-      name: 'get_memory_stats',
-      arguments: { format: 'json' },
+      name: 'manage_projects',
+      arguments: { action: 'stats', format: 'json' },
     });
     const statsPayload = JSON.parse(stats.result.content[0].text);
-    assert.equal(statsPayload.tool, 'get_memory_stats');
+    assert.equal(statsPayload.tool, 'manage_projects');
+    assert.equal(statsPayload.action, 'stats');
     assert.ok(statsPayload.stats);
   } finally {
     await client.close();

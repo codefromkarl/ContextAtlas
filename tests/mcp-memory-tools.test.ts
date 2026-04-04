@@ -6,7 +6,7 @@ import test from 'node:test';
 import { deriveStableProjectId } from '../src/db/index.ts';
 import { handleListMemoryCatalog } from '../src/mcp/tools/listMemoryCatalog.ts';
 import { handleLoadModuleMemory } from '../src/mcp/tools/loadModuleMemory.ts';
-import { handleRegisterProject } from '../src/mcp/tools/memoryHub.ts';
+import { handleManageProjects } from '../src/mcp/tools/memoryHub.ts';
 import { handleRecordMemory } from '../src/mcp/tools/projectMemory.ts';
 import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
 import { MemoryStore } from '../src/memory/MemoryStore.ts';
@@ -55,9 +55,11 @@ test('register_project derives project identity from normalized path', async () 
     process.env.HOME = path.dirname(dbPath);
 
     try {
-      const response = await handleRegisterProject({
+      const response = await handleManageProjects({
+        action: 'register',
         name: 'ContextAtlas',
         path: `${projectRoot}/`,
+        format: 'text',
       });
 
       assert.match(response.content[0].text, /Project Registered/);

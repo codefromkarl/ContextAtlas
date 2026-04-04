@@ -7,7 +7,14 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ZodError } from 'zod';
 import { logger } from '../utils/logger.js';
+import {
+  createInternalErrorResponse,
+  createInvalidArgumentsResponse,
+  validateToolTextResponse,
+  type ToolTextResponse,
+} from './response.js';
 import {
   codebaseRetrievalSchema,
   deleteMemorySchema,
@@ -882,12 +889,7 @@ export async function startMcpServer(): Promise<void> {
       : undefined;
 
     try {
-      let result:
-        | {
-            content: Array<{ type: 'text'; text: string }>;
-            isError?: boolean;
-          }
-        | undefined;
+      let result: ToolTextResponse | undefined;
       switch (name) {
         case 'codebase-retrieval': {
           const parsed = codebaseRetrievalSchema.parse(args);
@@ -981,104 +983,16 @@ export async function startMcpServer(): Promise<void> {
         throw new Error(`Tool ${name} returned no result`);
       }
       await recordGenericToolUsage('success');
-      return result;
+      return validateToolTextResponse(result);
     } catch (err) {
       const error = err as { message?: string; stack?: string };
       await recordGenericToolUsage('error', error.message);
       logger.error({ error: error.message, stack: error.stack, tool: name }, '工具调用失败');
-      return {
-        content: [
-          {
-            name: 'record_long_term_memory',
-            description: `
-Record long-term memory that cannot be re-derived from the repository.
+      if (err instanceof ZodError) {
+        return createInvalidArgumentsResponse(name, err);
+      }
 
-Use this for:
-- user preferences and background
-- feedback about how the agent should behave
-- non-code project state
-- external references such as dashboards or docs
-`,
-            inputSchema: {
-              type: 'object',
-              properties: {
-                type: {
-                  type: 'string',
-                  enum: ['user', 'feedback', 'project-state', 'reference'],
-                  description: 'Long-term memory type',
-                },
-                title: {
-                  type: 'string',
-                  description: 'Memory title',
-                },
-                summary: {
-                  type: 'string',
-                  description: 'Core summary',
-                },
-                why: {
-                  type: 'string',
-                  description: 'Why this memory matters',
-                },
-                howToApply: {
-                  type: 'string',
-                  description: 'How to apply this memory later',
-                },
-                tags: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Tags',
-                },
-                scope: {
-                  type: 'string',
-                  enum: ['project', 'global-user'],
-                  description: 'Memory scope',
-                  default: 'project',
-                },
-                source: {
-                  type: 'string',
-                  enum: ['user-explicit', 'agent-inferred', 'tool-result'],
-                  description: 'Memory source',
-                  default: 'user-explicit',
-                },
-                confidence: {
-                  type: 'number',
-                  description: 'Confidence score',
-                  default: 1,
-                },
-                links: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'External links',
-                },
-                validFrom: {
-                  type: 'string',
-                  description: 'Effective date in ISO format',
-                },
-                validUntil: {
-                  type: 'string',
-                  description: 'Expiry/deadline in ISO format',
-                },
-                lastVerifiedAt: {
-                  type: 'string',
-                  description: 'Last verification date in ISO format',
-                },
-                format: {
-                  type: 'string',
-                  enum: ['text', 'json'],
-                  description: 'Response format',
-                  default: 'text',
-                },
-              },
-              required: ['type', 'title', 'summary'],
-            },
-          },
-          {
-            type: 'text',
-            text: `Error: ${error.message}`,
-          },
-        ],
-        isError: true,
-      };
+      return createInternalErrorResponse(name, error.message || 'Unknown error');
     }
   });
 

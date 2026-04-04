@@ -5,9 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { handleSessionEnd } from '../src/mcp/tools/autoRecord.ts';
 import {
-  handleDeleteLongTermMemory,
-  handleFindLongTermMemory,
-  handleListLongTermMemories,
+  handleManageLongTermMemory,
   handleRecordLongTermMemory,
 } from '../src/mcp/tools/longTermMemory.ts';
 import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
@@ -55,8 +53,9 @@ test('long-term memory tools can record, find, list, and delete project-scoped m
     assert.equal(recordPayload.tool, 'record_long_term_memory');
     assert.equal(recordPayload.memory.type, 'feedback');
 
-    const findResponse = await handleFindLongTermMemory(
+    const findResponse = await handleManageLongTermMemory(
       {
+        action: 'find',
         query: 'lint',
         types: ['feedback'],
         format: 'json',
@@ -64,36 +63,42 @@ test('long-term memory tools can record, find, list, and delete project-scoped m
       projectRoot,
     );
     const findPayload = JSON.parse(findResponse.content[0].text);
-    assert.equal(findPayload.tool, 'find_long_term_memory');
+    assert.equal(findPayload.tool, 'manage_long_term_memory');
+    assert.equal(findPayload.action, 'find');
     assert.equal(findPayload.result_count, 1);
     assert.equal(findPayload.results[0].title, '提交前先跑 lint');
 
-    const listResponse = await handleListLongTermMemories(
+    const listResponse = await handleManageLongTermMemory(
       {
+        action: 'list',
         types: ['feedback'],
         format: 'json',
       },
       projectRoot,
     );
     const listPayload = JSON.parse(listResponse.content[0].text);
-    assert.equal(listPayload.tool, 'list_long_term_memories');
+    assert.equal(listPayload.tool, 'manage_long_term_memory');
+    assert.equal(listPayload.action, 'list');
     assert.equal(listPayload.result_count, 1);
 
-    const deleteResponse = await handleDeleteLongTermMemory(
+    const deleteResponse = await handleManageLongTermMemory(
       {
+        action: 'delete',
         id: recordPayload.memory.id,
-        type: 'feedback',
+        types: ['feedback'],
         scope: 'project',
         format: 'json',
       },
       projectRoot,
     );
     const deletePayload = JSON.parse(deleteResponse.content[0].text);
-    assert.equal(deletePayload.tool, 'delete_long_term_memory');
+    assert.equal(deletePayload.tool, 'manage_long_term_memory');
+    assert.equal(deletePayload.action, 'delete');
     assert.equal(deletePayload.status, 'deleted');
 
-    const afterDeleteResponse = await handleFindLongTermMemory(
+    const afterDeleteResponse = await handleManageLongTermMemory(
       {
+        action: 'find',
         query: 'lint',
         types: ['feedback'],
         format: 'json',
@@ -124,8 +129,9 @@ test('global-user long-term memories are visible across projects in the same hub
       projectA,
     );
 
-    const response = await handleFindLongTermMemory(
+    const response = await handleManageLongTermMemory(
       {
+        action: 'find',
         query: '简短',
         types: ['user'],
         scope: 'global-user',
@@ -206,8 +212,9 @@ test('expired long-term memories are excluded by default and returned with statu
       projectRoot,
     );
 
-    const defaultFindResponse = await handleFindLongTermMemory(
+    const defaultFindResponse = await handleManageLongTermMemory(
       {
+        action: 'find',
         query: 'dashboard',
         types: ['reference'],
         format: 'json',
@@ -219,8 +226,9 @@ test('expired long-term memories are excluded by default and returned with statu
     assert.equal(defaultFindPayload.results[0].title, '当前 Grafana 仪表盘');
     assert.equal(defaultFindPayload.results[0].status, 'active');
 
-    const includeExpiredResponse = await handleFindLongTermMemory(
+    const includeExpiredResponse = await handleManageLongTermMemory(
       {
+        action: 'find',
         query: 'dashboard',
         types: ['reference'],
         includeExpired: true,
@@ -271,8 +279,9 @@ test('stale long-term memories can be listed with status and pruned in batch', a
       projectRoot,
     );
 
-    const listResponse = await handleListLongTermMemories(
+    const listResponse = await handleManageLongTermMemory(
       {
+        action: 'list',
         types: ['feedback'],
         includeExpired: true,
         format: 'json',
@@ -288,11 +297,9 @@ test('stale long-term memories can be listed with status and pruned in batch', a
       ),
     );
 
-    const longTermMemoryModule = await import('../src/mcp/tools/longTermMemory.ts');
-    assert.equal(typeof longTermMemoryModule.handlePruneLongTermMemories, 'function');
-
-    const pruneResponse = await longTermMemoryModule.handlePruneLongTermMemories(
+    const pruneResponse = await handleManageLongTermMemory(
       {
+        action: 'prune',
         types: ['feedback'],
         scope: 'project',
         includeStale: true,
@@ -303,12 +310,14 @@ test('stale long-term memories can be listed with status and pruned in batch', a
       projectRoot,
     );
     const prunePayload = JSON.parse(pruneResponse.content[0].text);
-    assert.equal(prunePayload.tool, 'prune_long_term_memories');
+    assert.equal(prunePayload.tool, 'manage_long_term_memory');
+    assert.equal(prunePayload.action, 'prune');
     assert.equal(prunePayload.pruned_count, 1);
     assert.deepEqual(prunePayload.pruned_ids, [staleRecordPayload.memory.id]);
 
-    const afterPruneResponse = await handleListLongTermMemories(
+    const afterPruneResponse = await handleManageLongTermMemory(
       {
+        action: 'list',
         types: ['feedback'],
         includeExpired: true,
         format: 'json',

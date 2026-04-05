@@ -20,6 +20,9 @@ export const DEFAULT_CONFIG: SearchConfig = {
 
   // Rerank
   rerankTopN: 10,
+  rerankMinPool: 12,
+  rerankMaxPool: 24,
+  rerankPoolScoreRatio: 0.6,
   maxRerankChars: 1000,
   maxBreadcrumbChars: 250,
   headRatio: 0.67,

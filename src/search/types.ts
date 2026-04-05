@@ -26,6 +26,9 @@ export interface SearchConfig {
 
   // Rerank
   rerankTopN: number;
+  rerankMinPool: number;
+  rerankMaxPool: number;
+  rerankPoolScoreRatio: number;
   maxRerankChars: number;
   maxBreadcrumbChars: number;
   headRatio: number;
@@ -130,6 +133,7 @@ export interface RetrievalStats {
   lexicalCount: number;
   fusedCount: number;
   topMCount: number;
+  rerankInputCount: number;
   rerankedCount: number;
 }
 

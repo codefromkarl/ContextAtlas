@@ -17,7 +17,7 @@ const codebaseRetrievalModule = await import(findDistModule('codebaseRetrieval-'
 const searchServiceModule = await import(findDistModule('SearchService-'));
 
 const { buildRetrievalTelemetry, createRetrievalProgressReporter } = codebaseRetrievalModule;
-const { initializeSearchDependencies } = searchServiceModule;
+const { initializeSearchDependencies, selectRerankPoolCandidates } = searchServiceModule;
 
 test('initializeSearchDependencies 并行初始化检索依赖', async () => {
   const events: string[] = [];
@@ -144,6 +144,7 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
           lexicalCount: 5,
           fusedCount: 14,
           topMCount: 10,
+          rerankInputCount: 14,
           rerankedCount: 6,
         },
         resultStats: {
@@ -181,6 +182,7 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
     lexicalCount: 5,
     fusedCount: 14,
     topMCount: 10,
+    rerankInputCount: 14,
     rerankedCount: 6,
   });
   assert.deepEqual(telemetry.resultStats, {
@@ -199,4 +201,122 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
     billedSearchUnits: 3,
     inputTokens: 42,
   });
+});
+
+test('selectRerankPoolCandidates 在候选较少时保持原样', () => {
+  const candidates = [1, 0.92, 0.81, 0.7].map((score, index) => ({
+    filePath: `src/f${index}.ts`,
+    chunkIndex: index,
+    score,
+    source: 'vector' as const,
+    record: {
+      chunk_id: `src/f${index}.ts#hash#${index}`,
+      file_path: `src/f${index}.ts`,
+      file_hash: 'hash',
+      chunk_index: index,
+      vector: [],
+      display_code: '',
+      vector_text: '',
+      language: 'typescript',
+      breadcrumb: `B${index}`,
+      start_index: 0,
+      end_index: 1,
+      raw_start: 0,
+      raw_end: 1,
+      vec_start: 0,
+      vec_end: 1,
+      _distance: 0,
+    },
+  }));
+
+  const selected = selectRerankPoolCandidates(candidates, {
+    rerankTopN: 10,
+    rerankMinPool: 12,
+    rerankMaxPool: 24,
+    rerankPoolScoreRatio: 0.6,
+  });
+
+  assert.equal(selected.length, candidates.length);
+  assert.deepEqual(selected.map((c: { chunkIndex: number }) => c.chunkIndex), [0, 1, 2, 3]);
+});
+
+test('selectRerankPoolCandidates 在分数陡降时收缩 rerank 池', () => {
+  const scores = [1, 0.95, 0.91, 0.88, 0.84, 0.8, 0.76, 0.72, 0.69, 0.65, 0.61, 0.58, 0.31, 0.29, 0.26];
+  const candidates = scores.map((score, index) => ({
+    filePath: `src/f${index}.ts`,
+    chunkIndex: index,
+    score,
+    source: 'vector' as const,
+    record: {
+      chunk_id: `src/f${index}.ts#hash#${index}`,
+      file_path: `src/f${index}.ts`,
+      file_hash: 'hash',
+      chunk_index: index,
+      vector: [],
+      display_code: '',
+      vector_text: '',
+      language: 'typescript',
+      breadcrumb: `B${index}`,
+      start_index: 0,
+      end_index: 1,
+      raw_start: 0,
+      raw_end: 1,
+      vec_start: 0,
+      vec_end: 1,
+      _distance: 0,
+    },
+  }));
+
+  const selected = selectRerankPoolCandidates(candidates, {
+    rerankTopN: 10,
+    rerankMinPool: 12,
+    rerankMaxPool: 24,
+    rerankPoolScoreRatio: 0.6,
+  });
+
+  assert.equal(selected.length, 12);
+  assert.deepEqual(
+    selected.map((c: { chunkIndex: number }) => c.chunkIndex),
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  );
+});
+
+test('selectRerankPoolCandidates 在分数平缓时受 maxPool 限制', () => {
+  const candidates = Array.from({ length: 40 }, (_, index) => ({
+    filePath: `src/f${index}.ts`,
+    chunkIndex: index,
+    score: 1 - index * 0.01,
+    source: 'vector' as const,
+    record: {
+      chunk_id: `src/f${index}.ts#hash#${index}`,
+      file_path: `src/f${index}.ts`,
+      file_hash: 'hash',
+      chunk_index: index,
+      vector: [],
+      display_code: '',
+      vector_text: '',
+      language: 'typescript',
+      breadcrumb: `B${index}`,
+      start_index: 0,
+      end_index: 1,
+      raw_start: 0,
+      raw_end: 1,
+      vec_start: 0,
+      vec_end: 1,
+      _distance: 0,
+    },
+  }));
+
+  const selected = selectRerankPoolCandidates(candidates, {
+    rerankTopN: 10,
+    rerankMinPool: 12,
+    rerankMaxPool: 24,
+    rerankPoolScoreRatio: 0.6,
+  });
+
+  assert.equal(selected.length, 24);
+  assert.deepEqual(
+    selected.map((c: { chunkIndex: number }) => c.chunkIndex),
+    Array.from({ length: 24 }, (_, index) => index),
+  );
 });

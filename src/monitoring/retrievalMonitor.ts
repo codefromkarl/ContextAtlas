@@ -18,6 +18,7 @@ export interface RetrievalLogRecord {
     lexicalCount?: number;
     fusedCount?: number;
     topMCount?: number;
+    rerankInputCount?: number;
     rerankedCount?: number;
   };
   resultStats?: {

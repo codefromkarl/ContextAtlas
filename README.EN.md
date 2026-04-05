@@ -1,4 +1,4 @@
-# ContextAtlas
+<h1 align="center">ContextAtlas</h1>
 
 <p align="center">
   <strong>Stable, reusable, and observable code context infrastructure for AI agents</strong>
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="./docs/architecture.png" alt="ContextAtlas architecture" width="900" />
+  <img src="./docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
 ## Contents

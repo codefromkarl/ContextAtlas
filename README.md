@@ -1,4 +1,4 @@
-# ContextAtlas
+<h1 align="center">ContextAtlas</h1>
 
 <p align="center">
   <strong>为 AI Agent 提供稳定、可复用、可观测的代码上下文基础设施</strong>
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="./docs/architecture.png" alt="ContextAtlas architecture" width="900" />
+  <img src="./docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
 ## 目录

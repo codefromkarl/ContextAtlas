@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="./docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
+  <img src="https://raw.githubusercontent.com/codefromkarl/ContextAtlas/main/docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
 ## Contents

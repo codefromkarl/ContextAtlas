@@ -1,7 +1,7 @@
 # ContextAtlas
 
 <p align="center">
-  <strong>Code retrieval, project memory, and context infrastructure for AI agents</strong>
+  <strong>为 AI Agent 设计的代码检索、项目记忆与上下文基础设施</strong>
 </p>
 
 <p align="center">
@@ -9,86 +9,86 @@
 </p>
 
 <p align="center">
-  <a href="./README.zh-CN.md">简体中文</a>
+  <a href="./README.EN.md">English</a>
 </p>
 
 ---
 
-**ContextAtlas** is a context infrastructure toolkit for AI coding assistants:
+**ContextAtlas** 是一套面向 Harness Engineering的上下文基础设施：
 
-- Use **hybrid retrieval** (vector + lexical + rerank) to find the right code
-- Use **project memory** and a **cross-project hub** to shorten repository understanding time
-- Use **long-term memory** to preserve collaboration rules and user preferences that cannot be inferred reliably from code
-- Use **async indexing** and **retrieval telemetry** to make the system observable and optimizable
+- 用 **混合检索**（向量 + 词法 + Rerank）找到正确代码
+- 用 **项目记忆** 和 **跨项目 Hub** 缩短 AI 理解代码的路径
+- 用 **长期记忆** 保存无法从代码稳定推导的协作规则和用户偏好
+- 用 **异步索引** 和 **检索遥测** 让系统可观测、可优化
 
-## Contents
+## 目录
 
-- [Overview](#overview)
-  - [Architecture Design](#architecture-design)
-  - [Core Concepts](#core-concepts)
-    - [Hybrid Retrieval](#hybrid-retrieval)
-    - [Project Memory](#project-memory)
-    - [Long-term Memory](#long-term-memory)
-    - [Cross-project Hub](#cross-project-hub)
-  - [Architecture Overview](#architecture-overview)
-  - [Project Structure](#project-structure)
-- [Deployment and Usage](#deployment-and-usage)
-  - [Quick Start](#quick-start)
-  - [Use from Agent Skills](#use-from-agent-skills)
-  - [Use as an MCP Server](#use-as-an-mcp-server)
-- [Observability and Optimization](#observability-and-optimization)
-- [Further Reading](#further-reading)
-- [Development](#development)
+- [总体思路](#总体思路)
+  - [架构设计](#架构设计)
+  - [核心概念](#核心概念)
+    - [混合检索](#混合检索)
+    - [项目记忆](#项目记忆)
+    - [长期记忆](#长期记忆)
+    - [跨项目 Hub](#跨项目-hub)
+  - [架构概览](#架构概览)
+  - [项目结构](#项目结构)
+- [部署与使用](#部署与使用)
+  - [快速开始](#快速开始)
+  - [作为 Skills 工作流使用](#作为-skills-工作流使用)
+  - [作为 MCP 服务器使用](#作为-mcp-服务器使用)
+- [观测与优化](#观测与优化)
+- [进一步阅读](#进一步阅读)
+- [开发](#开发)
 
 ---
 
-## Overview
+## 总体思路
 
-### Architecture Design
+### 架构设计
 
 <p align="center">
-  <img src="架构图.png" alt="ContextAtlas architecture diagram" width="800" />
+  <img src="架构图.png" alt="ContextAtlas 架构设计图" width="800" />
 </p>
 
-### Core Concepts
+### 核心概念
 
-#### Hybrid Retrieval
+#### 混合检索
 
-Retrieval pipeline: **vector recall → FTS lexical recall → RRF fusion → rerank → context expansion → token packing**
+检索链路：**向量召回 → FTS 词法召回 → RRF 融合 → Rerank 精排 → 上下文扩展 → Token 打包**
 
-- **Semantic**: understands what the code is doing
-- **Lexical / FTS**: precisely matches class names, function names, and constants
-- **RRF Fusion**: merges multiple recall channels
-- **Rerank**: refines candidate ordering
-- **GraphExpander**: three-stage context expansion (neighbors / breadcrumbs / import resolution)
-- **ContextPacker**: keeps the highest-value context within the token budget
+- **Semantic**：理解“这段代码在做什么”
+- **Lexical / FTS**：精确匹配类名、函数名、常量
+- **RRF Fusion**：合并多路召回
+- **Rerank**：对候选结果精排
+- **GraphExpander**：三阶段上下文扩展（邻居 / 面包屑 / 导入解析）
+- **ContextPacker**：在 token 预算内保留最有价值的上下文
 
-#### Project Memory
+#### 项目记忆
 
-The primary store is `~/.contextatlas/memory-hub.db` (SQLite), which contains three categories of information:
+主存储是 `~/.contextatlas/memory-hub.db`（SQLite），包含三类信息：
 
-| Type | Content |
-|------|---------|
-| **Feature Memory** | Module responsibilities, files, exports, dependencies, and data flow |
-| **Decision Record** | Architecture decisions, alternatives, rationale, and impact |
-| **Project Profile** | Tech stack, structure, conventions, and hot paths |
+| 类型 | 内容 |
+|------|------|
+| **Feature Memory** | 模块职责、文件、导出、依赖、数据流 |
+| **Decision Record** | 架构决策、替代方案、理由和影响 |
+| **Project Profile** | 技术栈、结构、约定、热路径 |
 
-Memory routing uses progressive loading: `Catalog (routing index) → Global (shared conventions) → Feature (loaded on demand)`.
+记忆路由采用渐进式加载：`Catalog（路由索引）→ Global（全局约定）→ Feature（按需加载）`。
 
-#### Long-term Memory
+#### 长期记忆
 
-Stores only information that cannot be derived reliably from the repository: user preferences, collaboration rules, project-level non-code state, and external reference links. Supports expiry, verification, and stale cleanup.
+只保存 **无法从仓库稳定推导** 的信息：用户偏好、协作规则、项目级非代码状态、外部参考链接。支持过期、核验和 stale 清理。
 
-#### Cross-project Hub
+#### 跨项目 Hub
 
-Share and reuse module knowledge across repositories:
+在多个项目间共享和复用模块知识：
 
-- Project registration and unified identity management
-- Cross-project feature memory search
-- Relationship graph (`depends_on` / `extends` / `references` / `implements`)
-- Recursive dependency chain analysis
+- 项目注册与统一身份管理
+- 跨项目 Feature Memory 搜索
+- 关系图谱（`depends_on` / `extends` / `references` / `implements`）
+- 递归依赖链分析
 
-### Architecture Overview
+### 架构概览
 
 ```mermaid
 flowchart TB
@@ -140,83 +140,83 @@ flowchart TB
     Indexing --> Search
 ```
 
-### Project Structure
+### 项目结构
 
 ```text
 src/
-├── api/                  # Embedding / rerank / Unicode safety
-├── chunking/             # Tree-sitter semantic chunking
+├── api/                  # Embedding / Rerank / Unicode 安全
+├── chunking/             # Tree-sitter 语义分片
 ├── db/                   # SQLite + FTS
-├── indexing/             # Index queue and daemon
-├── mcp/                  # MCP server and tools
-├── memory/               # Project memory / hub / long-term memory
-├── monitoring/           # Retrieval log analysis
+├── indexing/             # 索引队列与 daemon
+├── mcp/                  # MCP 服务端与工具
+├── memory/               # 项目记忆 / Hub / 长期记忆
+├── monitoring/           # Retrieval 日志分析
 ├── search/               # SearchService / GraphExpander / ContextPacker
-├── storage/              # Snapshot layout and atomic switch
-├── usage/                # Usage tracking and index optimization
-└── utils/                # Logging and shared utilities
+├── storage/              # 快照布局与原子切换
+├── usage/                # 使用追踪与索引优化
+└── utils/                # 日志与通用工具
 ```
 
-## Deployment and Usage
+## 部署与使用
 
-You can use ContextAtlas in two complementary ways:
+ContextAtlas 可以有两种互补的使用方式：
 
-1. **As a local CLI + skill backend** for agents that want search, indexing, and memory workflows inside prompts or skills
-2. **As an MCP server** for clients that consume tools over the Model Context Protocol
+1. **作为本地 CLI + Skills 后端**，供 agent 在技能、提示词或工作流里直接调用搜索、索引和记忆能力
+2. **作为 MCP 服务器**，供支持 Model Context Protocol 的客户端以工具方式接入
 
-For the full deployment guide, including five deployment scenarios, MCP integration, and prompt templates, see the [Deployment Guide](./docs/DEPLOYMENT.md).
+完整部署指南（含 5 种场景、MCP 集成、配套提示词）见 [部署手册](./docs/DEPLOYMENT.md)。
 
-### Quick Start
+### 快速开始
 
 ```bash
 npm install -g @codefromkarl/context-atlas
 contextatlas init
-# Edit ~/.contextatlas/.env and add your API keys
+# 编辑 ~/.contextatlas/.env，填入 API 密钥
 contextatlas index /path/to/repo
 contextatlas daemon start
-cw search --information-request "How is the authentication flow implemented?"
+cw search --information-request "用户认证流程是如何实现的？"
 ```
 
-### Use from Agent Skills
+### 作为 Skills 工作流使用
 
-ContextAtlas does not have to be exposed only through MCP. It can also be used as the backend for agent skills, internal workflows, or shell-based toolchains.
+ContextAtlas 不必只通过 MCP 暴露。它也可以作为 agent skills、内部工作流或 shell 工具链的后端能力。
 
-Typical skill-driven usage looks like this:
+典型的 skill 驱动用法如下：
 
-1. **Initialize once** with `contextatlas init`
-2. **Index the target repository** with `contextatlas index /path/to/repo`
-3. **Keep indexing warm** with `contextatlas daemon start` for incremental updates
-4. **Call the CLI from a skill or workflow** when the agent needs retrieval or memory operations
+1. 用 `contextatlas init` 完成一次初始化
+2. 用 `contextatlas index /path/to/repo` 索引目标代码库
+3. 用 `contextatlas daemon start` 保持增量索引常驻
+4. 在 skill、脚本或工作流中按需直接调用 CLI 完成检索或记忆操作
 
-Example commands a skill can invoke directly:
+Skills 可直接调用的命令示例：
 
 ```bash
-# Semantic / hybrid retrieval
-cw search --information-request "Where is the payment retry policy implemented?"
+# 语义 / 混合检索
+cw search --information-request "支付重试策略在哪里实现？"
 
-# Project memory and hub workflows
+# 项目记忆与 Hub 工作流
 contextatlas hub:find --query "authentication module"
 
-# Observability and health checks
+# 健康检查与观测
 contextatlas health:check
 contextatlas monitor:retrieval --days 7
 ```
 
-This pattern is useful when you want:
+这种模式适合以下场景：
 
-- tighter integration with custom agent skills or orchestration layers
-- prompt-controlled workflows instead of MCP tool registration
-- a simple GitHub-friendly setup that works in local terminals, CI, or agent wrappers
+- 需要与自定义 agent skills 或编排层紧密集成
+- 希望通过提示词和工作流控制调用，而不是注册 MCP 工具
+- 希望在本地终端、CI 或 agent wrapper 中采用更直接的 GitHub 友好接入方式
 
-### Use as an MCP Server
+### 作为 MCP 服务器使用
 
-Start the MCP server:
+启动 MCP 服务器：
 
 ```bash
 contextatlas mcp
 ```
 
-Claude Desktop configuration example (`claude_desktop_config.json`):
+Claude Desktop 配置示例（`claude_desktop_config.json`）：
 
 ```json
 {
@@ -229,35 +229,35 @@ Claude Desktop configuration example (`claude_desktop_config.json`):
 }
 ```
 
-> For detailed MCP integration, Cursor/Windsurf setup, and companion system prompt templates, see [Deployment Guide → Companion Prompts](./docs/DEPLOYMENT.md#配套提示词).
+> 详细的 MCP 集成配置、Cursor/Windsurf 适配、配套系统提示词模板，见 [部署手册 → 配套提示词](./docs/DEPLOYMENT.md#配套提示词)。
 
-## Observability and Optimization
+## 观测与优化
 
-`codebase-retrieval` includes telemetry for stage timings and retrieval statistics. The reporting commands help you spot:
+`codebase-retrieval` 内建遥测，记录各阶段耗时和检索统计。通过报告命令可发现：
 
-- whether cold start is too heavy
-- whether reranking has become the main cost center
-- whether packing budgets are frequently exhausted
-- whether latency or quality has regressed
+- 冷启动是否过重
+- Rerank 是否成为主要成本中心
+- 打包预算是否经常耗尽
+- 是否存在延迟或质量回归
 
 ```bash
 contextatlas monitor:retrieval --days 7
 contextatlas usage:index-report --days 7
-contextatlas health:check              # index health (queue / snapshots / daemon)
-contextatlas alert:eval                # threshold-based alert evaluation
+contextatlas health:check              # 索引健康度（队列 / 快照 / 守护进程）
+contextatlas alert:eval                # 阈值告警评估
 ```
 
-## Further Reading
+## 进一步阅读
 
-| Document | Description |
-|----------|-------------|
-| [Deployment Guide](./docs/DEPLOYMENT.md) | Five deployment scenarios, MCP integration, companion prompts, and operations |
-| [CLI Command Reference](./docs/CLI.md) | All CLI commands for retrieval, indexing, memory, hub, and monitoring |
-| [MCP Tool Reference](./docs/MCP.md) | Overview of 15 MCP tools, configuration, and call examples |
-| [Project Memory Deep Dive](./PROJECT_MEMORY.md) | Feature Memory, Decision Record, and catalog routing |
-| [Product Roadmap](./PRODUCT_EVOLUTION_ROADMAP.md) | Planned capabilities and evolution direction |
+| 文档 | 内容 |
+|------|------|
+| [部署手册](./docs/DEPLOYMENT.md) | 5 种部署场景、MCP 集成、配套提示词、运维监控 |
+| [CLI 命令参考](./docs/CLI.md) | 所有 CLI 命令：检索、索引、记忆、Hub、监控 |
+| [MCP 工具参考](./docs/MCP.md) | 15 个 MCP 工具总览、配置、调用示例 |
+| [项目记忆详解](./PROJECT_MEMORY.md) | Feature Memory、Decision Record、Catalog 路由 |
+| [产品路线图](./PRODUCT_EVOLUTION_ROADMAP.md) | 功能规划与演进方向 |
 
-## Development
+## 开发
 
 ```bash
 pnpm build

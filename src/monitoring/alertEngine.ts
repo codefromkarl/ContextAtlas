@@ -117,6 +117,46 @@ const DEFAULT_RULES: AlertRule[] = [
     message: '索引守护进程未运行',
     enabled: true,
   },
+  {
+    id: 'memory-high-stale-rate',
+    name: '长期记忆陈旧率过高',
+    metric: 'memory.staleRate',
+    operator: '>',
+    threshold: 0.3,
+    severity: 'warning',
+    message: '超过 30% 的长期记忆处于陈旧状态，需要核验或清理',
+    enabled: true,
+  },
+  {
+    id: 'memory-high-expired-rate',
+    name: '长期记忆过期率过高',
+    metric: 'memory.expiredRate',
+    operator: '>',
+    threshold: 0.1,
+    severity: 'critical',
+    message: '超过 10% 的长期记忆已过期，应尽快清理',
+    enabled: true,
+  },
+  {
+    id: 'memory-orphaned-features',
+    name: '功能记忆孤立路径',
+    metric: 'memory.orphanedRate',
+    operator: '>',
+    threshold: 0.2,
+    severity: 'warning',
+    message: '超过 20% 的功能记忆引用了不存在的文件路径',
+    enabled: true,
+  },
+  {
+    id: 'memory-catalog-inconsistent',
+    name: '记忆目录不一致',
+    metric: 'memory.catalogInconsistent',
+    operator: '==',
+    threshold: 1,
+    severity: 'warning',
+    message: '功能记忆与 catalog 索引不一致，需要重建',
+    enabled: true,
+  },
 ];
 
 export function defaultConfig(): AlertConfig {
@@ -215,6 +255,14 @@ function extractMetrics(healthReport: Record<string, unknown>): Record<string, n
       metrics['retrieval.noLexicalRate'] = Number(rates.noLexicalRate ?? 0);
       metrics['retrieval.noExpansionRate'] = Number(rates.noExpansionRate ?? 0);
     }
+  }
+
+  const memory = healthReport.memory as Record<string, unknown> | undefined;
+  if (memory) {
+    metrics['memory.staleRate'] = Number(memory.staleRate ?? 0);
+    metrics['memory.expiredRate'] = Number(memory.expiredRate ?? 0);
+    metrics['memory.orphanedRate'] = Number(memory.orphanedRate ?? 0);
+    metrics['memory.catalogInconsistent'] = memory.catalogInconsistent ? 1 : 0;
   }
 
   return metrics;

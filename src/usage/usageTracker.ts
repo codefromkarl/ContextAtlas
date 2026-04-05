@@ -214,6 +214,75 @@ export function listToolUsage(): ToolUsageRecord[] {
   }
 }
 
+export interface UsageDbStats {
+  toolUsageCount: number;
+  indexUsageCount: number;
+  oldestDay: string | null;
+  newestDay: string | null;
+}
+
+export interface UsagePurgeResult {
+  toolPurged: number;
+  indexPurged: number;
+  cutoffDay: string;
+}
+
+export function getUsageStats(): UsageDbStats {
+  const db = openUsageDb();
+  try {
+    const toolCount = (db.prepare('SELECT COUNT(*) as c FROM tool_usage_events').get() as { c: number }).c;
+    const indexCount = (db.prepare('SELECT COUNT(*) as c FROM index_usage_events').get() as { c: number }).c;
+
+    const toolDayRange = db.prepare(
+      'SELECT MIN(day) as min_day, MAX(day) as max_day FROM tool_usage_events',
+    ).get() as { min_day: string | null; max_day: string | null };
+
+    const indexDayRange = db.prepare(
+      'SELECT MIN(day) as min_day, MAX(day) as max_day FROM index_usage_events',
+    ).get() as { min_day: string | null; max_day: string | null };
+
+    const allDays = [
+      toolDayRange.min_day,
+      toolDayRange.max_day,
+      indexDayRange.min_day,
+      indexDayRange.max_day,
+    ].filter((d): d is string => d !== null).sort();
+
+    return {
+      toolUsageCount: toolCount,
+      indexUsageCount: indexCount,
+      oldestDay: allDays.length > 0 ? allDays[0] : null,
+      newestDay: allDays.length > 0 ? allDays[allDays.length - 1] : null,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+export function purgeOldUsageEvents(maxAgeDays: number): UsagePurgeResult {
+  if (maxAgeDays <= 0) {
+    return { toolPurged: 0, indexPurged: 0, cutoffDay: '' };
+  }
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - maxAgeDays);
+  const cutoffDay = cutoffDate.toISOString().slice(0, 10);
+
+  const db = openUsageDb();
+  try {
+    const toolResult = db.prepare('DELETE FROM tool_usage_events WHERE day < ?').run(cutoffDay);
+    const indexResult = db.prepare('DELETE FROM index_usage_events WHERE day < ?').run(cutoffDay);
+
+    return {
+      toolPurged: toolResult.changes,
+      indexPurged: indexResult.changes,
+      cutoffDay,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 export function listIndexUsage(): IndexUsageRecord[] {
   const db = openUsageDb();
   try {

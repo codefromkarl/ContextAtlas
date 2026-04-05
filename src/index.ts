@@ -945,5 +945,146 @@ cli
     logger.info(`  删除旧项目数：${report.removedProjects}`);
   });
 
+// ===========================================
+// Memory Health & Usage Purge CLI Commands
+// ===========================================
+
+cli
+  .command('memory:health', '检查记忆系统健康状态')
+  .option('--stale-days <days>', '超过多少天未核验视为 stale', { default: '30' })
+  .option('--json', '以 JSON 输出报告')
+  .action(async (options: { staleDays?: string; json?: boolean }) => {
+    const { analyzeMemoryHealth, formatMemoryHealthReport } = await import(
+      './monitoring/memoryHealth.js'
+    );
+    try {
+      const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
+      const report = await analyzeMemoryHealth({
+        staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
+      });
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`${formatMemoryHealthReport(report)}\n`);
+    } catch (err) {
+      const error = err as Error;
+      logger.error({ error: error.message }, '生成记忆健康报告失败');
+      process.exit(1);
+    }
+  });
+
+cli
+  .command('usage:purge', '清理过期的 usage 追踪数据')
+  .option('--days <n>', '保留最近 N 天的数据（默认 90）', { default: '90' })
+  .option('--apply', '执行删除；默认仅 dry-run 预览')
+  .action(async (options: { days?: string; apply?: boolean }) => {
+    const { getUsageStats, purgeOldUsageEvents } = await import('./usage/usageTracker.js');
+    try {
+      const days = Number.parseInt(String(options.days ?? '90'), 10);
+      if (!Number.isFinite(days) || days <= 0) {
+        logger.error('--days 必须为正整数');
+        process.exit(1);
+      }
+
+      const stats = getUsageStats();
+      logger.info(
+        `当前 usage 数据: ${stats.toolUsageCount} tool events, ${stats.indexUsageCount} index events`,
+      );
+      logger.info(`时间范围: ${stats.oldestDay || 'N/A'} ~ ${stats.newestDay || 'N/A'}`);
+
+      if (options.apply) {
+        const result = purgeOldUsageEvents(days);
+        logger.info(
+          `已清理: ${result.toolPurged} tool events, ${result.indexPurged} index events (cutoff: ${result.cutoffDay})`,
+        );
+      } else {
+        logger.info(`[dry-run] 将保留最近 ${days} 天数据`);
+        if (stats.oldestDay) {
+          const cutoffDate = new Date();
+          cutoffDate.setDate(cutoffDate.getDate() - days);
+          const cutoffDay = cutoffDate.toISOString().slice(0, 10);
+          logger.info(`[dry-run] 将清理 ${stats.oldestDay} ~ ${cutoffDay} 之前的数据`);
+        }
+        logger.info('使用 --apply 执行实际删除');
+      }
+    } catch (err) {
+      const error = err as Error;
+      logger.error({ error: error.message }, 'usage 数据清理失败');
+      process.exit(1);
+    }
+  });
+
+cli
+  .command('health:full', '系统全面健康检查（索引 + 记忆 + 告警）')
+  .option('--stale-days <days>', '记忆 stale 阈值天数', { default: '30' })
+  .option('--json', '以 JSON 输出报告')
+  .action(async (options: { staleDays?: string; json?: boolean }) => {
+    const { analyzeIndexHealth, formatIndexHealthReport } = await import(
+      './monitoring/indexHealth.js'
+    );
+    const { analyzeMemoryHealth, formatMemoryHealthReport } = await import(
+      './monitoring/memoryHealth.js'
+    );
+    const { evaluateAlerts, formatAlertReport } = await import('./monitoring/alertEngine.js');
+
+    try {
+      const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
+
+      // Run all analyses in parallel
+      const [indexHealth, memoryHealth] = await Promise.all([
+        Promise.resolve(analyzeIndexHealth()),
+        analyzeMemoryHealth({
+          staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
+        }),
+      ]);
+
+      // Combine metrics for alert evaluation
+      const combinedMetrics: Record<string, unknown> = {
+        ...indexHealth,
+        memory: {
+          staleRate: memoryHealth.longTermFreshness.staleRate,
+          expiredRate: memoryHealth.longTermFreshness.expiredRate,
+          orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
+          catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
+        },
+      };
+
+      const alertResult = evaluateAlerts(combinedMetrics);
+
+      if (options.json) {
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              indexHealth,
+              memoryHealth,
+              alerts: alertResult,
+            },
+            null,
+            2,
+          )}\n`,
+        );
+        return;
+      }
+
+      process.stdout.write('='.repeat(60) + '\n');
+      process.stdout.write('Full System Health Report\n');
+      process.stdout.write('='.repeat(60) + '\n\n');
+
+      process.stdout.write(formatIndexHealthReport(indexHealth));
+      process.stdout.write('\n\n');
+
+      process.stdout.write(formatMemoryHealthReport(memoryHealth));
+      process.stdout.write('\n\n');
+
+      process.stdout.write(formatAlertReport(alertResult));
+      process.stdout.write('\n');
+    } catch (err) {
+      const error = err as Error;
+      logger.error({ error: error.message }, '系统健康检查失败');
+      process.exit(1);
+    }
+  });
+
 cli.help();
 cli.parse();

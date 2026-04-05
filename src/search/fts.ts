@@ -9,6 +9,7 @@
 
 import type Database from 'better-sqlite3';
 import { logger } from '../utils/logger.js';
+import type { VectorStore } from '../vectorStore/index.js';
 
 // FTS Tokenizer 探测
 
@@ -197,6 +198,63 @@ export function batchDeleteFileChunksFts(db: Database.Database, filePaths: strin
     }
   });
   transaction(filePaths);
+}
+
+export async function rebuildChunksFtsFromVectorStore(
+  db: Database.Database,
+  vectorStore: VectorStore,
+  options: { batchSize?: number } = {},
+): Promise<{ filesProcessed: number; chunksIndexed: number }> {
+  initChunksFts(db);
+  db.exec('DELETE FROM chunks_fts');
+
+  const batchSize = Math.max(1, options.batchSize ?? 200);
+  const rows = db
+    .prepare('SELECT path FROM files WHERE vector_index_hash = hash ORDER BY path ASC')
+    .all() as Array<{ path: string }>;
+  const filePaths = rows.map((row) => row.path);
+
+  let chunksIndexed = 0;
+
+  for (let i = 0; i < filePaths.length; i += batchSize) {
+    const batchPaths = filePaths.slice(i, i + batchSize);
+    const chunksMap = await vectorStore.getFilesChunks(batchPaths);
+    const payload: Array<{
+      chunkId: string;
+      filePath: string;
+      chunkIndex: number;
+      breadcrumb: string;
+      content: string;
+    }> = [];
+
+    for (const path of batchPaths) {
+      const chunks = chunksMap.get(path) ?? [];
+      for (const record of chunks) {
+        payload.push({
+          chunkId: record.chunk_id,
+          filePath: record.file_path,
+          chunkIndex: record.chunk_index,
+          breadcrumb: record.breadcrumb,
+          content: `${record.breadcrumb}\n${record.display_code}`,
+        });
+      }
+    }
+
+    if (payload.length > 0) {
+      batchUpsertChunkFts(db, payload);
+      chunksIndexed += payload.length;
+    }
+  }
+
+  logger.info(
+    { filesProcessed: filePaths.length, chunksIndexed },
+    'chunks_fts 重建完成',
+  );
+
+  return {
+    filesProcessed: filePaths.length,
+    chunksIndexed,
+  };
 }
 
 /**

@@ -2,10 +2,10 @@ import { z } from 'zod';
 import { MemoryStore } from '../../memory/MemoryStore.js';
 import type { ResolvedLongTermMemoryItem } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
+import { responseFormatSchema } from './responseFormat.js';
 
 const longTermMemoryTypeSchema = z.enum(['user', 'feedback', 'project-state', 'reference']);
 const longTermMemoryScopeSchema = z.enum(['project', 'global-user']);
-const responseFormatSchema = z.enum(['text', 'json']).optional().default('text');
 
 export const recordLongTermMemorySchema = z.object({
   type: longTermMemoryTypeSchema.describe('Long-term memory type'),
@@ -25,7 +25,7 @@ export const recordLongTermMemorySchema = z.object({
   validFrom: z.string().optional().describe('Effective date in ISO format'),
   validUntil: z.string().optional().describe('Expiry/deadline in ISO format'),
   lastVerifiedAt: z.string().optional().describe('Last verification date in ISO format'),
-  format: responseFormatSchema.describe('Response format: text or json'),
+  format: responseFormatSchema,
 });
 
 export const manageLongTermMemorySchema = z.object({
@@ -63,7 +63,7 @@ export const manageLongTermMemorySchema = z.object({
     .default(true)
     .describe('[prune] Preview pruning without deleting data'),
   id: z.string().optional().describe('[delete] Memory item id to delete'),
-  format: responseFormatSchema.describe('Response format: text or json'),
+  format: responseFormatSchema,
 });
 
 export type RecordLongTermMemoryInput = z.infer<typeof recordLongTermMemorySchema>;

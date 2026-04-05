@@ -3,6 +3,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { resolveQueueDbPath } from '../indexing/queue.js';
 import { resolveBaseDir } from '../runtimePaths.js';
+import { VectorStore } from '../vectorStore/index.js';
 
 export interface QueueHealth {
   totalTasks: number;
@@ -33,6 +34,10 @@ export interface SnapshotHealth {
   vectorSizeBytes: number;
   dbIntegrity: 'ok' | 'corrupted' | 'missing';
   fileCount: number;
+  hasChunksFts: boolean;
+  chunkFtsCount: number;
+  vectorChunkCount: number;
+  chunkFtsCoverage: number | null;
   lastModified: string | null;
 }
 
@@ -132,7 +137,7 @@ function analyzeQueueHealth(): QueueHealth {
   }
 }
 
-function analyzeSnapshotHealth(projectId: string, baseDir?: string): SnapshotHealth {
+async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promise<SnapshotHealth> {
   const projectDir = path.join(baseDir || resolveBaseDir(), projectId);
   const snapshotsDir = path.join(projectDir, 'snapshots');
   const currentPointer = path.join(projectDir, 'current');
@@ -168,6 +173,8 @@ function analyzeSnapshotHealth(projectId: string, baseDir?: string): SnapshotHea
 
   let dbIntegrity: 'ok' | 'corrupted' | 'missing' = hasIndexDb ? 'ok' : 'missing';
   let fileCount = 0;
+  let hasChunksFts = false;
+  let chunkFtsCount = 0;
 
   if (hasIndexDb) {
     try {
@@ -185,6 +192,14 @@ function analyzeSnapshotHealth(projectId: string, baseDir?: string): SnapshotHea
           .get() as { name: string } | undefined;
         if (filesTable) {
           fileCount = (db.prepare('SELECT COUNT(*) as c FROM files').get() as { c: number }).c;
+        }
+
+        const chunksFtsTable = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_fts'")
+          .get() as { name: string } | undefined;
+        if (chunksFtsTable) {
+          hasChunksFts = true;
+          chunkFtsCount = (db.prepare('SELECT COUNT(*) as c FROM chunks_fts').get() as { c: number }).c;
         }
       } finally {
         db.close();
@@ -210,6 +225,21 @@ function analyzeSnapshotHealth(projectId: string, baseDir?: string): SnapshotHea
     lastModified = stat.mtime.toISOString();
   }
 
+  let vectorChunkCount = 0;
+  if (hasVectorIndex) {
+    try {
+      const store = new VectorStore(projectId, 1024, currentSnapshotId);
+      await store.init();
+      vectorChunkCount = await store.count();
+      await store.close();
+    } catch {
+      vectorChunkCount = 0;
+    }
+  }
+
+  const chunkFtsCoverage =
+    vectorChunkCount > 0 ? Number((chunkFtsCount / vectorChunkCount).toFixed(3)) : null;
+
   return {
     projectId,
     hasCurrentSnapshot: currentSnapshotId !== null,
@@ -222,6 +252,10 @@ function analyzeSnapshotHealth(projectId: string, baseDir?: string): SnapshotHea
     vectorSizeBytes,
     dbIntegrity,
     fileCount,
+    hasChunksFts,
+    chunkFtsCount,
+    vectorChunkCount,
+    chunkFtsCoverage,
     lastModified,
   };
 }
@@ -302,9 +336,9 @@ function discoverProjectIds(baseDir?: string): string[] {
   return ids;
 }
 
-export function analyzeIndexHealth(
+export async function analyzeIndexHealth(
   options: { baseDir?: string; projectIds?: string[] } = {},
-): IndexHealthReport {
+): Promise<IndexHealthReport> {
   const baseDir = options.baseDir || resolveBaseDir();
   const queue = analyzeQueueHealth();
 
@@ -313,7 +347,7 @@ export function analyzeIndexHealth(
       ? options.projectIds
       : discoverProjectIds(baseDir);
 
-  const snapshots = projectIds.map((id) => analyzeSnapshotHealth(id, baseDir));
+  const snapshots = await Promise.all(projectIds.map((id) => analyzeSnapshotHealth(id, baseDir)));
   const daemon = analyzeDaemonHealth();
 
   const issues: string[] = [];
@@ -348,6 +382,24 @@ export function analyzeIndexHealth(
     if (snap.hasIndexDb && !snap.hasVectorIndex && snap.fileCount > 0) {
       issues.push(`项目 ${snap.projectId}: 缺少向量索引`);
       recommendations.push(`重新索引以生成向量: contextatlas index ${snap.projectId} --force`);
+    }
+
+    if (snap.vectorChunkCount > 0 && (!snap.hasChunksFts || snap.chunkFtsCount === 0)) {
+      issues.push(`项目 ${snap.projectId}: chunk FTS 覆盖不足 (0/${snap.vectorChunkCount})`);
+      recommendations.push(
+        `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`,
+      );
+    } else if (
+      snap.vectorChunkCount > 0 &&
+      snap.chunkFtsCoverage !== null &&
+      snap.chunkFtsCoverage < 0.95
+    ) {
+      issues.push(
+        `项目 ${snap.projectId}: chunk FTS 覆盖不足 (${snap.chunkFtsCount}/${snap.vectorChunkCount})`,
+      );
+      recommendations.push(
+        `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`,
+      );
     }
   }
 
@@ -417,6 +469,9 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
       `    Vector: ${snap.hasVectorIndex ? `${(snap.vectorSizeBytes / 1024 / 1024).toFixed(1)}MB` : 'missing'}`,
     );
     lines.push(`    Files: ${snap.fileCount}`);
+    lines.push(
+      `    Chunk FTS: ${snap.hasChunksFts ? `${snap.chunkFtsCount} / ${snap.vectorChunkCount}${snap.chunkFtsCoverage !== null ? ` (${(snap.chunkFtsCoverage * 100).toFixed(1)}%)` : ''}` : 'missing'}`,
+    );
     if (snap.lastModified) {
       lines.push(`    Updated: ${snap.lastModified}`);
     }

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { MemoryRouter } from '../../memory/MemoryRouter.js';
 import type { CatalogModuleEntry, MemoryScope } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
+import { responseFormatSchema } from './responseFormat.js';
 
 // ===========================================
 // Schema 定义
@@ -20,11 +21,7 @@ export const listMemoryCatalogSchema = z.object({
     .optional()
     .default(false)
     .describe('Include module details (keywords, triggerPaths)'),
-  format: z
-    .enum(['text', 'json'])
-    .optional()
-    .default('text')
-    .describe('Response format: text or json'),
+  format: responseFormatSchema,
 });
 
 export type ListMemoryCatalogInput = z.infer<typeof listMemoryCatalogSchema>;

@@ -26,6 +26,9 @@ export interface SearchConfig {
 
   // Rerank
   rerankTopN: number;
+  rerankMinPool: number;
+  rerankMaxPool: number;
+  rerankPoolScoreRatio: number;
   maxRerankChars: number;
   maxBreadcrumbChars: number;
   headRatio: number;
@@ -123,13 +126,16 @@ export interface Segment {
 }
 
 export type LexicalStrategy = 'chunks_fts' | 'files_fts' | 'none';
+export type QueryIntent = 'balanced' | 'symbol_lookup';
 
 export interface RetrievalStats {
+  queryIntent: QueryIntent;
   lexicalStrategy: LexicalStrategy;
   vectorCount: number;
   lexicalCount: number;
   fusedCount: number;
   topMCount: number;
+  rerankInputCount: number;
   rerankedCount: number;
 }
 

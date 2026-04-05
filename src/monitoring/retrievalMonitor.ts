@@ -3,6 +3,7 @@ import path from 'node:path';
 import { resolveBaseDir } from '../runtimePaths.js';
 
 type LexicalStrategy = 'chunks_fts' | 'files_fts' | 'none';
+type QueryIntent = 'balanced' | 'symbol_lookup';
 
 export interface RetrievalLogRecord {
   requestId?: string;
@@ -13,11 +14,13 @@ export interface RetrievalLogRecord {
   totalChars?: number;
   timingMs?: Record<string, number>;
   retrievalStats?: {
+    queryIntent?: QueryIntent;
     lexicalStrategy?: LexicalStrategy;
     vectorCount?: number;
     lexicalCount?: number;
     fusedCount?: number;
     topMCount?: number;
+    rerankInputCount?: number;
     rerankedCount?: number;
   };
   resultStats?: {

@@ -16,8 +16,14 @@ function findDistModule(prefix: string): string {
 const codebaseRetrievalModule = await import(findDistModule('codebaseRetrieval-'));
 const searchServiceModule = await import(findDistModule('SearchService-'));
 
-const { buildRetrievalTelemetry, createRetrievalProgressReporter } = codebaseRetrievalModule;
-const { initializeSearchDependencies } = searchServiceModule;
+const { buildRetrievalTelemetry, createRetrievalProgressReporter, resolveRetrievalQueries } =
+  codebaseRetrievalModule;
+const {
+  classifyQueryIntent,
+  deriveQueryAwareSearchConfig,
+  initializeSearchDependencies,
+  selectRerankPoolCandidates,
+} = searchServiceModule;
 
 test('initializeSearchDependencies 并行初始化检索依赖', async () => {
   const events: string[] = [];
@@ -139,11 +145,13 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
           pack: 12,
         },
         retrievalStats: {
+          queryIntent: 'balanced',
           lexicalStrategy: 'chunks_fts',
           vectorCount: 12,
           lexicalCount: 5,
           fusedCount: 14,
           topMCount: 10,
+          rerankInputCount: 14,
           rerankedCount: 6,
         },
         resultStats: {
@@ -176,11 +184,13 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
   assert.equal(telemetry.timingMs.rerank, 30);
   assert.equal(telemetry.timingMs.retrieveVector, 8);
   assert.deepEqual(telemetry.retrievalStats, {
+    queryIntent: 'balanced',
     lexicalStrategy: 'chunks_fts',
     vectorCount: 12,
     lexicalCount: 5,
     fusedCount: 14,
     topMCount: 10,
+    rerankInputCount: 14,
     rerankedCount: 6,
   });
   assert.deepEqual(telemetry.resultStats, {
@@ -199,4 +209,203 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
     billedSearchUnits: 3,
     inputTokens: 42,
   });
+});
+
+test('resolveRetrievalQueries 在带 technical terms 时分离语义与词法查询', () => {
+  assert.deepEqual(
+    resolveRetrievalQueries('How is auth flow implemented?', ['AuthService', 'login']),
+    {
+      semanticQuery: 'How is auth flow implemented?',
+      lexicalQuery: 'AuthService login',
+      combinedQuery: 'How is auth flow implemented? AuthService login',
+    },
+  );
+});
+
+test('resolveRetrievalQueries 在无 technical terms 时复用 information request', () => {
+  assert.deepEqual(resolveRetrievalQueries('用户认证流程是如何实现的？'), {
+    semanticQuery: '用户认证流程是如何实现的？',
+    lexicalQuery: '用户认证流程是如何实现的？',
+    combinedQuery: '用户认证流程是如何实现的？',
+  });
+});
+
+test('classifyQueryIntent 对 technical terms 偏向 symbol lookup', () => {
+  assert.equal(
+    classifyQueryIntent('How is user authentication flow implemented?', ['AuthService']),
+    'symbol_lookup',
+  );
+});
+
+test('classifyQueryIntent 对代码味较强的短查询判定为 symbol lookup', () => {
+  assert.equal(classifyQueryIntent('SearchService buildContextPack'), 'symbol_lookup');
+  assert.equal(classifyQueryIntent('AuthService.login'), 'symbol_lookup');
+});
+
+test('classifyQueryIntent 对自然语言流程问题保持 balanced', () => {
+  assert.equal(classifyQueryIntent('用户认证流程是如何实现的？'), 'balanced');
+});
+
+test('deriveQueryAwareSearchConfig 会为 symbol lookup 提高词法权重并收缩 rerank', () => {
+  const config = deriveQueryAwareSearchConfig(
+    {
+      vectorTopK: 80,
+      vectorTopM: 60,
+      ftsTopKFiles: 20,
+      lexChunksPerFile: 2,
+      lexTotalChunks: 40,
+      rrfK0: 20,
+      wVec: 0.6,
+      wLex: 0.4,
+      fusedTopM: 60,
+      rerankTopN: 10,
+      rerankMinPool: 12,
+      rerankMaxPool: 24,
+      rerankPoolScoreRatio: 0.6,
+      maxRerankChars: 1000,
+      maxBreadcrumbChars: 250,
+      headRatio: 0.67,
+      neighborHops: 2,
+      breadcrumbExpandLimit: 3,
+      importFilesPerSeed: 0,
+      chunksPerImportFile: 0,
+      decayNeighbor: 0.8,
+      decayBreadcrumb: 0.7,
+      decayImport: 0.6,
+      decayDepth: 0.7,
+      maxSegmentsPerFile: 3,
+      maxTotalChars: 48000,
+      enableSmartTopK: true,
+      smartTopScoreRatio: 0.5,
+      smartTopScoreDeltaAbs: 0.25,
+      smartMinScore: 0.25,
+      smartMinK: 2,
+      smartMaxK: 8,
+    },
+    'symbol_lookup',
+  );
+
+  assert.equal(config.wVec, 0.35);
+  assert.equal(config.wLex, 0.65);
+  assert.equal(config.rerankTopN, 8);
+  assert.equal(config.rerankMinPool, 10);
+  assert.equal(config.rerankMaxPool, 16);
+});
+
+test('selectRerankPoolCandidates 在候选较少时保持原样', () => {
+  const candidates = [1, 0.92, 0.81, 0.7].map((score, index) => ({
+    filePath: `src/f${index}.ts`,
+    chunkIndex: index,
+    score,
+    source: 'vector' as const,
+    record: {
+      chunk_id: `src/f${index}.ts#hash#${index}`,
+      file_path: `src/f${index}.ts`,
+      file_hash: 'hash',
+      chunk_index: index,
+      vector: [],
+      display_code: '',
+      vector_text: '',
+      language: 'typescript',
+      breadcrumb: `B${index}`,
+      start_index: 0,
+      end_index: 1,
+      raw_start: 0,
+      raw_end: 1,
+      vec_start: 0,
+      vec_end: 1,
+      _distance: 0,
+    },
+  }));
+
+  const selected = selectRerankPoolCandidates(candidates, {
+    rerankTopN: 10,
+    rerankMinPool: 12,
+    rerankMaxPool: 24,
+    rerankPoolScoreRatio: 0.6,
+  });
+
+  assert.equal(selected.length, candidates.length);
+  assert.deepEqual(selected.map((c: { chunkIndex: number }) => c.chunkIndex), [0, 1, 2, 3]);
+});
+
+test('selectRerankPoolCandidates 在分数陡降时收缩 rerank 池', () => {
+  const scores = [1, 0.95, 0.91, 0.88, 0.84, 0.8, 0.76, 0.72, 0.69, 0.65, 0.61, 0.58, 0.31, 0.29, 0.26];
+  const candidates = scores.map((score, index) => ({
+    filePath: `src/f${index}.ts`,
+    chunkIndex: index,
+    score,
+    source: 'vector' as const,
+    record: {
+      chunk_id: `src/f${index}.ts#hash#${index}`,
+      file_path: `src/f${index}.ts`,
+      file_hash: 'hash',
+      chunk_index: index,
+      vector: [],
+      display_code: '',
+      vector_text: '',
+      language: 'typescript',
+      breadcrumb: `B${index}`,
+      start_index: 0,
+      end_index: 1,
+      raw_start: 0,
+      raw_end: 1,
+      vec_start: 0,
+      vec_end: 1,
+      _distance: 0,
+    },
+  }));
+
+  const selected = selectRerankPoolCandidates(candidates, {
+    rerankTopN: 10,
+    rerankMinPool: 12,
+    rerankMaxPool: 24,
+    rerankPoolScoreRatio: 0.6,
+  });
+
+  assert.equal(selected.length, 12);
+  assert.deepEqual(
+    selected.map((c: { chunkIndex: number }) => c.chunkIndex),
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  );
+});
+
+test('selectRerankPoolCandidates 在分数平缓时受 maxPool 限制', () => {
+  const candidates = Array.from({ length: 40 }, (_, index) => ({
+    filePath: `src/f${index}.ts`,
+    chunkIndex: index,
+    score: 1 - index * 0.01,
+    source: 'vector' as const,
+    record: {
+      chunk_id: `src/f${index}.ts#hash#${index}`,
+      file_path: `src/f${index}.ts`,
+      file_hash: 'hash',
+      chunk_index: index,
+      vector: [],
+      display_code: '',
+      vector_text: '',
+      language: 'typescript',
+      breadcrumb: `B${index}`,
+      start_index: 0,
+      end_index: 1,
+      raw_start: 0,
+      raw_end: 1,
+      vec_start: 0,
+      vec_end: 1,
+      _distance: 0,
+    },
+  }));
+
+  const selected = selectRerankPoolCandidates(candidates, {
+    rerankTopN: 10,
+    rerankMinPool: 12,
+    rerankMaxPool: 24,
+    rerankPoolScoreRatio: 0.6,
+  });
+
+  assert.equal(selected.length, 24);
+  assert.deepEqual(
+    selected.map((c: { chunkIndex: number }) => c.chunkIndex),
+    Array.from({ length: 24 }, (_, index) => index),
+  );
 });

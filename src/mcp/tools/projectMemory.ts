@@ -15,6 +15,7 @@ import type {
   ProjectProfile,
 } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
+import { responseFormatSchema } from './responseFormat.js';
 
 // ===========================================
 // Schema 定义
@@ -24,11 +25,7 @@ export const findMemorySchema = z.object({
   query: z.string().describe('Keyword to search for feature memories'),
   limit: z.number().optional().default(10).describe('Maximum number of results to return'),
   minScore: z.number().optional().default(1).describe('Minimum score threshold'),
-  format: z
-    .enum(['text', 'json'])
-    .optional()
-    .default('text')
-    .describe('Response format: text or json'),
+  format: responseFormatSchema,
 });
 
 export const recordMemorySchema = z.object({
@@ -76,14 +73,10 @@ export const recordDecisionSchema = z.object({
 });
 
 export const getProjectProfileSchema = z.object({
-  format: z
-    .enum(['text', 'json'])
-    .optional()
-    .default('text')
-    .describe('Response format: text or json'),
+  format: responseFormatSchema,
 });
 
-const maintenanceFormatSchema = z.enum(['text', 'json']).optional().default('text');
+const maintenanceFormatSchema = responseFormatSchema;
 
 export const deleteMemorySchema = z.object({
   name: z.string().describe('Module name to delete'),

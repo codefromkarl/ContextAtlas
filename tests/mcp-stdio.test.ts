@@ -227,6 +227,44 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
   }
 });
 
+test('MCP stdio accepts markdown alias for text find_memory responses', async () => {
+  const { baseDir, projectDir, homeDir } = createTempEnv();
+  const client = new McpStdIoClient(projectDir, homeDir);
+
+  try {
+    await client.initialize();
+
+    await client.call(20, 'tools/call', {
+      name: 'record_memory',
+      arguments: {
+        name: 'markdown-memory',
+        responsibility: 'markdown alias compatibility',
+        dir: 'src/markdown',
+        files: ['markdown.ts'],
+        exports: ['markdown-memory'],
+        endpoints: [],
+        imports: [],
+        external: [],
+        dataFlow: 'markdown flow',
+        keyPatterns: ['markdown'],
+      },
+    });
+
+    const result = await client.call(21, 'tools/call', {
+      name: 'find_memory',
+      arguments: { query: 'markdown-memory', format: 'markdown' },
+    });
+
+    assert.ok(result.result);
+    assert.equal(result.result.isError, undefined);
+    assert.equal(result.result.content[0].type, 'text');
+    assert.match(result.result.content[0].text, /markdown-memory/);
+  } finally {
+    await client.close();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
 test('MCP stdio returns structured tool errors for invalid arguments', async () => {
   const { baseDir, projectDir, homeDir } = createTempEnv();
   const client = new McpStdIoClient(projectDir, homeDir);
@@ -234,9 +272,9 @@ test('MCP stdio returns structured tool errors for invalid arguments', async () 
   try {
     await client.initialize();
 
-    const invalid = await client.call(20, 'tools/call', {
+    const invalid = await client.call(22, 'tools/call', {
       name: 'find_memory',
-      arguments: { query: 'ContextAtlas', format: 'markdown' },
+      arguments: { query: 'ContextAtlas', format: 'yaml' },
     });
 
     assert.ok(invalid.result);

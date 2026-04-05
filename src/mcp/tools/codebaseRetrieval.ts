@@ -469,7 +469,7 @@ export async function handleCodebaseRetrieval(
   const telemetry = buildRetrievalTelemetry({
     requestId,
     projectId,
-    query,
+    query: combinedQuery,
     totalMs,
     contextPack,
   });
@@ -494,7 +494,7 @@ export async function handleCodebaseRetrieval(
     requestId,
     status: 'success',
     durationMs: Date.now() - startedAt,
-    queryLength: query.length,
+    queryLength: combinedQuery.length,
     indexState: wasIndexed ? 'ready' : 'missing',
     indexAction: 'none',
   });

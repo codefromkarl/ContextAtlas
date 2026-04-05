@@ -15,6 +15,7 @@ import {
   validateToolTextResponse,
   type ToolTextResponse,
 } from './response.js';
+import { createResponseFormatInputSchemaProperty } from './tools/responseFormat.js';
 import {
   codebaseRetrievalSchema,
   deleteMemorySchema,
@@ -62,7 +63,9 @@ const SERVER_NAME = 'contextatlas';
 // 工具定义
 // ===========================================
 
-const TOOLS = [
+const responseFormatProperty = createResponseFormatInputSchemaProperty();
+
+export const TOOLS = [
   {
     name: 'codebase-retrieval',
     description: `
@@ -162,10 +165,7 @@ Returns: Module responsibility, location, exports, dependencies, data flow.
           default: 1,
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
       required: ['query'],
@@ -377,10 +377,7 @@ Examples:
           description: '[delete] Memory item id',
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
       required: ['action'],
@@ -402,10 +399,7 @@ Returns comprehensive project information including:
       type: 'object',
       properties: {
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
     },
@@ -425,10 +419,7 @@ This removes the feature memory and cleans coordinated derived state.
           description: 'Module name to delete',
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
       required: ['name'],
@@ -452,10 +443,7 @@ Actions:
           description: 'Maintenance action',
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
       required: ['action'],
@@ -520,10 +508,7 @@ Examples:
           default: 0.65,
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
     },
@@ -554,10 +539,7 @@ Examples:
           default: false,
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
     },
@@ -614,10 +596,7 @@ Examples:
           default: 'default',
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
     },
@@ -694,10 +673,7 @@ Examples:
           default: true,
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
       required: ['project', 'module'],
@@ -735,10 +711,7 @@ Examples:
           description: '[register] Project absolute path',
         },
         format: {
-          type: 'string',
-          enum: ['text', 'json'],
-          description: 'Response format',
-          default: 'text',
+          ...responseFormatProperty,
         },
       },
       required: ['action'],

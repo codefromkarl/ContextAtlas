@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { MemoryHubDatabase } from '../../memory/MemoryHubDatabase.js';
 import { logger } from '../../utils/logger.js';
-
-const responseFormatSchema = z.enum(['text', 'json']).optional().default('text');
+import { responseFormatSchema } from './responseFormat.js';
 
 export const querySharedMemoriesSchema = z.object({
   query: z.string().optional().describe('Full-text search query (FTS5)'),

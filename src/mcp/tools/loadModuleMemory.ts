@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { MemoryRouter } from '../../memory/MemoryRouter.js';
 import type { FeatureMemory } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
+import { responseFormatSchema } from './responseFormat.js';
 
 // ===========================================
 // Schema 定义
@@ -43,11 +44,7 @@ export const loadModuleMemorySchema = z.object({
     .optional()
     .default(0.65)
     .describe('MMR relevance weight (0=novelty only, 1=relevance only)'),
-  format: z
-    .enum(['text', 'json'])
-    .optional()
-    .default('text')
-    .describe('Response format: text or json'),
+  format: responseFormatSchema,
 });
 
 export type LoadModuleMemoryInput = z.infer<typeof loadModuleMemorySchema>;

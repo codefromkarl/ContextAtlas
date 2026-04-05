@@ -313,7 +313,7 @@ cli
       './monitoring/indexHealth.js'
     );
     try {
-      const report = analyzeIndexHealth({
+      const report = await analyzeIndexHealth({
         projectIds: options.projectId ? [options.projectId] : undefined,
       });
       if (options.json) {
@@ -335,7 +335,7 @@ cli
     const { analyzeIndexHealth } = await import('./monitoring/indexHealth.js');
     const { evaluateAlerts, formatAlertReport } = await import('./monitoring/alertEngine.js');
     try {
-      const health = analyzeIndexHealth();
+      const health = await analyzeIndexHealth();
       const result = evaluateAlerts(health as unknown as Record<string, unknown>);
       if (options.json) {
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -1033,7 +1033,7 @@ cli
 
       // Run all analyses in parallel
       const [indexHealth, memoryHealth] = await Promise.all([
-        Promise.resolve(analyzeIndexHealth()),
+        analyzeIndexHealth(),
         analyzeMemoryHealth({
           staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
         }),

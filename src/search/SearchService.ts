@@ -29,6 +29,7 @@ import { getGraphExpander } from './GraphExpander.js';
 import type {
   ContextPack,
   LexicalStrategy,
+  QueryIntent,
   ResultStats,
   RetrievalStats,
   ScoredChunk,
@@ -96,6 +97,53 @@ interface LexicalRetrieveResult {
 }
 
 export type SearchProgressStage = 'retrieve' | 'rerank' | 'expand' | 'pack';
+
+export interface BuildContextPackOptions {
+  technicalTerms?: string[];
+}
+
+export function classifyQueryIntent(query: string, technicalTerms: string[] = []): QueryIntent {
+  if (technicalTerms.length > 0) {
+    return 'symbol_lookup';
+  }
+
+  const tokens = segmentQuery(query);
+  if (tokens.length === 0) {
+    return 'balanced';
+  }
+
+  const rawSegments = query.split(/\s+/).filter(Boolean);
+  const codeLikeTokenCount = rawSegments.filter((token) => {
+    if (/[A-Z]/.test(token)) return true;
+    if (token.includes('_')) return true;
+    if (token.includes('.')) return true;
+    return /[a-z][A-Z]/.test(token);
+  }).length;
+
+  if (tokens.length <= 6 && codeLikeTokenCount >= 1) {
+    return 'symbol_lookup';
+  }
+
+  return 'balanced';
+}
+
+export function deriveQueryAwareSearchConfig(
+  baseConfig: SearchConfig,
+  intent: QueryIntent,
+): SearchConfig {
+  if (intent === 'symbol_lookup') {
+    return {
+      ...baseConfig,
+      wVec: 0.35,
+      wLex: 0.65,
+      rerankTopN: Math.min(baseConfig.rerankTopN, 8),
+      rerankMinPool: Math.max(Math.min(baseConfig.rerankMinPool, 10), 8),
+      rerankMaxPool: Math.max(Math.min(baseConfig.rerankMaxPool, 16), 12),
+    };
+  }
+
+  return baseConfig;
+}
 
 export function selectRerankPoolCandidates<T extends { score: number }>(
   candidates: T[],
@@ -200,75 +248,85 @@ export class SearchService {
   async buildContextPack(
     query: string,
     onStage?: (stage: SearchProgressStage) => void,
+    options: BuildContextPackOptions = {},
   ): Promise<ContextPack> {
+    const queryIntent = classifyQueryIntent(query, options.technicalTerms || []);
+    const activeConfig = deriveQueryAwareSearchConfig(this.config, queryIntent);
     const timingMs: Record<string, number> = {};
     let t0 = Date.now();
+    const previousConfig = this.config;
+    this.config = activeConfig;
 
-    // 1. 混合召回
-    onStage?.('retrieve');
-    const retrieved = await this.hybridRetrieve(query);
-    const candidates = retrieved.chunks;
-    timingMs.retrieve = Date.now() - t0;
-    timingMs.retrieveVector = retrieved.timingMs.retrieveVector;
-    timingMs.retrieveLexical = retrieved.timingMs.retrieveLexical;
-    timingMs.retrieveFuse = retrieved.timingMs.retrieveFuse;
+    try {
+      // 1. 混合召回
+      onStage?.('retrieve');
+      const retrieved = await this.hybridRetrieve(query);
+      const candidates = retrieved.chunks;
+      timingMs.retrieve = Date.now() - t0;
+      timingMs.retrieveVector = retrieved.timingMs.retrieveVector;
+      timingMs.retrieveLexical = retrieved.timingMs.retrieveLexical;
+      timingMs.retrieveFuse = retrieved.timingMs.retrieveFuse;
 
-    // 2. 取 topM
-    t0 = Date.now();
-    const topM = candidates.sort((a, b) => b.score - a.score).slice(0, this.config.fusedTopM);
-    const topMCount = topM.length;
+      // 2. 取 topM
+      t0 = Date.now();
+      const topM = candidates.sort((a, b) => b.score - a.score).slice(0, this.config.fusedTopM);
+      const topMCount = topM.length;
 
-    // 3. Rerank → seeds
-    onStage?.('rerank');
-    const reranked = await this.rerank(query, topM);
-    timingMs.rerank = Date.now() - t0;
+      // 3. Rerank → seeds
+      onStage?.('rerank');
+      const reranked = await this.rerank(query, topM);
+      timingMs.rerank = Date.now() - t0;
 
-    // 4. Smart TopK Cutoff
-    t0 = Date.now();
-    const seeds = this.applySmartCutoff(reranked.chunks);
-    timingMs.smartCutoff = Date.now() - t0;
+      // 4. Smart TopK Cutoff
+      t0 = Date.now();
+      const seeds = this.applySmartCutoff(reranked.chunks);
+      timingMs.smartCutoff = Date.now() - t0;
 
-    // 5. 扩展（Phase 2 实现）
-    t0 = Date.now();
-    onStage?.('expand');
-    const queryTokens = this.extractQueryTokens(query);
-    const expanded = await this.expand(seeds, queryTokens);
-    timingMs.expand = Date.now() - t0;
+      // 5. 扩展（Phase 2 实现）
+      t0 = Date.now();
+      onStage?.('expand');
+      const queryTokens = this.extractQueryTokens(query);
+      const expanded = await this.expand(seeds, queryTokens);
+      timingMs.expand = Date.now() - t0;
 
-    // 6. 打包
-    t0 = Date.now();
-    onStage?.('pack');
-    const packer = new ContextPacker(this.projectId, this.config, this.snapshotId);
-    const packResult = await packer.packWithStats([...seeds, ...expanded]);
-    const files = packResult.files;
-    timingMs.pack = Date.now() - t0;
-    const retrievalStats: RetrievalStats = {
-      ...retrieved.stats,
-      topMCount,
-      rerankInputCount: reranked.inputCount,
-      rerankedCount: reranked.chunks.length,
-    };
-    const resultStats = buildResultStats({
-      seeds,
-      expanded,
-      files,
-      packStats: packResult.stats,
-    });
+      // 6. 打包
+      t0 = Date.now();
+      onStage?.('pack');
+      const packer = new ContextPacker(this.projectId, this.config, this.snapshotId);
+      const packResult = await packer.packWithStats([...seeds, ...expanded]);
+      const files = packResult.files;
+      timingMs.pack = Date.now() - t0;
+      const retrievalStats: RetrievalStats = {
+        queryIntent,
+        ...retrieved.stats,
+        topMCount,
+        rerankInputCount: reranked.inputCount,
+        rerankedCount: reranked.chunks.length,
+      };
+      const resultStats = buildResultStats({
+        seeds,
+        expanded,
+        files,
+        packStats: packResult.stats,
+      });
 
-    return {
-      query,
-      seeds,
-      expanded,
-      files,
-      debug: {
-        wVec: this.config.wVec,
-        wLex: this.config.wLex,
-        timingMs,
-        retrievalStats,
-        resultStats,
-        rerankUsage: reranked.usage,
-      },
-    };
+      return {
+        query,
+        seeds,
+        expanded,
+        files,
+        debug: {
+          wVec: this.config.wVec,
+          wLex: this.config.wLex,
+          timingMs,
+          retrievalStats,
+          resultStats,
+          rerankUsage: reranked.usage,
+        },
+      };
+    } finally {
+      this.config = previousConfig;
+    }
   }
 
   // 召回方法

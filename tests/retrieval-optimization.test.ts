@@ -17,7 +17,12 @@ const codebaseRetrievalModule = await import(findDistModule('codebaseRetrieval-'
 const searchServiceModule = await import(findDistModule('SearchService-'));
 
 const { buildRetrievalTelemetry, createRetrievalProgressReporter } = codebaseRetrievalModule;
-const { initializeSearchDependencies, selectRerankPoolCandidates } = searchServiceModule;
+const {
+  classifyQueryIntent,
+  deriveQueryAwareSearchConfig,
+  initializeSearchDependencies,
+  selectRerankPoolCandidates,
+} = searchServiceModule;
 
 test('initializeSearchDependencies 并行初始化检索依赖', async () => {
   const events: string[] = [];
@@ -139,6 +144,7 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
           pack: 12,
         },
         retrievalStats: {
+          queryIntent: 'balanced',
           lexicalStrategy: 'chunks_fts',
           vectorCount: 12,
           lexicalCount: 5,
@@ -177,6 +183,7 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
   assert.equal(telemetry.timingMs.rerank, 30);
   assert.equal(telemetry.timingMs.retrieveVector, 8);
   assert.deepEqual(telemetry.retrievalStats, {
+    queryIntent: 'balanced',
     lexicalStrategy: 'chunks_fts',
     vectorCount: 12,
     lexicalCount: 5,
@@ -201,6 +208,68 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
     billedSearchUnits: 3,
     inputTokens: 42,
   });
+});
+
+test('classifyQueryIntent 对 technical terms 偏向 symbol lookup', () => {
+  assert.equal(
+    classifyQueryIntent('How is user authentication flow implemented?', ['AuthService']),
+    'symbol_lookup',
+  );
+});
+
+test('classifyQueryIntent 对代码味较强的短查询判定为 symbol lookup', () => {
+  assert.equal(classifyQueryIntent('SearchService buildContextPack'), 'symbol_lookup');
+  assert.equal(classifyQueryIntent('AuthService.login'), 'symbol_lookup');
+});
+
+test('classifyQueryIntent 对自然语言流程问题保持 balanced', () => {
+  assert.equal(classifyQueryIntent('用户认证流程是如何实现的？'), 'balanced');
+});
+
+test('deriveQueryAwareSearchConfig 会为 symbol lookup 提高词法权重并收缩 rerank', () => {
+  const config = deriveQueryAwareSearchConfig(
+    {
+      vectorTopK: 80,
+      vectorTopM: 60,
+      ftsTopKFiles: 20,
+      lexChunksPerFile: 2,
+      lexTotalChunks: 40,
+      rrfK0: 20,
+      wVec: 0.6,
+      wLex: 0.4,
+      fusedTopM: 60,
+      rerankTopN: 10,
+      rerankMinPool: 12,
+      rerankMaxPool: 24,
+      rerankPoolScoreRatio: 0.6,
+      maxRerankChars: 1000,
+      maxBreadcrumbChars: 250,
+      headRatio: 0.67,
+      neighborHops: 2,
+      breadcrumbExpandLimit: 3,
+      importFilesPerSeed: 0,
+      chunksPerImportFile: 0,
+      decayNeighbor: 0.8,
+      decayBreadcrumb: 0.7,
+      decayImport: 0.6,
+      decayDepth: 0.7,
+      maxSegmentsPerFile: 3,
+      maxTotalChars: 48000,
+      enableSmartTopK: true,
+      smartTopScoreRatio: 0.5,
+      smartTopScoreDeltaAbs: 0.25,
+      smartMinScore: 0.25,
+      smartMinK: 2,
+      smartMaxK: 8,
+    },
+    'symbol_lookup',
+  );
+
+  assert.equal(config.wVec, 0.35);
+  assert.equal(config.wLex, 0.65);
+  assert.equal(config.rerankTopN, 8);
+  assert.equal(config.rerankMinPool, 10);
+  assert.equal(config.rerankMaxPool, 16);
 });
 
 test('selectRerankPoolCandidates 在候选较少时保持原样', () => {

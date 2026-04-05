@@ -126,8 +126,10 @@ export interface Segment {
 }
 
 export type LexicalStrategy = 'chunks_fts' | 'files_fts' | 'none';
+export type QueryIntent = 'balanced' | 'symbol_lookup';
 
 export interface RetrievalStats {
+  queryIntent: QueryIntent;
   lexicalStrategy: LexicalStrategy;
   vectorCount: number;
   lexicalCount: number;

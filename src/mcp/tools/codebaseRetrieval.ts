@@ -377,17 +377,21 @@ export async function handleCodebaseRetrieval(
 
   // 6. 执行搜索
   const searchStart = Date.now();
-  const contextPack = await service.buildContextPack(query, (stage) => {
-    if (stage === 'retrieve') {
-      reportProgress('retrieve', '执行混合召回');
-    } else if (stage === 'rerank') {
-      reportProgress('rerank', '执行精排');
-    } else if (stage === 'expand') {
-      reportProgress('expand', '执行上下文扩展');
-    } else if (stage === 'pack') {
-      reportProgress('pack', '执行上下文打包');
-    }
-  });
+  const contextPack = await service.buildContextPack(
+    query,
+    (stage) => {
+      if (stage === 'retrieve') {
+        reportProgress('retrieve', '执行混合召回');
+      } else if (stage === 'rerank') {
+        reportProgress('rerank', '执行精排');
+      } else if (stage === 'expand') {
+        reportProgress('expand', '执行上下文扩展');
+      } else if (stage === 'pack') {
+        reportProgress('pack', '执行上下文打包');
+      }
+    },
+    { technicalTerms: technical_terms },
+  );
   const totalMs = initMs + (Date.now() - searchStart);
   if (contextPack.debug) {
     contextPack.debug.timingMs.init = initMs;

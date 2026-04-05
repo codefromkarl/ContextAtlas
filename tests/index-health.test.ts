@@ -67,5 +67,7 @@ test('analyzeIndexHealth reports degraded chunk FTS coverage when vector chunks 
   assert.equal(report.snapshots[0].chunkFtsCoverage, 0);
   assert.equal(report.overall.status, 'degraded');
   assert.ok(report.overall.issues.some((issue) => issue.includes('chunk FTS 覆盖不足')));
-  assert.ok(report.overall.recommendations.some((rec) => rec.includes('重新索引')));
+  assert.ok(
+    report.overall.recommendations.some((rec) => rec.includes('fts:rebuild-chunks')),
+  );
 });

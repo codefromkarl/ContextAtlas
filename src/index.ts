@@ -305,6 +305,37 @@ cli
 // ===========================================
 
 cli
+  .command('fts:rebuild-chunks', '从当前向量索引重建 chunk FTS')
+  .option('--project-id <id>', '指定项目 ID（默认根据当前目录推导）')
+  .action(async (options: { projectId?: string }) => {
+    const projectId = options.projectId || generateProjectId(process.cwd());
+
+    const { resolveCurrentSnapshotId } = await import('./storage/layout.js');
+    const { initDb } = await import('./db/index.js');
+    const { getEmbeddingConfig } = await import('./config.js');
+    const { getVectorStore } = await import('./vectorStore/index.js');
+    const { rebuildChunksFtsFromVectorStore } = await import('./search/fts.js');
+
+    try {
+      const snapshotId = resolveCurrentSnapshotId(projectId);
+      const db = initDb(projectId, snapshotId);
+      const vectorStore = await getVectorStore(
+        projectId,
+        getEmbeddingConfig().dimensions,
+        snapshotId,
+      );
+      const result = await rebuildChunksFtsFromVectorStore(db, vectorStore);
+      logger.info(
+        `chunks_fts 已重建：files=${result.filesProcessed} chunks=${result.chunksIndexed}`,
+      );
+    } catch (err) {
+      const error = err as Error;
+      logger.error({ error: error.message }, '重建 chunk FTS 失败');
+      process.exit(1);
+    }
+  });
+
+cli
   .command('health:check', '检查索引系统健康状态（队列/快照/守护进程）')
   .option('--project-id <id>', '按项目 ID 过滤')
   .option('--json', '以 JSON 输出报告')

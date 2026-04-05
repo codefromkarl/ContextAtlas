@@ -386,7 +386,9 @@ export async function analyzeIndexHealth(
 
     if (snap.vectorChunkCount > 0 && (!snap.hasChunksFts || snap.chunkFtsCount === 0)) {
       issues.push(`项目 ${snap.projectId}: chunk FTS 覆盖不足 (0/${snap.vectorChunkCount})`);
-      recommendations.push(`重新索引以重建 chunk FTS: contextatlas index ${snap.projectId} --force`);
+      recommendations.push(
+        `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`,
+      );
     } else if (
       snap.vectorChunkCount > 0 &&
       snap.chunkFtsCoverage !== null &&
@@ -395,7 +397,9 @@ export async function analyzeIndexHealth(
       issues.push(
         `项目 ${snap.projectId}: chunk FTS 覆盖不足 (${snap.chunkFtsCount}/${snap.vectorChunkCount})`,
       );
-      recommendations.push(`重新索引以补齐 chunk FTS: contextatlas index ${snap.projectId} --force`);
+      recommendations.push(
+        `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`,
+      );
     }
   }
 

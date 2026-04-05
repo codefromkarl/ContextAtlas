@@ -100,6 +100,8 @@ export type SearchProgressStage = 'retrieve' | 'rerank' | 'expand' | 'pack';
 
 export interface BuildContextPackOptions {
   technicalTerms?: string[];
+  semanticQuery?: string;
+  lexicalQuery?: string;
 }
 
 export function classifyQueryIntent(query: string, technicalTerms: string[] = []): QueryIntent {
@@ -252,6 +254,8 @@ export class SearchService {
   ): Promise<ContextPack> {
     const queryIntent = classifyQueryIntent(query, options.technicalTerms || []);
     const activeConfig = deriveQueryAwareSearchConfig(this.config, queryIntent);
+    const semanticQuery = options.semanticQuery?.trim() || query;
+    const lexicalQuery = options.lexicalQuery?.trim() || query;
     const timingMs: Record<string, number> = {};
     let t0 = Date.now();
     const previousConfig = this.config;
@@ -260,7 +264,7 @@ export class SearchService {
     try {
       // 1. 混合召回
       onStage?.('retrieve');
-      const retrieved = await this.hybridRetrieve(query);
+      const retrieved = await this.hybridRetrieve(semanticQuery, lexicalQuery);
       const candidates = retrieved.chunks;
       timingMs.retrieve = Date.now() - t0;
       timingMs.retrieveVector = retrieved.timingMs.retrieveVector;
@@ -334,15 +338,18 @@ export class SearchService {
   /**
    * 混合召回：向量 + 词法
    */
-  private async hybridRetrieve(query: string): Promise<HybridRetrieveResult> {
+  private async hybridRetrieve(
+    semanticQuery: string,
+    lexicalQuery: string,
+  ): Promise<HybridRetrieveResult> {
     // 并行执行向量和词法召回
     const vectorStart = Date.now();
-    const vectorPromise = this.vectorRetrieve(query).then((results) => ({
+    const vectorPromise = this.vectorRetrieve(semanticQuery).then((results) => ({
       results,
       durationMs: Date.now() - vectorStart,
     }));
     const lexicalStart = Date.now();
-    const lexicalPromise = this.lexicalRetrieve(query).then((result) => ({
+    const lexicalPromise = this.lexicalRetrieve(lexicalQuery).then((result) => ({
       ...result,
       durationMs: Date.now() - lexicalStart,
     }));

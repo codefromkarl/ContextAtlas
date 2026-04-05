@@ -199,6 +199,31 @@ export function buildRetrievalTelemetry({
   };
 }
 
+export function resolveRetrievalQueries(
+  informationRequest: string,
+  technicalTerms: string[] = [],
+): {
+  semanticQuery: string;
+  lexicalQuery: string;
+  combinedQuery: string;
+} {
+  const normalizedInformationRequest = informationRequest.trim();
+  const normalizedTechnicalTerms = technicalTerms.map((term) => term.trim()).filter(Boolean);
+  const semanticQuery =
+    normalizedInformationRequest || normalizedTechnicalTerms.join(' ');
+  const lexicalQuery =
+    normalizedTechnicalTerms.length > 0
+      ? normalizedTechnicalTerms.join(' ')
+      : semanticQuery;
+  const combinedQuery = [semanticQuery, ...normalizedTechnicalTerms].filter(Boolean).join(' ');
+
+  return {
+    semanticQuery,
+    lexicalQuery,
+    combinedQuery,
+  };
+}
+
 /**
  * 处理 codebase-retrieval 工具调用
  *
@@ -352,13 +377,18 @@ export async function handleCodebaseRetrieval(
   // 3. 合并查询
   // - information_request 驱动语义向量搜索
   // - technical_terms 增强词法（FTS）匹配
-  const query = [information_request, ...(technical_terms || [])].filter(Boolean).join(' ');
+  const { semanticQuery, lexicalQuery, combinedQuery } = resolveRetrievalQueries(
+    information_request,
+    technical_terms || [],
+  );
 
   logger.info(
     {
       requestId,
       projectId: projectId.slice(0, 10),
-      query,
+      semanticQuery,
+      lexicalQuery,
+      query: combinedQuery,
     },
     'MCP 查询构建',
   );
@@ -378,7 +408,7 @@ export async function handleCodebaseRetrieval(
   // 6. 执行搜索
   const searchStart = Date.now();
   const contextPack = await service.buildContextPack(
-    query,
+    combinedQuery,
     (stage) => {
       if (stage === 'retrieve') {
         reportProgress('retrieve', '执行混合召回');
@@ -390,7 +420,11 @@ export async function handleCodebaseRetrieval(
         reportProgress('pack', '执行上下文打包');
       }
     },
-    { technicalTerms: technical_terms },
+    {
+      technicalTerms: technical_terms,
+      semanticQuery,
+      lexicalQuery,
+    },
   );
   const totalMs = initMs + (Date.now() - searchStart);
   if (contextPack.debug) {

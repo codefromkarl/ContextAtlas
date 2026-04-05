@@ -16,7 +16,8 @@ function findDistModule(prefix: string): string {
 const codebaseRetrievalModule = await import(findDistModule('codebaseRetrieval-'));
 const searchServiceModule = await import(findDistModule('SearchService-'));
 
-const { buildRetrievalTelemetry, createRetrievalProgressReporter } = codebaseRetrievalModule;
+const { buildRetrievalTelemetry, createRetrievalProgressReporter, resolveRetrievalQueries } =
+  codebaseRetrievalModule;
 const {
   classifyQueryIntent,
   deriveQueryAwareSearchConfig,
@@ -207,6 +208,25 @@ test('buildRetrievalTelemetry 汇总查询耗时与结果规模', () => {
   assert.deepEqual(telemetry.rerankUsage, {
     billedSearchUnits: 3,
     inputTokens: 42,
+  });
+});
+
+test('resolveRetrievalQueries 在带 technical terms 时分离语义与词法查询', () => {
+  assert.deepEqual(
+    resolveRetrievalQueries('How is auth flow implemented?', ['AuthService', 'login']),
+    {
+      semanticQuery: 'How is auth flow implemented?',
+      lexicalQuery: 'AuthService login',
+      combinedQuery: 'How is auth flow implemented? AuthService login',
+    },
+  );
+});
+
+test('resolveRetrievalQueries 在无 technical terms 时复用 information request', () => {
+  assert.deepEqual(resolveRetrievalQueries('用户认证流程是如何实现的？'), {
+    semanticQuery: '用户认证流程是如何实现的？',
+    lexicalQuery: '用户认证流程是如何实现的？',
+    combinedQuery: '用户认证流程是如何实现的？',
   });
 });
 

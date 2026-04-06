@@ -199,3 +199,54 @@
 3. [x] 发布门禁与 smoke gate
 4. [x] 团队级指标
 5. [ ] shared / personal memory 分层
+
+---
+
+## Phase D
+
+## vNext / Context Lifecycle
+
+目标：把 ContextAtlas 从“检索 + 记忆 + 打包”推进为“上下文生命周期系统”。
+
+设计基线见：[ContextAtlas 工程定位 / 下一版上下文 / 记忆架构草图](./ContextAtlas-Harness-Engineering.md#下一版上下文--记忆架构草图)
+
+### P3 对象模型
+
+- [ ] 定义 `ContextBlock` 类型与 block 分类
+- [ ] 定义 `TaskCheckpoint` 类型
+- [ ] 定义 `MemoryKind`：procedural / semantic / episodic / task-state
+- [ ] 统一 retrieval / memory / feedback 输出到 block-first 结构
+
+### P3 checkpoint / handoff / resume
+
+- [ ] 增加 checkpoint 存储模型与 CLI / MCP 入口
+- [ ] 新增 `create_checkpoint` / `load_checkpoint` / `list_checkpoints`
+- [ ] 让 `autoRecord` 支持生成正式 checkpoint，而不只是建议写入
+- [ ] 支持 handoff bundle 与 resume bundle
+
+### P3 progressive retrieval
+
+- [ ] `SearchService` 支持 `overview` / `expanded` 两种结果模式
+- [ ] `GraphExpander` 输出 exploration candidates 与 next-inspection suggestions
+- [ ] retrieval 结果优先返回引用与结构，再按需展开正文
+
+### P3 phase-aware context assembly
+
+- [ ] `MemoryRouter` 支持按 phase/profile 装配上下文
+- [ ] `loadModuleMemory` 支持 debug / implementation / handoff 等用途参数
+- [ ] `ContextPacker` 增加 block 级预算，而不只是 span / chars 预算
+
+### P3 记忆治理
+
+- [ ] `MemoryAutoRecorder` 增加 dedupe / merge / generalize / supersede
+- [ ] 自动写入附带 provenance / confidence
+- [ ] 区分稳定记忆与任务态临时记忆
+- [ ] stale / expired / superseded 生命周期与 UI/MCP 输出对齐
+
+### P3 验收标准
+
+- [ ] retrieval 结果可输出 block-first 结构
+- [ ] 长周期任务可通过 checkpoint 恢复，而不依赖自由文本总结
+- [ ] memory 可以明确区分 procedural / semantic / episodic / task-state
+- [ ] agent 可以先拿 overview，再按需展开代码正文
+- [ ] 记忆不会因自动写入而快速碎片化或污染

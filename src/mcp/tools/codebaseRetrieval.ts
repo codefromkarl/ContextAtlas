@@ -13,11 +13,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { responseFormatSchema } from './responseFormat.js';
 import { generateProjectId } from '../../db/index.js';
 import type {
+  ContextBlock,
   DecisionRecord,
   FeatureMemory,
   ResolvedLongTermMemoryItem,
+  TaskCheckpoint,
 } from '../../memory/types.js';
 import { resolveBaseDir } from '../../runtimePaths.js';
 // 注意：SearchService 和 scan 改为延迟导入，避免在 MCP 启动时就加载 native 模块
@@ -45,6 +48,9 @@ export const codebaseRetrievalSchema = z.object({
     .describe(
       'HARD FILTERS. Precise identifiers to narrow down results. Only use symbols KNOWN to exist to avoid false negatives.',
     ),
+  response_format: responseFormatSchema
+    .optional()
+    .describe('Response format: text, markdown(alias of text), or json'),
 });
 
 export type CodebaseRetrievalInput = z.infer<typeof codebaseRetrievalSchema>;
@@ -297,7 +303,7 @@ export async function handleCodebaseRetrieval(
   args: CodebaseRetrievalInput,
   onProgress?: ProgressCallback,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const { repo_path, information_request, technical_terms } = args;
+  const { repo_path, information_request, technical_terms, response_format } = args;
   const requestId = crypto.randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const reportProgress = createRetrievalProgressReporter(onProgress);
@@ -404,7 +410,11 @@ export async function handleCodebaseRetrieval(
       indexAction,
     });
     reportProgress('done', '未索引仓库已返回词法降级结果');
-    return formatMcpResponse(fallbackPack, resultCard);
+    return formatMcpResponse(fallbackPack, resultCard, {
+      responseFormat: response_format || 'text',
+      repoPath: repo_path,
+      informationRequest: information_request,
+    });
   }
 
   // 2. 检查必需的环境变量是否已配置（Embedding + Reranker 都是必需的）
@@ -606,7 +616,11 @@ export async function handleCodebaseRetrieval(
       details: ['当前结果来自已建立索引的混合检索链路'],
     },
   });
-  return formatMcpResponse(contextPack, resultCard);
+  return formatMcpResponse(contextPack, resultCard, {
+    responseFormat: response_format || 'text',
+    repoPath: repo_path,
+    informationRequest: information_request,
+  });
 }
 
 // 响应格式化
@@ -617,8 +631,40 @@ export async function handleCodebaseRetrieval(
 function formatMcpResponse(
   pack: ContextPack,
   resultCard: RetrievalResultCard,
+  options: {
+    responseFormat: 'text' | 'json';
+    repoPath: string;
+    informationRequest: string;
+  },
 ): { content: Array<{ type: 'text'; text: string }> } {
   const { files, seeds } = pack;
+  const contextBlocks = buildContextBlocks(pack, resultCard);
+  const checkpointCandidate = buildCheckpointCandidate(options.repoPath, options.informationRequest, contextBlocks, resultCard);
+
+  if (options.responseFormat === 'json') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              summary: {
+                codeBlocks: seeds.length,
+                files: files.length,
+                totalSegments: files.reduce((acc, f) => acc + f.segments.length, 0),
+              },
+              contextBlocks,
+              references: contextBlocks.flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, ...item }))),
+              nextInspectionSuggestions: resultCard.nextActions,
+              checkpointCandidate,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  }
 
   // 构建文件内容块
   const fileBlocks = files
@@ -1348,6 +1394,138 @@ function formatFeedbackMatches(matches: ResultCardFeedbackMatch[]): string {
 
 function formatReasoning(lines: string[]): string {
   return lines.map((line) => `- ${line}`).join('\n');
+}
+
+function buildContextBlocks(pack: ContextPack, resultCard: RetrievalResultCard): ContextBlock[] {
+  const blocks: ContextBlock[] = [];
+
+  for (const file of pack.files) {
+    for (const segment of file.segments) {
+      blocks.push({
+        id: `code:${segment.filePath}:${segment.startLine}-${segment.endLine}`,
+        type: 'code-evidence',
+        title: segment.filePath,
+        purpose: 'Provide directly relevant code evidence for the current query',
+        content: segment.text,
+        priority: 'high',
+        pinned: false,
+        expandable: true,
+        budgetChars: segment.text.length,
+        memoryKind: 'semantic',
+        provenance: [{ source: 'code', ref: `${segment.filePath}:L${segment.startLine}-L${segment.endLine}` }],
+      });
+    }
+  }
+
+  for (const match of resultCard.memories) {
+    blocks.push({
+      id: `memory:${match.memory.name}`,
+      type: 'module-summary',
+      title: match.memory.name,
+      purpose: 'Summarize stable module responsibilities and interfaces',
+      content: match.memory.responsibility,
+      priority: 'high',
+      pinned: true,
+      expandable: true,
+      memoryKind: 'semantic',
+      provenance: [{ source: 'feature-memory', ref: match.memory.name }],
+      freshness: {
+        lastVerifiedAt: match.freshness.lastVerifiedAt,
+        stale: match.freshness.status.includes('stale') || match.freshness.status.includes('conflict'),
+        confidence: match.freshness.confidence,
+      },
+    });
+  }
+
+  for (const match of resultCard.decisions) {
+    blocks.push({
+      id: `decision:${match.decision.id}`,
+      type: 'decision-context',
+      title: match.decision.title,
+      purpose: 'Capture relevant architecture and product decisions',
+      content: match.decision.decision,
+      priority: 'medium',
+      pinned: false,
+      expandable: true,
+      memoryKind: 'procedural',
+      provenance: [{ source: 'decision-record', ref: match.decision.id }],
+    });
+  }
+
+  for (const match of resultCard.longTermMemories) {
+    blocks.push({
+      id: `ltm:${match.memory.id}`,
+      type: 'repo-rules',
+      title: match.memory.title,
+      purpose: 'Provide non-code project state or durable repo rules',
+      content: match.memory.summary,
+      priority: 'medium',
+      pinned: false,
+      expandable: true,
+      memoryKind: 'procedural',
+      provenance: [{ source: 'long-term-memory', ref: match.memory.id }],
+      freshness: {
+        lastVerifiedAt: match.memory.lastVerifiedAt || match.memory.updatedAt,
+      },
+    });
+  }
+
+  for (const match of resultCard.feedbackSignals) {
+    blocks.push({
+      id: `feedback:${match.memory.id}`,
+      type: 'feedback-signals',
+      title: match.memory.title,
+      purpose: 'Surface recent feedback that may reduce trust in related context',
+      content: match.memory.summary,
+      priority: 'medium',
+      pinned: false,
+      expandable: false,
+      memoryKind: 'episodic',
+      provenance: [{ source: 'feedback', ref: match.memory.id }],
+      freshness: {
+        lastVerifiedAt: match.memory.lastVerifiedAt || match.memory.updatedAt,
+      },
+    });
+  }
+
+  blocks.push({
+    id: 'task:open-questions',
+    type: 'open-questions',
+    title: 'Next actions',
+    purpose: 'Capture immediate follow-up directions for the agent',
+    content: resultCard.nextActions.join('\n'),
+    priority: 'medium',
+    pinned: true,
+    expandable: false,
+    memoryKind: 'task-state',
+    provenance: [{ source: 'code', ref: 'result-card:next-actions' }],
+  });
+
+  return blocks;
+}
+
+function buildCheckpointCandidate(
+  repoPath: string,
+  informationRequest: string,
+  contextBlocks: ReturnType<typeof buildContextBlocks>,
+  resultCard: RetrievalResultCard,
+) : TaskCheckpoint {
+  const now = new Date().toISOString();
+  return {
+    id: `checkpoint:${crypto.createHash('sha1').update(`${repoPath}:${informationRequest}`).digest('hex').slice(0, 12)}`,
+    repoPath,
+    title: informationRequest,
+    goal: informationRequest,
+    phase: 'overview',
+    summary: resultCard.reasoning[0] || informationRequest,
+    activeBlockIds: contextBlocks.filter((block) => block.pinned).map((block) => block.id),
+    exploredRefs: contextBlocks.flatMap((block) => block.provenance.map((item) => item.ref)).slice(0, 20),
+    keyFindings: resultCard.reasoning.slice(0, 5),
+    unresolvedQuestions: [],
+    nextSteps: resultCard.nextActions,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 async function syncMemoryReviewStatus(

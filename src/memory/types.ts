@@ -162,6 +162,60 @@ export interface ProjectProfile {
 /**
  * 记忆查找结果
  */
+export type MemoryKind = 'procedural' | 'semantic' | 'episodic' | 'task-state';
+
+export type ContextBlockType =
+  | 'repo-rules'
+  | 'module-summary'
+  | 'decision-context'
+  | 'task-state'
+  | 'recent-findings'
+  | 'open-questions'
+  | 'code-evidence'
+  | 'feedback-signals';
+
+export interface ContextBlockProvenance {
+  source: 'code' | 'feature-memory' | 'decision-record' | 'long-term-memory' | 'feedback';
+  ref: string;
+}
+
+export interface ContextBlockFreshness {
+  lastVerifiedAt?: string;
+  stale?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
+}
+
+export interface ContextBlock {
+  id: string;
+  type: ContextBlockType;
+  title: string;
+  purpose: string;
+  content: string;
+  priority: 'high' | 'medium' | 'low';
+  pinned: boolean;
+  expandable: boolean;
+  budgetChars?: number;
+  memoryKind?: MemoryKind;
+  provenance: ContextBlockProvenance[];
+  freshness?: ContextBlockFreshness;
+}
+
+export interface TaskCheckpoint {
+  id: string;
+  repoPath: string;
+  title: string;
+  goal: string;
+  phase: 'overview' | 'research' | 'debug' | 'implementation' | 'verification' | 'handoff';
+  summary: string;
+  activeBlockIds: string[];
+  exploredRefs: string[];
+  keyFindings: string[];
+  unresolvedQuestions: string[];
+  nextSteps: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MemorySearchResult {
   memory: FeatureMemory;
   score: number;

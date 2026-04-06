@@ -31,6 +31,16 @@
 
 ---
 
+如果你是第一次接入，建议先读 [首次使用](./FIRST_USE.md)，再回到本页选择部署场景。
+
+产品身份映射：
+
+- 仓库名：`ContextAtlas`
+- npm 包名：`@codefromkarl/context-atlas`
+- CLI 命令：`contextatlas`
+
+---
+
 ## 安装方式
 
 ### npm 全局安装（推荐）
@@ -121,8 +131,11 @@ contextatlas index /path/to/your/project
 contextatlas daemon start
 
 # 6. 搜索
-cw search --information-request "用户登录流程是如何实现的？"
+contextatlas search --information-request "用户登录流程是如何实现的？"
+contextatlas search --information-request "用户登录流程是如何实现的？" --json
 ```
+
+说明：安装时使用 npm 包名 `@codefromkarl/context-atlas`，实际运行命令统一使用 `contextatlas`。
 
 ### 场景二：Claude Desktop MCP 集成
 
@@ -145,14 +158,20 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
         "EMBEDDINGS_MODEL": "BAAI/bge-m3",
         "RERANK_API_KEY": "your-key",
         "RERANK_BASE_URL": "https://api.siliconflow.cn/v1/rerank",
-        "RERANK_MODEL": "BAAI/bge-reranker-v2-m3"
+        "RERANK_MODEL": "BAAI/bge-reranker-v2-m3",
+        "CONTEXTATLAS_MCP_TOOLSET": "retrieval-only"
       }
     }
   }
 }
 ```
 
-**2. 重启 Claude Desktop**，确认 MCP 工具列表中出现 ContextAtlas 的 15 个工具。
+`CONTEXTATLAS_MCP_TOOLSET` 可选值：
+
+- `full`：默认，暴露全部 18 个工具
+- `retrieval-only`：仅暴露 7 个只读检索工具，适合降低上下文和工具选择负担
+
+**2. 重启 Claude Desktop**，确认 MCP 工具列表中出现 ContextAtlas 的 18 个工具；若启用了 `retrieval-only`，则会显示 7 个工具。
 
 **3. 在对话中直接使用**，无需额外提示词——工具已自动注册。
 
@@ -344,6 +363,16 @@ contextatlas usage:index-report --days 7
 
 # 检查索引系统健康度
 contextatlas health:check
+
+# 团队级运维摘要
+contextatlas ops:summary
+
+# 团队级稳定指标
+contextatlas ops:metrics --days 7 --stale-days 30
+
+# 更新策略与影响范围分析
+contextatlas index:plan /path/to/repo
+contextatlas index:plan /path/to/repo --json
 
 # 评估告警
 contextatlas alert:eval

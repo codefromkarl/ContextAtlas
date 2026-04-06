@@ -1,5 +1,7 @@
 # MCP 工具参考
 
+如果你是第一次接入 ContextAtlas，建议先读 [首次使用](./FIRST_USE.md)，确认默认 CLI 入口和索引状态，再配置 MCP。
+
 ## 配置
 
 ### Claude Desktop
@@ -21,7 +23,26 @@
 contextatlas mcp
 ```
 
-## 工具总览（15 个）
+如需降低客户端的工具选择负担，可以通过环境变量切换 MCP 工具集：
+
+```json
+{
+  "mcpServers": {
+    "contextatlas": {
+      "command": "contextatlas",
+      "args": ["mcp"],
+      "env": {
+        "CONTEXTATLAS_MCP_TOOLSET": "retrieval-only"
+      }
+    }
+  }
+}
+```
+
+- `full`：默认，暴露全部 18 个工具
+- `retrieval-only`：仅暴露 7 个只读检索工具，适合把 ContextAtlas 当作纯 retrieval/memory reader 使用
+
+## 工具总览（18 个）
 
 ### 代码检索
 
@@ -48,6 +69,7 @@ contextatlas mcp
 |------|------|
 | `record_long_term_memory` | 记录用户偏好、协作规则、外部参考 |
 | `manage_long_term_memory` | 查找/列举/清理/删除长期记忆（action: find / list / prune / delete） |
+| `record_result_feedback` | 记录结果有帮助/没帮助/记忆过期/绑定错误等反馈 |
 
 ### 跨项目 Hub
 
@@ -69,7 +91,7 @@ contextatlas mcp
 
 1. **先** `find_memory` 定位已有模块知识
 2. **再** `codebase-retrieval` 查看具体实现
-3. **完成后** `record_memory` / `record_decision` / `session_end` 回写稳定知识
+3. **完成后** `record_memory` / `record_decision` / `record_result_feedback` / `session_end` 回写稳定知识
 4. **跨项目复用时** `query_shared_memories` 查找相似实现
 
 ## 典型调用示例
@@ -94,7 +116,8 @@ contextatlas mcp
   "files": ["SearchService.ts", "GraphExpander.ts", "ContextPacker.ts"],
   "exports": ["SearchService"],
   "imports": ["VectorStore", "Database"],
-  "external": ["lancedb", "better-sqlite3"]
+  "external": ["lancedb", "better-sqlite3"],
+  "confirmationStatus": "human-confirmed"
 }
 ```
 
@@ -104,6 +127,18 @@ contextatlas mcp
 {
   "action": "find",
   "query": "user preferences"
+}
+```
+
+### 记录结果反馈
+
+```json
+{
+  "outcome": "memory-stale",
+  "targetType": "feature-memory",
+  "query": "Trace retrieval flow",
+  "targetId": "SearchService",
+  "details": "Memory still points to legacy path"
 }
 ```
 

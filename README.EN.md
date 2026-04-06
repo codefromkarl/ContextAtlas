@@ -19,6 +19,7 @@
 <p align="center">
   <a href="./README.md">简体中文</a> ·
   <a href="./docs/FIRST_USE.md">First Use</a> ·
+  <a href="./docs/UPDATE_2026_04_06.md">2026-04-06 Update</a> ·
   <a href="./docs/DEPLOYMENT.md">Deployment</a> ·
   <a href="./docs/CLI.md">CLI</a> ·
   <a href="./docs/MCP.md">MCP</a>
@@ -458,6 +459,7 @@ src/
 | Document | Purpose |
 |------|------|
 | [First use guide](./docs/FIRST_USE.md) | Fast onboarding path for the default `contextatlas` loop |
+| [2026-04-06 update summary](./docs/UPDATE_2026_04_06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
 | [Deployment guide](./docs/DEPLOYMENT.md) | Installation, deployment patterns, MCP integration, operations |
 | [CLI reference](./docs/CLI.md) | CLI commands, categories, and examples |
 | [MCP reference](./docs/MCP.md) | MCP tools, parameters, and calling patterns |

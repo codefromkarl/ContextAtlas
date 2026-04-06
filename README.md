@@ -19,6 +19,7 @@
 <p align="center">
   <a href="./README.EN.md">English</a> ·
   <a href="./docs/FIRST_USE.md">首次使用</a> ·
+  <a href="./docs/UPDATE_2026_04_06.md">2026-04-06 更新</a> ·
   <a href="./docs/DEPLOYMENT.md">部署手册</a> ·
   <a href="./docs/CLI.md">CLI</a> ·
   <a href="./docs/MCP.md">MCP</a>
@@ -460,6 +461,7 @@ src/
 | 文档 | 用途 |
 |------|------|
 | [首次使用](./docs/FIRST_USE.md) | 10 分钟跑通默认闭环，先理解包名、CLI 名和第一条查询 |
+| [2026-04-06 更新总结](./docs/UPDATE_2026_04_06.md) | 本轮主路径、记忆治理、可运维性、发布门禁与团队指标更新说明 |
 | [部署手册](./docs/DEPLOYMENT.md) | 安装、部署场景、MCP 集成、运维建议 |
 | [CLI 命令参考](./docs/CLI.md) | 所有 CLI 命令的分类说明和示例 |
 | [MCP 工具参考](./docs/MCP.md) | MCP 工具总览、参数和调用顺序 |

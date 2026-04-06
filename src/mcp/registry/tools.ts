@@ -89,6 +89,12 @@ Examples of BAD queries:
         response_format: {
           ...responseFormatProperty,
         },
+        response_mode: {
+          type: 'string',
+          enum: ['overview', 'expanded'],
+          description: 'Whether to return a lightweight overview or the expanded full retrieval payload',
+          default: 'expanded',
+        },
       },
       required: ['repo_path', 'information_request'],
     },

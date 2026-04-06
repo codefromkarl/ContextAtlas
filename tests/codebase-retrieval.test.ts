@@ -796,3 +796,252 @@ test('handleCodebaseRetrieval enqueues indexing and still returns lexical fallba
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
+
+
+test('handleCodebaseRetrieval returns lightweight overview payload when response_mode=overview and format=json', async () => {
+  const baseDir = createTempBaseDir();
+  const repoDir = path.join(baseDir, 'repo');
+  fs.mkdirSync(path.join(repoDir, 'src', 'search'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'src', 'search', 'SearchService.ts'), 'export class SearchService {}');
+
+  const previousEnv = {
+    CONTEXTATLAS_BASE_DIR: process.env.CONTEXTATLAS_BASE_DIR,
+    MCP_AUTO_INDEX: process.env.MCP_AUTO_INDEX,
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
+    RERANK_BASE_URL: process.env.RERANK_BASE_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+  };
+
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  process.env.MCP_AUTO_INDEX = 'false';
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
+  process.env.EMBEDDINGS_MODEL = 'test-embedding-model';
+  process.env.RERANK_API_KEY = 'test-key';
+  process.env.RERANK_BASE_URL = 'http://127.0.0.1/rerank';
+  process.env.RERANK_MODEL = 'test-rerank-model';
+
+  const projectId = generateProjectId(repoDir);
+  const db = initDb(projectId);
+  db.close();
+
+  const originalInit = SearchService.prototype.init;
+  const originalBuildContextPack = SearchService.prototype.buildContextPack;
+  SearchService.prototype.init = async function initMock(): Promise<void> {};
+  SearchService.prototype.buildContextPack = (async function buildContextPackMock() {
+    return {
+      query: 'Trace retrieval flow SearchService',
+      seeds: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          chunkIndex: 0,
+          score: 0.96,
+          source: 'vector' as const,
+          record: {
+            file_path: 'src/search/SearchService.ts',
+            chunk_index: 0,
+            content: 'export class SearchService {}',
+            display_code: 'export class SearchService {}',
+            breadcrumb: 'src/search/SearchService.ts > SearchService',
+            language: 'typescript',
+            hash: 'h1',
+            start_line: 1,
+            end_line: 1,
+            start_byte: 0,
+            end_byte: 30,
+            raw_start: 0,
+            raw_end: 30,
+            _distance: 0.04,
+          },
+        },
+      ],
+      expanded: [
+        {
+          filePath: 'src/search/GraphExpander.ts',
+          chunkIndex: 1,
+          score: 0.73,
+          source: 'import' as const,
+          record: {
+            file_path: 'src/search/GraphExpander.ts',
+            chunk_index: 1,
+            content: 'export class GraphExpander {}',
+            display_code: 'export class GraphExpander {}',
+            breadcrumb: 'src/search/GraphExpander.ts > GraphExpander',
+            language: 'typescript',
+            hash: 'h2',
+            start_line: 1,
+            end_line: 1,
+            start_byte: 0,
+            end_byte: 30,
+            raw_start: 0,
+            raw_end: 30,
+            _distance: 0.27,
+          },
+        },
+      ],
+      files: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          segments: [
+            {
+              filePath: 'src/search/SearchService.ts',
+              rawStart: 0,
+              rawEnd: 30,
+              startLine: 1,
+              endLine: 1,
+              score: 0.96,
+              breadcrumb: 'src/search/SearchService.ts > SearchService',
+              text: 'export class SearchService {}',
+            },
+          ],
+        },
+      ],
+      debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+    };
+  }) as typeof SearchService.prototype.buildContextPack;
+
+  try {
+    const response = await handleCodebaseRetrieval({
+      repo_path: repoDir,
+      information_request: 'Trace retrieval flow',
+      technical_terms: ['SearchService'],
+      response_format: 'json',
+      response_mode: 'overview',
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.summary.codeBlocks, 1);
+    assert.ok(Array.isArray(payload.topFiles));
+    assert.ok(Array.isArray(payload.expansionCandidates));
+    assert.equal(payload.expansionCandidates[0].filePath, 'src/search/GraphExpander.ts');
+    assert.equal(payload.expansionCandidates[0].reason, 'expanded via import');
+    assert.ok(Array.isArray(payload.nextInspectionSuggestions));
+    assert.equal(payload.contextBlocks, undefined);
+  } finally {
+    SearchService.prototype.init = originalInit;
+    SearchService.prototype.buildContextPack = originalBuildContextPack;
+
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('handleCodebaseRetrieval returns lightweight overview text without full code blocks', async () => {
+  const baseDir = createTempBaseDir();
+  const repoDir = path.join(baseDir, 'repo');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const previousEnv = {
+    CONTEXTATLAS_BASE_DIR: process.env.CONTEXTATLAS_BASE_DIR,
+    MCP_AUTO_INDEX: process.env.MCP_AUTO_INDEX,
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
+    RERANK_BASE_URL: process.env.RERANK_BASE_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+  };
+
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  process.env.MCP_AUTO_INDEX = 'false';
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
+  process.env.EMBEDDINGS_MODEL = 'test-embedding-model';
+  process.env.RERANK_API_KEY = 'test-key';
+  process.env.RERANK_BASE_URL = 'http://127.0.0.1/rerank';
+  process.env.RERANK_MODEL = 'test-rerank-model';
+
+  const projectId = generateProjectId(repoDir);
+  const db = initDb(projectId);
+  db.close();
+
+  const originalInit = SearchService.prototype.init;
+  const originalBuildContextPack = SearchService.prototype.buildContextPack;
+  SearchService.prototype.init = async function initMock(): Promise<void> {};
+  SearchService.prototype.buildContextPack = (async function buildContextPackMock() {
+    return {
+      query: 'Trace retrieval flow SearchService',
+      seeds: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          chunkIndex: 0,
+          score: 0.96,
+          source: 'vector' as const,
+          record: {
+            file_path: 'src/search/SearchService.ts',
+            chunk_index: 0,
+            content: 'export class SearchService {}',
+            display_code: 'export class SearchService {}',
+            breadcrumb: 'src/search/SearchService.ts > SearchService',
+            language: 'typescript',
+            hash: 'h1',
+            start_line: 1,
+            end_line: 1,
+            start_byte: 0,
+            end_byte: 30,
+            raw_start: 0,
+            raw_end: 30,
+            _distance: 0.04,
+          },
+        },
+      ],
+      expanded: [],
+      files: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          segments: [
+            {
+              filePath: 'src/search/SearchService.ts',
+              rawStart: 0,
+              rawEnd: 30,
+              startLine: 1,
+              endLine: 1,
+              score: 0.96,
+              breadcrumb: 'src/search/SearchService.ts > SearchService',
+              text: 'export class SearchService {}',
+            },
+          ],
+        },
+      ],
+      debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+    };
+  }) as typeof SearchService.prototype.buildContextPack;
+
+  try {
+    const response = await handleCodebaseRetrieval({
+      repo_path: repoDir,
+      information_request: 'Trace retrieval flow',
+      technical_terms: ['SearchService'],
+      response_mode: 'overview',
+    });
+
+    const text = response.content[0].text;
+    assert.match(text, /## Retrieval Overview/);
+    assert.match(text, /### Top Files/);
+    assert.match(text, /### Next Inspection Suggestions/);
+    assert.doesNotMatch(text, /```typescript/);
+  } finally {
+    SearchService.prototype.init = originalInit;
+    SearchService.prototype.buildContextPack = originalBuildContextPack;
+
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});

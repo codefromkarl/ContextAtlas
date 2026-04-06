@@ -51,6 +51,11 @@ export const codebaseRetrievalSchema = z.object({
   response_format: responseFormatSchema
     .optional()
     .describe('Response format: text, markdown(alias of text), or json'),
+  response_mode: z
+    .enum(['overview', 'expanded'])
+    .optional()
+    .default('expanded')
+    .describe('Whether to return a lightweight overview or the expanded full retrieval payload'),
 });
 
 export type CodebaseRetrievalInput = z.infer<typeof codebaseRetrievalSchema>;
@@ -303,7 +308,7 @@ export async function handleCodebaseRetrieval(
   args: CodebaseRetrievalInput,
   onProgress?: ProgressCallback,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const { repo_path, information_request, technical_terms, response_format } = args;
+  const { repo_path, information_request, technical_terms, response_format, response_mode } = args;
   const requestId = crypto.randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const reportProgress = createRetrievalProgressReporter(onProgress);
@@ -412,6 +417,7 @@ export async function handleCodebaseRetrieval(
     reportProgress('done', '未索引仓库已返回词法降级结果');
     return formatMcpResponse(fallbackPack, resultCard, {
       responseFormat: response_format || 'text',
+      responseMode: response_mode || 'expanded',
       repoPath: repo_path,
       informationRequest: information_request,
     });
@@ -618,6 +624,7 @@ export async function handleCodebaseRetrieval(
   });
   return formatMcpResponse(contextPack, resultCard, {
     responseFormat: response_format || 'text',
+    responseMode: response_mode || 'expanded',
     repoPath: repo_path,
     informationRequest: information_request,
   });
@@ -633,6 +640,7 @@ function formatMcpResponse(
   resultCard: RetrievalResultCard,
   options: {
     responseFormat: 'text' | 'json';
+    responseMode: 'overview' | 'expanded';
     repoPath: string;
     informationRequest: string;
   },
@@ -640,30 +648,57 @@ function formatMcpResponse(
   const { files, seeds } = pack;
   const contextBlocks = buildContextBlocks(pack, resultCard);
   const checkpointCandidate = buildCheckpointCandidate(options.repoPath, options.informationRequest, contextBlocks, resultCard);
+  const overview = buildOverviewData(pack, resultCard, contextBlocks);
 
   if (options.responseFormat === 'json') {
+    const payload = options.responseMode === 'overview'
+      ? {
+          summary: overview.summary,
+          topFiles: overview.topFiles,
+          references: overview.references,
+          expansionCandidates: overview.expansionCandidates,
+          nextInspectionSuggestions: overview.nextInspectionSuggestions,
+          checkpointCandidate,
+        }
+      : {
+          summary: {
+            codeBlocks: seeds.length,
+            files: files.length,
+            totalSegments: files.reduce((acc, f) => acc + f.segments.length, 0),
+          },
+          contextBlocks,
+          references: contextBlocks.flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, ...item }))),
+          expansionCandidates: overview.expansionCandidates,
+          nextInspectionSuggestions: resultCard.nextActions,
+          checkpointCandidate,
+        };
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(
-            {
-              summary: {
-                codeBlocks: seeds.length,
-                files: files.length,
-                totalSegments: files.reduce((acc, f) => acc + f.segments.length, 0),
-              },
-              contextBlocks,
-              references: contextBlocks.flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, ...item }))),
-              nextInspectionSuggestions: resultCard.nextActions,
-              checkpointCandidate,
-            },
-            null,
-            2,
-          ),
+          text: JSON.stringify(payload, null, 2),
         },
       ],
     };
+  }
+
+  if (options.responseMode === 'overview') {
+    const lines = [
+      '## Retrieval Overview',
+      `Files: ${overview.summary.files} | Code Blocks: ${overview.summary.codeBlocks} | Segments: ${overview.summary.totalSegments}`,
+      '',
+      '### Top Files',
+      ...(overview.topFiles.length > 0 ? overview.topFiles.map((item) => `- ${item.filePath} (${item.segmentCount} segments)`) : ['- None']),
+      '',
+      '### Expansion Candidates',
+      ...(overview.expansionCandidates.length > 0
+        ? overview.expansionCandidates.map((item) => `- ${item.filePath} | ${item.reason} | priority=${item.priority}`)
+        : ['- None']),
+      '',
+      '### Next Inspection Suggestions',
+      ...(overview.nextInspectionSuggestions.length > 0 ? overview.nextInspectionSuggestions.map((item) => `- ${item}`) : ['- None']),
+    ];
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
 
   // 构建文件内容块
@@ -1502,6 +1537,55 @@ function buildContextBlocks(pack: ContextPack, resultCard: RetrievalResultCard):
   });
 
   return blocks;
+}
+
+function buildOverviewData(
+  pack: ContextPack,
+  resultCard: RetrievalResultCard,
+  contextBlocks: ContextBlock[],
+): {
+  summary: { codeBlocks: number; files: number; totalSegments: number };
+  topFiles: Array<{ filePath: string; segmentCount: number }>;
+  references: Array<{ blockId: string; source: string; ref: string }>;
+  expansionCandidates: Array<{ filePath: string; reason: string; priority: 'high' | 'medium' | 'low' }>;
+  nextInspectionSuggestions: string[];
+} {
+  const topFiles = pack.files
+    .map((file) => ({ filePath: file.filePath, segmentCount: file.segments.length }))
+    .sort((a, b) => b.segmentCount - a.segmentCount)
+    .slice(0, 5);
+
+  const seen = new Set<string>();
+  const expansionCandidates = [...pack.expanded]
+    .sort((a, b) => b.score - a.score)
+    .filter((chunk) => {
+      const key = chunk.filePath;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5)
+    .map((chunk) => ({
+      filePath: chunk.filePath,
+      reason: `expanded via ${chunk.source}`,
+      priority: chunk.source === 'import' ? 'high' : chunk.source === 'breadcrumb' ? 'medium' : 'low',
+    }));
+
+  const references = contextBlocks
+    .flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, source: item.source, ref: item.ref })))
+    .slice(0, 20);
+
+  return {
+    summary: {
+      codeBlocks: pack.seeds.length,
+      files: pack.files.length,
+      totalSegments: pack.files.reduce((acc, file) => acc + file.segments.length, 0),
+    },
+    topFiles,
+    references,
+    expansionCandidates,
+    nextInspectionSuggestions: resultCard.nextActions,
+  };
 }
 
 function buildCheckpointCandidate(

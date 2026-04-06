@@ -155,3 +155,59 @@ test('load_module_memory mmr promotes novelty under strict budget', async () => 
     assert.ok(mmrNames.includes('SearchUI'));
   });
 });
+
+
+test('load_module_memory overview phase applies tighter profile defaults', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+
+    await store.saveFeature(buildMemory('SearchService', 'search service core pipeline', 'search.service.ts', ['search', 'service']));
+    await store.saveFeature(buildMemory('SearchPipelineService', 'search pipeline orchestration', 'search.pipeline.ts', ['search', 'pipeline']));
+    await store.saveFeature(buildMemory('SearchUI', 'search dashboard rendering', 'search.ui.ts', ['search', 'ui']));
+    await store.saveFeature(buildMemory('SearchMetrics', 'search metrics and reporting', 'search.metrics.ts', ['search', 'metrics']));
+    await store.saveFeature(buildMemory('SearchCache', 'search cache storage', 'search.cache.ts', ['search', 'cache']));
+
+    const response = await handleLoadModuleMemory(
+      {
+        query: 'search',
+        phase: 'overview',
+      },
+      projectRoot,
+    );
+
+    const text = response.content[0].text;
+    const names = parseModuleHeadings(text);
+    assert.ok(names.length <= 4);
+    assert.match(text, /Assembly Profile\*\*: overview/);
+    assert.match(text, /maxResults=4/);
+    assert.match(text, /enableScopeCascade=false/);
+  });
+});
+
+test('load_module_memory handoff profile disables mmr and uses handoff defaults', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+
+    await store.saveFeature(buildMemory('SearchService', 'search service core pipeline', 'search.service.ts', ['search', 'service']));
+    await store.saveFeature(buildMemory('SearchPipelineService', 'search pipeline orchestration', 'search.pipeline.ts', ['search', 'pipeline']));
+    await store.saveFeature(buildMemory('SearchUI', 'search dashboard rendering', 'search.ui.ts', ['search', 'ui']));
+
+    const response = await handleLoadModuleMemory(
+      {
+        query: 'search service pipeline',
+        profile: 'handoff',
+        format: 'json',
+      },
+      projectRoot,
+    );
+
+    const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.input.profile, 'handoff');
+    assert.equal(payload.input.useMmr, false);
+    assert.equal(payload.input.enableScopeCascade, false);
+    assert.equal(payload.input.maxResults, 6);
+    assert.equal(payload.input.mmrLambda, 0.8);
+  });
+});

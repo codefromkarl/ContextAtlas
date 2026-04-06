@@ -19,6 +19,14 @@ export const loadModuleMemorySchema = z.object({
   query: z.string().optional().describe('Keyword to search for matching modules'),
   scope: z.string().optional().describe('Explicit scope name to load all modules within'),
   filePaths: z.array(z.string()).optional().describe('File paths to match against triggerPaths'),
+  phase: z
+    .enum(['overview', 'debug', 'implementation', 'verification', 'handoff'])
+    .optional()
+    .describe('Task phase used to choose context assembly defaults'),
+  profile: z
+    .enum(['overview', 'debug', 'implementation', 'verification', 'handoff'])
+    .optional()
+    .describe('Assembly profile alias; overrides phase when provided'),
   enableScopeCascade: z
     .boolean()
     .optional()
@@ -76,10 +84,33 @@ export async function handleLoadModuleMemory(
     useMmr,
     mmrLambda,
     format,
+    phase,
+    profile,
   } = args;
 
+  const assembly = resolveAssemblyProfile({
+    phase,
+    profile,
+    enableScopeCascade,
+    maxResults,
+    useMmr,
+    mmrLambda,
+  });
+
   logger.info(
-    { moduleName, query, scope, filePaths, enableScopeCascade, maxResults, useMmr, mmrLambda },
+    {
+      moduleName,
+      query,
+      scope,
+      filePaths,
+      phase,
+      profile,
+      resolvedProfile: assembly.name,
+      enableScopeCascade: assembly.enableScopeCascade,
+      maxResults: assembly.maxResults,
+      useMmr: assembly.useMmr,
+      mmrLambda: assembly.mmrLambda,
+    },
     'MCP load_module_memory 调用开始',
   );
 
@@ -93,7 +124,7 @@ export async function handleLoadModuleMemory(
     query,
     scope,
     filePaths,
-    enableScopeCascade,
+    enableScopeCascade: assembly.enableScopeCascade,
   });
 
   if (routeResult.memories.length === 0) {
@@ -102,10 +133,11 @@ export async function handleLoadModuleMemory(
     if (query) hints.push(`query: "${query}"`);
     if (scope) hints.push(`scope: "${scope}"`);
     if (filePaths && filePaths.length > 0) hints.push(`filePaths: ${filePaths.join(', ')}`);
-    if (enableScopeCascade) hints.push('enableScopeCascade: true');
-    hints.push(`maxResults: ${maxResults}`);
-    if (!useMmr) hints.push('useMmr: false');
-    if (mmrLambda !== 0.65) hints.push(`mmrLambda: ${mmrLambda}`);
+    if (assembly.enableScopeCascade) hints.push('enableScopeCascade: true');
+    hints.push(`profile: ${assembly.name}`);
+    hints.push(`maxResults: ${assembly.maxResults}`);
+    if (!assembly.useMmr) hints.push('useMmr: false');
+    if (assembly.mmrLambda !== 0.65) hints.push(`mmrLambda: ${assembly.mmrLambda}`);
 
     return {
       content: [
@@ -121,9 +153,9 @@ export async function handleLoadModuleMemory(
     memories: routeResult.memories,
     matchDetails: routeResult.matchDetails,
     query,
-    maxResults,
-    useMmr,
-    mmrLambda,
+    maxResults: assembly.maxResults,
+    useMmr: assembly.useMmr,
+    mmrLambda: assembly.mmrLambda,
   });
   const selectedKeys = new Set(selected.memories.map((m) => normalizeModuleName(m.name)));
 
@@ -140,10 +172,12 @@ export async function handleLoadModuleMemory(
                 query,
                 scope,
                 filePaths,
-                enableScopeCascade,
-                maxResults,
-                useMmr,
-                mmrLambda,
+                phase,
+                profile: assembly.name,
+                enableScopeCascade: assembly.enableScopeCascade,
+                maxResults: assembly.maxResults,
+                useMmr: assembly.useMmr,
+                mmrLambda: assembly.mmrLambda,
               },
               result_count: selected.memories.length,
               match_details: routeResult.matchDetails,
@@ -168,7 +202,7 @@ export async function handleLoadModuleMemory(
     content: [
       {
         type: 'text',
-        text: `## Loaded ${selected.memories.length} Module Memory(ies)\n\n**Budget**: maxResults=${maxResults}, useMmr=${useMmr}, mmrLambda=${mmrLambda}, candidates=${routeResult.memories.length}\n\n**Match Details:**\n${matchSummary || '  - N/A'}\n\n---\n\n${formatted}`,
+        text: `## Loaded ${selected.memories.length} Module Memory(ies)\n\n**Assembly Profile**: ${assembly.name}\n\n**Budget**: maxResults=${assembly.maxResults}, useMmr=${assembly.useMmr}, mmrLambda=${assembly.mmrLambda}, enableScopeCascade=${assembly.enableScopeCascade}, candidates=${routeResult.memories.length}\n\n**Match Details:**\n${matchSummary || '  - N/A'}\n\n---\n\n${formatted}`,
       },
     ],
   };
@@ -196,6 +230,51 @@ function formatModuleMemory(memory: FeatureMemory): string {
 - **Internal Dependencies**: ${memory.dependencies.imports.join(', ') || 'N/A'}
 - **External Dependencies**: ${memory.dependencies.external.join(', ') || 'N/A'}
 - **Last Updated**: ${new Date(memory.lastUpdated).toLocaleString()}`;
+}
+
+type AssemblyProfileName = 'overview' | 'debug' | 'implementation' | 'verification' | 'handoff';
+
+function resolveAssemblyProfile(input: {
+  phase?: AssemblyProfileName;
+  profile?: AssemblyProfileName;
+  enableScopeCascade: boolean;
+  maxResults: number;
+  useMmr: boolean;
+  mmrLambda: number;
+}): {
+  name: AssemblyProfileName;
+  enableScopeCascade: boolean;
+  maxResults: number;
+  useMmr: boolean;
+  mmrLambda: number;
+} {
+  const name = input.profile || input.phase || 'implementation';
+  const defaults: Record<AssemblyProfileName, { enableScopeCascade: boolean; maxResults: number; useMmr: boolean; mmrLambda: number }> = {
+    overview: { enableScopeCascade: false, maxResults: 4, useMmr: true, mmrLambda: 0.7 },
+    debug: { enableScopeCascade: false, maxResults: 6, useMmr: true, mmrLambda: 0.55 },
+    implementation: { enableScopeCascade: true, maxResults: 8, useMmr: true, mmrLambda: 0.65 },
+    verification: { enableScopeCascade: false, maxResults: 5, useMmr: true, mmrLambda: 0.6 },
+    handoff: { enableScopeCascade: false, maxResults: 6, useMmr: false, mmrLambda: 0.8 },
+  };
+
+  const base = defaults[name];
+  const shouldApplyProfileDefaults = Boolean(input.phase || input.profile);
+
+  return shouldApplyProfileDefaults
+    ? {
+        name,
+        enableScopeCascade: base.enableScopeCascade,
+        maxResults: base.maxResults,
+        useMmr: base.useMmr,
+        mmrLambda: base.mmrLambda,
+      }
+    : {
+        name,
+        enableScopeCascade: input.enableScopeCascade,
+        maxResults: input.maxResults,
+        useMmr: input.useMmr,
+        mmrLambda: input.mmrLambda,
+      };
 }
 
 type MatchDetail = {

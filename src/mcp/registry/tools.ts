@@ -568,6 +568,16 @@ Examples:
           items: { type: 'string' },
           description: 'File paths to match against triggerPaths',
         },
+        phase: {
+          type: 'string',
+          enum: ['overview', 'debug', 'implementation', 'verification', 'handoff'],
+          description: 'Task phase used to choose context assembly defaults',
+        },
+        profile: {
+          type: 'string',
+          enum: ['overview', 'debug', 'implementation', 'verification', 'handoff'],
+          description: 'Assembly profile alias; overrides phase when provided',
+        },
         enableScopeCascade: {
           type: 'boolean',
           description: 'Whether to include additional modules from matched scopes',

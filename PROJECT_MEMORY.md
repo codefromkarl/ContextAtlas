@@ -19,6 +19,7 @@ tables:
 
 说明：
 - `.project-memory/` 仅作为历史兼容导入源，不再作为主存储。
+- `.omc/project-memory.json` 可作为项目档案导入源，导入后统一写入 SQLite 的 `global:profile / global:conventions / global:cross-cutting`。
 - 首次访问项目记忆时会自动注册项目并导入旧 JSON（如存在）。
 
 ## 核心模块

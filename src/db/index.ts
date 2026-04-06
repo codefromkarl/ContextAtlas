@@ -287,6 +287,7 @@ export function clear(db: Database.Database): void {
 // ===========================================
 
 const METADATA_KEY_EMBEDDING_DIMENSIONS = 'embedding_dimensions';
+const METADATA_KEY_INDEX_CONTENT_SCHEMA_VERSION = 'index_content_schema_version';
 
 /**
  * 获取 metadata 值
@@ -325,4 +326,18 @@ export function getStoredEmbeddingDimensions(db: Database.Database): number | nu
  */
 export function setStoredEmbeddingDimensions(db: Database.Database, dimensions: number): void {
   setMetadata(db, METADATA_KEY_EMBEDDING_DIMENSIONS, String(dimensions));
+}
+
+export function getStoredIndexContentSchemaVersion(db: Database.Database): number | null {
+  const value = getMetadata(db, METADATA_KEY_INDEX_CONTENT_SCHEMA_VERSION);
+  if (value === null) return null;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function setStoredIndexContentSchemaVersion(
+  db: Database.Database,
+  version: number,
+): void {
+  setMetadata(db, METADATA_KEY_INDEX_CONTENT_SCHEMA_VERSION, String(version));
 }

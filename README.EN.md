@@ -18,6 +18,7 @@
 
 <p align="center">
   <a href="./README.md">简体中文</a> ·
+  <a href="./docs/FIRST_USE.md">First Use</a> ·
   <a href="./docs/DEPLOYMENT.md">Deployment</a> ·
   <a href="./docs/CLI.md">CLI</a> ·
   <a href="./docs/MCP.md">MCP</a>
@@ -166,10 +167,18 @@ For a fuller architecture explanation, see [ContextAtlas engineering positioning
 npm install -g @codefromkarl/context-atlas
 ```
 
+Product identity mapping:
+
+- Repository: `ContextAtlas`
+- npm package: `@codefromkarl/context-atlas`
+- CLI command: `contextatlas`
+
 Available commands:
 
 - `contextatlas`
 - `cw` (short alias)
+
+The docs use `contextatlas` as the primary command name. `cw` remains as a compatibility alias.
 
 ## Configuration
 
@@ -201,34 +210,42 @@ RERANK_MODEL=
 
 ## Quick start
 
-### 1) Initialize and fill in API settings
+If you are onboarding for the first time, start with the [First use guide](./docs/FIRST_USE.md).
+
+### 1) Confirm the default entry flow
+
+```bash
+contextatlas start /path/to/repo
+```
+
+### 2) Initialize and fill in API settings
 
 ```bash
 contextatlas init
 # edit ~/.contextatlas/.env
 ```
 
-### 2) Index a repository
+### 3) Index a repository
 
 ```bash
 contextatlas index /path/to/repo
 ```
 
-### 3) Run local retrieval
+### 4) Run local retrieval
 
 ```bash
-cw search \
+contextatlas search \
   --repo-path /path/to/repo \
   --information-request "How is the authentication flow implemented?"
 ```
 
-### 4) Start the daemon (recommended)
+### 5) Start the daemon (recommended)
 
 ```bash
 contextatlas daemon start
 ```
 
-### 5) Expose it as an MCP server
+### 6) Expose it as an MCP server
 
 ```bash
 contextatlas mcp
@@ -248,7 +265,7 @@ Example:
 
 ```bash
 # retrieval
-cw search --repo-path /path/to/repo --information-request "Where is the payment retry policy implemented?"
+contextatlas search --repo-path /path/to/repo --information-request "Where is the payment retry policy implemented?"
 
 # project memory
 contextatlas memory:find "search"
@@ -306,7 +323,7 @@ A typical workflow looks like this:
 
 1. run `contextatlas init`
 2. run `contextatlas index /path/to/repo`
-3. use `cw search` or MCP tools to retrieve code and memory
+3. use `contextatlas search` or MCP tools to retrieve code and memory
 4. record stable module knowledge, decisions, or long-term memory after the task
 5. periodically run `health:full`, `monitor:retrieval`, `usage:index-report`, and `memory:health`
 
@@ -332,10 +349,12 @@ Why this helps:
 ### Retrieval and indexing
 
 ```bash
+contextatlas start /path/to/repo
 contextatlas index /path/to/repo
 contextatlas index --force
+contextatlas index:plan /path/to/repo --json
 contextatlas daemon start
-cw search --repo-path /path/to/repo --information-request "Where is the database connection logic?"
+contextatlas search --repo-path /path/to/repo --information-request "Where is the database connection logic?"
 ```
 
 ### Project memory and long-term memory
@@ -343,11 +362,16 @@ cw search --repo-path /path/to/repo --information-request "Where is the database
 ```bash
 contextatlas memory:find "auth"
 contextatlas memory:record "Auth Module" --desc "User authentication module" --dir "src/auth"
+contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
 contextatlas memory:list
 contextatlas memory:prune-long-term --include-stale
 contextatlas decision:list
 contextatlas profile:show
 ```
+
+`contextatlas start` now gives the default loop directly: `Connect Repo → Check Index Status → Ask → Review Result → Give Feedback / Save Memory`. Retrieval result cards also surface source hierarchy, freshness/conflict/confidence signals, and concrete follow-up commands.
+
+Index health checks now also show the latest successful indexing time and the latest execution mode for each project, so it is clearer whether a repository is staying healthy through incremental updates or falling back to rebuild-heavy recovery.
 
 ### Cross-project hub
 
@@ -362,11 +386,11 @@ contextatlas hub:deps <projectId> <moduleName>
 ```bash
 contextatlas monitor:retrieval --days 7
 contextatlas usage:index-report --days 7
+contextatlas ops:summary
+contextatlas ops:metrics --days 7 --stale-days 30
 contextatlas health:check
-contextatlas memory:health
-contextatlas health:full
+contextatlas index:plan /path/to/repo
 contextatlas alert:eval
-contextatlas usage:purge --days 90 --apply
 ```
 
 ## Architecture overview
@@ -433,6 +457,7 @@ src/
 
 | Document | Purpose |
 |------|------|
+| [First use guide](./docs/FIRST_USE.md) | Fast onboarding path for the default `contextatlas` loop |
 | [Deployment guide](./docs/DEPLOYMENT.md) | Installation, deployment patterns, MCP integration, operations |
 | [CLI reference](./docs/CLI.md) | CLI commands, categories, and examples |
 | [MCP reference](./docs/MCP.md) | MCP tools, parameters, and calling patterns |

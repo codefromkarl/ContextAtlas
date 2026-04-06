@@ -44,6 +44,14 @@ export interface FeatureMemory {
   keyPatterns: string[];
   /** 最后更新时间 */
   lastUpdated: string;
+  /** 记忆确认状态 */
+  confirmationStatus?: 'suggested' | 'agent-inferred' | 'human-confirmed';
+  /** 复核状态 */
+  reviewStatus?: 'verified' | 'needs-review';
+  /** 复核原因 */
+  reviewReason?: string;
+  /** 标记待复核时间 */
+  reviewMarkedAt?: string;
   /** 相关决策 ID */
   relatedDecisions?: string[];
   /** 相关记忆（跨模块/跨项目引用） */
@@ -78,6 +86,8 @@ export interface DecisionRecord {
   id: string;
   /** 记录日期 */
   date: string;
+  /** 审核人 / 责任人 */
+  reviewer?: string;
   /** 决策标题 */
   title: string;
   /** 背景上下文 */
@@ -135,6 +145,15 @@ export interface ProjectProfile {
     test: string[];
     dev: string[];
     start: string[];
+  };
+  /** 治理策略 */
+  governance?: {
+    /** 项目档案模式 */
+    profileMode?: 'editable' | 'organization-readonly';
+    /** shared memory 策略 */
+    sharedMemory?: 'disabled' | 'readonly' | 'editable';
+    /** personal memory 默认作用域 */
+    personalMemory?: 'project' | 'global-user';
   };
   /** 最后更新时间 */
   lastUpdated: string;

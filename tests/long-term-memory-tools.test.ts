@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { handleSessionEnd } from '../src/mcp/tools/autoRecord.ts';
 import {
   handleManageLongTermMemory,
@@ -10,6 +12,8 @@ import {
 } from '../src/mcp/tools/longTermMemory.ts';
 import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
 import { MemoryStore } from '../src/memory/MemoryStore.ts';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function withTempProjects(
   run: (projectA: string, projectB: string, dbPath: string) => Promise<void>,
@@ -178,6 +182,31 @@ test('session_end can extract long-term memory candidates and auto-record them',
   });
 });
 
+test('session_end autoRecord saves inferred feature memory with agent-inferred confirmation status', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const summary = [
+      '实现了 SearchService 模块，文件位于 src/search/SearchService.ts。',
+      '这个模块负责处理检索流程和上下文打包，后续还会继续扩展。',
+    ].join(' ');
+
+    const response = await handleSessionEnd({
+      summary,
+      project: projectRoot,
+      autoRecord: true,
+    });
+
+    assert.match(response.content[0].text, /模块记忆/);
+    assert.match(response.content[0].text, /SearchService/);
+
+    const store = new MemoryStore(projectRoot);
+    const memory = await store.readFeature('SearchService');
+    assert.ok(memory);
+    assert.equal(memory?.confirmationStatus, 'agent-inferred');
+  });
+});
+
 test('expired long-term memories are excluded by default and returned with status when explicitly included', async () => {
   await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
@@ -328,4 +357,64 @@ test('stale long-term memories can be listed with status and pruned in batch', a
     assert.equal(afterPrunePayload.result_count, 1);
     assert.equal(afterPrunePayload.results[0].title, '当前协作约束');
   });
+});
+
+test('memory:record-long-term CLI records explicit reference memories', async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cw-long-term-cli-'));
+  const projectRoot = path.join(tempDir, 'project');
+  mkdirSync(projectRoot, { recursive: true });
+
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = tempDir;
+
+  try {
+    const result = spawnSync(
+      'node',
+      [
+        '--import',
+        'tsx',
+        'src/index.ts',
+        'memory:record-long-term',
+        '--repo',
+        projectRoot,
+        '--type',
+        'reference',
+        '--title',
+        'Grafana Dashboard',
+        '--summary',
+        'Dashboard URL https://grafana.example.com/d/abc123',
+        '--links',
+        'https://grafana.example.com/d/abc123',
+        '--tags',
+        'grafana,ops',
+        '--json',
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: tempDir,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.tool, 'record_long_term_memory');
+    assert.equal(payload.memory.type, 'reference');
+
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(path.join(tempDir, 'memory-hub.db')));
+    const store = new MemoryStore(projectRoot);
+    const memories = await store.listLongTermMemories({ types: ['reference'], scope: 'project' });
+    assert.equal(memories.length, 1);
+    assert.equal(memories[0]?.title, 'Grafana Dashboard');
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });

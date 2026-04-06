@@ -50,6 +50,18 @@ export const recordMemorySchema = z.object({
   external: z.array(z.string()).optional().default([]).describe('External dependencies'),
   dataFlow: z.string().optional().default('').describe('Data flow description'),
   keyPatterns: z.array(z.string()).optional().default([]).describe('Key patterns'),
+  confirmationStatus: z
+    .enum(['suggested', 'agent-inferred', 'human-confirmed'])
+    .optional()
+    .default('human-confirmed')
+    .describe('Memory confirmation status'),
+  reviewStatus: z
+    .enum(['verified', 'needs-review'])
+    .optional()
+    .default('verified')
+    .describe('Review status for memory governance'),
+  reviewReason: z.string().optional().describe('Why the memory needs review'),
+  reviewMarkedAt: z.string().optional().describe('When the memory was marked for review'),
 });
 
 export const recordDecisionSchema = z.object({
@@ -57,6 +69,7 @@ export const recordDecisionSchema = z.object({
   title: z.string().describe('Decision title'),
   context: z.string().describe('Background context'),
   decision: z.string().describe('The decision made'),
+  reviewer: z.string().optional().describe('Optional reviewer / owner for the decision'),
   alternatives: z
     .array(
       z.object({
@@ -137,7 +150,14 @@ export async function handleFindMemory(
 
 检测到可能是新模块，建议记录功能记忆。
 
-**调用 record_memory 来记录此模块信息：**
+**优先调用 suggest_memory 生成建议，再决定是否 record_memory：**
+\`\`\`json
+{
+  "moduleName": "${query}"
+}
+\`\`\`
+
+或直接调用 record_memory 来确认记录：
 \`\`\`json
 {
   "name": "${query}",
@@ -157,7 +177,7 @@ export async function handleFindMemory(
       content: [
         {
           type: 'text',
-          text: `No feature memory found for query "${query}".\n\nTry using different keywords or record a new memory using 'record_memory'.`,
+          text: `No feature memory found for query "${query}".\n\nTry using different keywords or call 'suggest_memory' before recording a new memory.`,
         },
       ],
     };
@@ -219,6 +239,10 @@ export async function handleRecordMemory(
     external,
     dataFlow,
     keyPatterns,
+    confirmationStatus,
+    reviewStatus,
+    reviewReason,
+    reviewMarkedAt,
   } = args;
 
   logger.info({ name, dir }, 'MCP record_memory 调用开始');
@@ -243,15 +267,30 @@ export async function handleRecordMemory(
     dataFlow: dataFlow || '',
     keyPatterns: keyPatterns || [],
     lastUpdated: new Date().toISOString(),
+    confirmationStatus,
+    reviewStatus,
+    reviewReason,
+    reviewMarkedAt,
   };
 
+  const duplicateHints = await findPotentialDuplicateMemories(store, memory);
+
   const filePath = await store.saveFeature(memory);
+  const duplicateSection =
+    duplicateHints.length > 0
+      ? `\n\n### Potential Duplicates\n${duplicateHints
+          .map(
+            (hint) =>
+              `- **${hint.name}** (score=${hint.score.toFixed(2)}): ${hint.reason}`,
+          )
+          .join('\n')}\n\n建议先人工确认是否应合并、复用或改名，避免记忆污染。`
+      : '';
 
   return {
     content: [
       {
         type: 'text',
-        text: `## Feature Memory Recorded\n\n- **Name**: ${name}\n- **Location**: ${dir}\n- **Responsibility**: ${responsibility}\n- **Saved to**: ${filePath}`,
+        text: `## Feature Memory Recorded\n\n- **Name**: ${name}\n- **Location**: ${dir}\n- **Responsibility**: ${responsibility}\n- **Confirmation Status**: ${confirmationStatus}\n- **Review Status**: ${reviewStatus}${reviewReason ? ` (${reviewReason})` : ''}\n- **Saved to**: ${filePath}${duplicateSection}`,
       },
     ],
   };
@@ -264,7 +303,7 @@ export async function handleRecordDecision(
   args: RecordDecisionInput,
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const { id, title, context, decision, alternatives, rationale, consequences } = args;
+  const { id, title, context, decision, reviewer, alternatives, rationale, consequences } = args;
 
   logger.info({ id, title }, 'MCP record_decision 调用开始');
 
@@ -273,6 +312,7 @@ export async function handleRecordDecision(
   const decisionRecord: DecisionRecord = {
     id,
     date: new Date().toISOString().split('T')[0],
+    reviewer,
     title,
     context,
     decision,
@@ -288,7 +328,7 @@ export async function handleRecordDecision(
     content: [
       {
         type: 'text',
-        text: `## Decision Recorded\n\n- **ID**: ${id}\n- **Title**: ${title}\n- **Decision**: ${decision}\n- **Saved to**: ${filePath}`,
+        text: `## Decision Recorded\n\n- **ID**: ${id}\n- **Title**: ${title}\n- **Reviewer**: ${reviewer || 'N/A'}\n- **Decision**: ${decision}\n- **Saved to**: ${filePath}`,
       },
     ],
   };
@@ -573,6 +613,8 @@ function formatFeatureMemory(memory: FeatureMemory, matchFields?: string[]): str
 - **位置**: ${memory.location.dir}
 - **文件**: ${memory.location.files.join(', ') || 'N/A'}
 - **导出**: ${memory.api.exports.join(', ') || 'N/A'}${endpoints}
+- **确认状态**: ${memory.confirmationStatus || 'human-confirmed'}
+- **复核状态**: ${memory.reviewStatus || 'verified'}${memory.reviewReason ? ` (${memory.reviewReason})` : ''}
 - **数据流**: ${memory.dataFlow || 'N/A'}
 - **关键模式**: ${memory.keyPatterns.join(', ') || 'N/A'}
 - **内部依赖**: ${memory.dependencies.imports.join(', ') || 'N/A'}
@@ -626,4 +668,58 @@ ${profile.structure.keyModules.map((m) => `- **${m.name}**: ${m.path} - ${m.desc
 ---
 Last Updated: ${new Date(profile.lastUpdated).toLocaleString()}
 `;
+}
+
+async function findPotentialDuplicateMemories(
+  store: MemoryStore,
+  memory: FeatureMemory,
+): Promise<Array<{ name: string; score: number; reason: string }>> {
+  const existing = await store.listFeatures();
+  const currentTerms = buildMemorySimilarityTerms(memory);
+
+  return existing
+    .filter((item) => item.name !== memory.name)
+    .map((item) => {
+      const otherTerms = buildMemorySimilarityTerms(item);
+      const overlap = [...currentTerms].filter((term) => otherTerms.has(term));
+      const sameDir = item.location.dir === memory.location.dir;
+      const sameResponsibility =
+        item.responsibility.trim().toLowerCase() === memory.responsibility.trim().toLowerCase();
+      const score =
+        overlap.length / Math.max(1, Math.min(currentTerms.size, otherTerms.size))
+        + (sameDir ? 0.25 : 0)
+        + (sameResponsibility ? 0.35 : 0);
+
+      return {
+        name: item.name,
+        score,
+        reason: sameResponsibility
+          ? '职责描述高度接近'
+          : sameDir
+            ? `同目录且关键词重叠: ${overlap.slice(0, 4).join(', ')}`
+            : `关键词重叠: ${overlap.slice(0, 4).join(', ')}`,
+      };
+    })
+    .filter((item) => item.score >= 0.45)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+}
+
+function buildMemorySimilarityTerms(memory: FeatureMemory): Set<string> {
+  const tokens = [
+    memory.name,
+    memory.responsibility,
+    memory.location.dir,
+    ...memory.location.files,
+    ...memory.api.exports,
+    ...memory.dependencies.imports,
+    ...memory.keyPatterns,
+  ]
+    .join(' ')
+    .toLowerCase()
+    .split(/[\s,./\\|[\]{}()"':;!?<>`~@#$%^&*+=-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+
+  return new Set(tokens);
 }

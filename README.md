@@ -18,6 +18,7 @@
 
 <p align="center">
   <a href="./README.EN.md">English</a> ·
+  <a href="./docs/FIRST_USE.md">首次使用</a> ·
   <a href="./docs/DEPLOYMENT.md">部署手册</a> ·
   <a href="./docs/CLI.md">CLI</a> ·
   <a href="./docs/MCP.md">MCP</a>
@@ -168,10 +169,18 @@ ContextAtlas 的目标不是返回“最像的一段文本”，而是通过：
 npm install -g @codefromkarl/context-atlas
 ```
 
+产品身份映射：
+
+- 仓库名：`ContextAtlas`
+- npm 包名：`@codefromkarl/context-atlas`
+- CLI 命令：`contextatlas`
+
 可执行命令：
 
 - `contextatlas`
 - `cw`（短别名）
+
+文档默认统一使用 `contextatlas`，`cw` 保留为兼容短别名。
 
 ## 配置
 
@@ -203,34 +212,42 @@ RERANK_MODEL=
 
 ## 快速开始
 
-### 1）初始化并填写 API 配置
+如果你是第一次接入，先看 [首次使用](./docs/FIRST_USE.md)。
+
+### 1）确认主路径入口
+
+```bash
+contextatlas start /path/to/repo
+```
+
+### 2）初始化并填写 API 配置
 
 ```bash
 contextatlas init
 # 编辑 ~/.contextatlas/.env
 ```
 
-### 2）索引仓库
+### 3）索引仓库
 
 ```bash
 contextatlas index /path/to/repo
 ```
 
-### 3）本地检索
+### 4）本地检索
 
 ```bash
-cw search \
+contextatlas search \
   --repo-path /path/to/repo \
   --information-request "用户认证流程是如何实现的？"
 ```
 
-### 4）启动守护进程（推荐）
+### 5）启动守护进程（推荐）
 
 ```bash
 contextatlas daemon start
 ```
 
-### 5）作为 MCP Server 暴露给客户端
+### 6）作为 MCP Server 暴露给客户端
 
 ```bash
 contextatlas mcp
@@ -250,7 +267,7 @@ contextatlas mcp
 
 ```bash
 # 检索
-cw search --repo-path /path/to/repo --information-request "支付重试策略在哪里实现？"
+contextatlas search --repo-path /path/to/repo --information-request "支付重试策略在哪里实现？"
 
 # 项目记忆
 contextatlas memory:find "search"
@@ -308,7 +325,7 @@ ContextAtlas 的 MCP 工具覆盖：
 
 1. 用 `contextatlas init` 初始化环境
 2. 用 `contextatlas index /path/to/repo` 为仓库建立索引
-3. 用 `cw search` 或 MCP 工具获取相关代码和记忆
+3. 用 `contextatlas search` 或 MCP 工具获取相关代码和记忆
 4. 在任务完成后记录模块知识、决策或长期记忆
 5. 定期执行 `health:full`、`monitor:retrieval`、`usage:index-report` 和 `memory:health`
 
@@ -334,10 +351,12 @@ ContextAtlas 的 MCP 工具覆盖：
 ### 检索与索引
 
 ```bash
+contextatlas start /path/to/repo
 contextatlas index /path/to/repo
 contextatlas index --force
+contextatlas index:plan /path/to/repo --json
 contextatlas daemon start
-cw search --repo-path /path/to/repo --information-request "数据库连接逻辑"
+contextatlas search --repo-path /path/to/repo --information-request "数据库连接逻辑"
 ```
 
 ### 项目记忆与长期记忆
@@ -345,11 +364,16 @@ cw search --repo-path /path/to/repo --information-request "数据库连接逻辑
 ```bash
 contextatlas memory:find "auth"
 contextatlas memory:record "Auth Module" --desc "用户认证模块" --dir "src/auth"
+contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
 contextatlas memory:list
 contextatlas memory:prune-long-term --include-stale
 contextatlas decision:list
 contextatlas profile:show
 ```
+
+`contextatlas start` 会给出默认闭环：`Connect Repo → Check Index Status → Ask → Review Result → Give Feedback / Save Memory`。检索结果卡片会固定展示来源层级、freshness/conflict/confidence 信号，以及下一步反馈/沉淀命令。
+
+索引健康检查现在也会带出每个项目最近一次成功索引时间和最近执行模式，便于判断当前仓库是在持续增量更新还是仍依赖全量重建。
 
 ### 跨项目 Hub
 
@@ -364,11 +388,11 @@ contextatlas hub:deps <projectId> <moduleName>
 ```bash
 contextatlas monitor:retrieval --days 7
 contextatlas usage:index-report --days 7
+contextatlas ops:summary
+contextatlas ops:metrics --days 7 --stale-days 30
 contextatlas health:check
-contextatlas memory:health
-contextatlas health:full
+contextatlas index:plan /path/to/repo
 contextatlas alert:eval
-contextatlas usage:purge --days 90 --apply
 ```
 
 ## 架构概览
@@ -435,6 +459,7 @@ src/
 
 | 文档 | 用途 |
 |------|------|
+| [首次使用](./docs/FIRST_USE.md) | 10 分钟跑通默认闭环，先理解包名、CLI 名和第一条查询 |
 | [部署手册](./docs/DEPLOYMENT.md) | 安装、部署场景、MCP 集成、运维建议 |
 | [CLI 命令参考](./docs/CLI.md) | 所有 CLI 命令的分类说明和示例 |
 | [MCP 工具参考](./docs/MCP.md) | MCP 工具总览、参数和调用顺序 |

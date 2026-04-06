@@ -22,7 +22,7 @@ import type {
 } from './types.js';
 
 /** catalog schema 版本号 */
-const CATALOG_VERSION = 1;
+export const MEMORY_CATALOG_VERSION = 1;
 const DEFAULT_GLOBAL_FILES: MemoryCatalog['globalMemoryFiles'] = [
   'profile',
   'conventions',
@@ -362,7 +362,7 @@ export class MemoryRouter {
 
     if (!this.catalog) {
       this.catalog = {
-        version: CATALOG_VERSION,
+        version: MEMORY_CATALOG_VERSION,
         globalMemoryFiles: [...DEFAULT_GLOBAL_FILES],
         modules: {},
         scopes: {},
@@ -422,7 +422,7 @@ export class MemoryRouter {
    */
   async buildCatalog(): Promise<MemoryCatalog> {
     const catalog: MemoryCatalog = {
-      version: CATALOG_VERSION,
+      version: MEMORY_CATALOG_VERSION,
       globalMemoryFiles: [...DEFAULT_GLOBAL_FILES],
       modules: {},
       scopes: {},

@@ -1,7 +1,7 @@
 {
   "name": "@codefromkarl/context-atlas",
   "version": "0.0.7",
-  "description": "AI context infrastructure for code retrieval, project memory, and repository intelligence",
+  "description": "ContextAtlas CLI and MCP server for code retrieval, project memory, and repository intelligence",
   "license": "MIT",
   "author": "codefromkarl",
   "repository": {
@@ -26,7 +26,11 @@
     "build": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --sourcemap --clean",
     "build:release": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --clean",
     "dev": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --sourcemap --watch",
-    "fmt": "biome check --write ./src"
+    "fmt": "biome check --write ./src",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
+    "release:gate": "node --import tsx scripts/release-gate.ts",
+    "smoke:release": "node --import tsx scripts/release-smoke.ts",
+    "ci:verify": "pnpm release:gate"
   },
   "dependencies": {
     "@keqingmoe/tree-sitter": "^0.26.2",

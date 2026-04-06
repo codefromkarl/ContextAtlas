@@ -106,10 +106,11 @@ export async function handleSessionEnd(
         dataFlow: suggestedMemory.dataFlow || '',
         keyPatterns: [],
         lastUpdated: new Date().toISOString(),
+        confirmationStatus: 'agent-inferred',
       });
 
       savedBlocks.push(
-        `### 模块记忆\n- **模块名**: ${suggestedMemory.name}\n- **职责**: ${suggestedMemory.responsibility || '待补充'}\n- **目录**: ${suggestedMemory.dir}\n- **文件**: ${suggestedMemory.files.join(', ')}\n- **导出**: ${suggestedMemory.exports?.join(', ') || 'N/A'}\n- **Saved to**: ${filePath}`,
+        `### 模块记忆\n- **模块名**: ${suggestedMemory.name}\n- **职责**: ${suggestedMemory.responsibility || '待补充'}\n- **确认状态**: agent-inferred\n- **目录**: ${suggestedMemory.dir}\n- **文件**: ${suggestedMemory.files.join(', ')}\n- **导出**: ${suggestedMemory.exports?.join(', ') || 'N/A'}\n- **Saved to**: ${filePath}`,
       );
     }
 
@@ -139,7 +140,7 @@ export async function handleSessionEnd(
 
   if (suggestedMemory) {
     suggestionBlocks.push(
-      `## 检测到新模块，建议记录记忆\n\n**模块名**: ${suggestedMemory.name}\n\n**职责**: ${suggestedMemory.responsibility || '待补充'}\n\n**目录**: ${suggestedMemory.dir}\n\n**文件**: ${suggestedMemory.files.join(', ')}\n\n**导出**: ${suggestedMemory.exports?.join(', ') || 'N/A'}\n\n**置信度**: ${(suggestedMemory.confidence * 100).toFixed(0)}%\n\n---\n\n**调用 record_memory 确认记录**:\n\`\`\`json\n{\n  "name": "${suggestedMemory.name}",\n  "responsibility": "${suggestedMemory.responsibility || '待补充'}",\n  "dir": "${suggestedMemory.dir}",\n  "files": ${JSON.stringify(suggestedMemory.files)},\n  "exports": ${JSON.stringify(suggestedMemory.exports || [])}\n}\n\`\`\``,
+      `## 检测到新模块，建议记录记忆\n\n**模块名**: ${suggestedMemory.name}\n\n**职责**: ${suggestedMemory.responsibility || '待补充'}\n\n**建议状态**: suggested\n\n**目录**: ${suggestedMemory.dir}\n\n**文件**: ${suggestedMemory.files.join(', ')}\n\n**导出**: ${suggestedMemory.exports?.join(', ') || 'N/A'}\n\n**置信度**: ${(suggestedMemory.confidence * 100).toFixed(0)}%\n\n---\n\n**调用 record_memory 确认记录**:\n\`\`\`json\n{\n  "name": "${suggestedMemory.name}",\n  "responsibility": "${suggestedMemory.responsibility || '待补充'}",\n  "dir": "${suggestedMemory.dir}",\n  "files": ${JSON.stringify(suggestedMemory.files)},\n  "exports": ${JSON.stringify(suggestedMemory.exports || [])},\n  "confirmationStatus": "human-confirmed"\n}\n\`\`\``,
     );
   }
 
@@ -192,7 +193,7 @@ export async function handleSuggestMemory(
     content: [
       {
         type: 'text',
-        text: `## 建议记录模块\n\n**模块名**: ${moduleName}\n\n**目录**: ${info?.dir || 'src/'}\n\n**文件**: ${files?.join(', ') || '待指定'}\n\n**导出**: ${info?.exports?.join(', ') || '待分析'}\n\n---\n\n**调用 record_memory 确认记录**`,
+        text: `## 建议记录模块\n\n**模块名**: ${moduleName}\n\n**建议状态**: suggested\n\n**目录**: ${info?.dir || 'src/'}\n\n**文件**: ${files?.join(', ') || '待指定'}\n\n**导出**: ${info?.exports?.join(', ') || '待分析'}\n\n---\n\n**调用 record_memory 确认记录**`,
       },
     ],
   };

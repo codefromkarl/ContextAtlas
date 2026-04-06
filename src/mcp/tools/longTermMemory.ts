@@ -14,7 +14,7 @@ export const recordLongTermMemorySchema = z.object({
   why: z.string().optional().describe('Why this memory matters'),
   howToApply: z.string().optional().describe('How to apply this memory later'),
   tags: z.array(z.string()).optional().default([]).describe('Tags'),
-  scope: longTermMemoryScopeSchema.optional().default('project').describe('Memory scope'),
+  scope: longTermMemoryScopeSchema.optional().describe('Memory scope'),
   source: z
     .enum(['user-explicit', 'agent-inferred', 'tool-result'])
     .optional()
@@ -73,12 +73,15 @@ export async function handleRecordLongTermMemory(
   args: RecordLongTermMemoryInput,
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  const store = new MemoryStore(projectRoot);
+  const profile = await store.readProfile();
+  const resolvedScope = args.scope || profile?.governance?.personalMemory || 'project';
+
   logger.info(
-    { type: args.type, scope: args.scope, title: args.title },
+    { type: args.type, scope: resolvedScope, title: args.title },
     'MCP record_long_term_memory 调用开始',
   );
 
-  const store = new MemoryStore(projectRoot);
   const memory = await store.appendLongTermMemoryItem({
     type: args.type,
     title: args.title,
@@ -86,7 +89,7 @@ export async function handleRecordLongTermMemory(
     why: args.why,
     howToApply: args.howToApply,
     tags: args.tags,
-    scope: args.scope,
+    scope: resolvedScope,
     source: args.source,
     confidence: args.confidence,
     links: args.links,

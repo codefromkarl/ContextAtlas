@@ -42,6 +42,11 @@ export class SharedMemoryHub {
 
   // 为兼容旧调用签名，保留可选参数但不再使用文件目录。
   constructor(_deprecatedHubPath?: string) {
+    if (_deprecatedHubPath) {
+      this.db = new MemoryHubDatabase(_deprecatedHubPath);
+      return;
+    }
+
     if (!SharedMemoryHub.sharedDb) {
       SharedMemoryHub.sharedDb = new MemoryHubDatabase();
     }
@@ -64,9 +69,18 @@ export class SharedMemoryHub {
   async contribute(
     category: MemoryCategory,
     memory: FeatureMemory,
-    metadata?: { contributor?: string; sourceProject?: string; version?: string },
+    metadata?: { contributor?: string; sourceProject?: string; version?: string; projectRoot?: string },
   ): Promise<string> {
     await this.initialize();
+
+    if (metadata?.projectRoot) {
+      const store = new MemoryStore(metadata.projectRoot);
+      const profile = await store.readProfile();
+      const policy = profile?.governance?.sharedMemory || 'readonly';
+      if (policy !== 'editable') {
+        throw new Error(`Shared memory is ${policy}; contribution requires editable policy`);
+      }
+    }
 
     const memoryWithMetadata: FeatureMemory & SharedMemoryMetadata = {
       ...memory,
@@ -153,6 +167,14 @@ export class SharedMemoryHub {
     }
 
     const store = new MemoryStore(projectRoot);
+    const profile = await store.readProfile();
+    if (profile?.governance?.sharedMemory === 'disabled') {
+      return {
+        success: false,
+        filePath: '',
+        message: 'Shared memory is disabled by project profile governance',
+      };
+    }
 
     const syncedMemory: FeatureMemory = {
       ...memory,

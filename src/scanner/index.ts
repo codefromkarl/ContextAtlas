@@ -11,8 +11,10 @@ import {
   getAllFileMeta,
   getAllPaths,
   getFilesNeedingVectorIndex,
+  getStoredIndexContentSchemaVersion,
   getStoredEmbeddingDimensions,
   initDb,
+  setStoredIndexContentSchemaVersion,
   setStoredEmbeddingDimensions,
 } from '../db/index.js';
 import { closeAllIndexers, getIndexer } from '../indexer/index.js';
@@ -27,6 +29,7 @@ import { closeAllVectorStores } from '../vectorStore/index.js';
 import { crawl } from './crawler.js';
 import { initFilter } from './filter.js';
 import { type ProcessResult, processFiles } from './processor.js';
+import { INDEX_CONTENT_SCHEMA_VERSION } from './processor.js';
 
 /**
  * 扫描结果统计
@@ -96,6 +99,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
     if (options.vectorIndex !== false) {
       const currentDimensions = getEmbeddingConfig().dimensions;
       const storedDimensions = getStoredEmbeddingDimensions(db);
+      const storedSchemaVersion = getStoredIndexContentSchemaVersion(db);
 
       if (storedDimensions !== null && storedDimensions !== currentDimensions) {
         logger.warn(
@@ -105,8 +109,20 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
         forceReindex = true;
       }
 
+      if (
+        storedSchemaVersion !== null
+        && storedSchemaVersion !== INDEX_CONTENT_SCHEMA_VERSION
+      ) {
+        logger.warn(
+          { stored: storedSchemaVersion, current: INDEX_CONTENT_SCHEMA_VERSION },
+          '索引内容 schema 变化，强制重新索引',
+        );
+        forceReindex = true;
+      }
+
       // 更新存储的维度值
       setStoredEmbeddingDimensions(db, currentDimensions);
+      setStoredIndexContentSchemaVersion(db, INDEX_CONTENT_SCHEMA_VERSION);
     }
 
     // 如果强制重新索引，清空数据库和向量索引

@@ -10,6 +10,7 @@ import path from 'node:path';
 import { generateProjectId } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { importLegacyProjectMemoryIfNeeded } from './LegacyMemoryImporter.js';
+import { importOmcProjectProfileIfNeeded } from './OmcProjectMemoryImporter.js';
 import { type FeatureMemoryRow, MemoryHubDatabase } from './MemoryHubDatabase.js';
 import { MemoryRouter } from './MemoryRouter.js';
 import type {
@@ -107,6 +108,12 @@ export class MemoryStore {
       globalMetaPrefix: GLOBAL_META_PREFIX,
     });
 
+    await importOmcProjectProfileIfNeeded({
+      projectRoot: this.projectRoot,
+      projectId: this.projectId,
+      hub: this.hub,
+    });
+
     this.writeInitialized = true;
     logger.info({ projectId: this.projectId }, 'Project Memory SQLite 存储初始化完成');
   }
@@ -138,6 +145,11 @@ export class MemoryStore {
       data_flow: memory.dataFlow,
       key_patterns: memory.keyPatterns,
       memory_type: memory.memoryType || 'local',
+      confirmation_status: memory.confirmationStatus || 'human-confirmed',
+      review_status: memory.reviewStatus || 'verified',
+      review_reason: memory.reviewReason,
+      review_marked_at: memory.reviewMarkedAt,
+      updated_at: memory.lastUpdated,
     });
 
     const router = MemoryRouter.forProject(this.projectRoot);
@@ -271,6 +283,36 @@ export class MemoryStore {
     return deleted;
   }
 
+  async markFeatureNeedsReview(
+    moduleName: string,
+    reason: string,
+  ): Promise<FeatureMemory | null> {
+    await this.initializeWritable();
+
+    const existing = await this.readFeature(moduleName);
+    if (!existing) {
+      return null;
+    }
+
+    const reviewMarkedAt = new Date().toISOString();
+    const updated = this.hub.updateMemoryReviewStatus(this.projectId, existing.name, {
+      review_status: 'needs-review',
+      review_reason: reason,
+      review_marked_at: reviewMarkedAt,
+    });
+
+    if (!updated) {
+      return null;
+    }
+
+    const flagged = await this.readFeature(existing.name);
+    if (flagged) {
+      const router = MemoryRouter.forProject(this.projectRoot);
+      await router.updateCatalogEntry(flagged.name, flagged);
+    }
+    return flagged;
+  }
+
   async listFeatures(): Promise<FeatureMemory[]> {
     await this.initializeReadOnly();
     if (!this.hasProject()) {
@@ -291,6 +333,7 @@ export class MemoryStore {
       alternatives: decision.alternatives,
       consequences: decision.consequences,
       date: decision.date,
+      reviewer: decision.reviewer,
     });
 
     this.hub.saveDecision({
@@ -327,6 +370,7 @@ export class MemoryStore {
     return {
       id: String(row.decision_id ?? decisionId),
       date: String(contextPayload.date ?? row.created_at ?? new Date().toISOString().split('T')[0]),
+      reviewer: typeof contextPayload.reviewer === 'string' ? contextPayload.reviewer : undefined,
       title: String(row.title ?? ''),
       context: String(contextPayload.context ?? ''),
       decision: String(row.decision ?? ''),
@@ -357,6 +401,8 @@ export class MemoryStore {
           date: String(
             contextPayload.date ?? row.created_at ?? new Date().toISOString().split('T')[0],
           ),
+          reviewer:
+            typeof contextPayload.reviewer === 'string' ? contextPayload.reviewer : undefined,
           title: String(row.title ?? ''),
           context: String(contextPayload.context ?? ''),
           decision: String(row.decision ?? ''),
@@ -373,8 +419,15 @@ export class MemoryStore {
   // Project Profile
   // ===========================================
 
-  async saveProfile(profile: ProjectProfile): Promise<string> {
+  async saveProfile(profile: ProjectProfile, options?: { force?: boolean }): Promise<string> {
     await this.initializeWritable();
+    const existingProfile = await this.readProfile();
+    if (
+      existingProfile?.governance?.profileMode === 'organization-readonly'
+      && !options?.force
+    ) {
+      throw new Error('Project profile is readonly. Re-run with force to override.');
+    }
     return this.saveGlobal('profile', profile as unknown as Record<string, unknown>);
   }
 
@@ -918,6 +971,10 @@ export class MemoryStore {
       dataFlow: row.data_flow || '',
       keyPatterns: this.parseJson<string[]>(row.key_patterns, []),
       lastUpdated: row.updated_at || row.created_at || new Date().toISOString(),
+      confirmationStatus: row.confirmation_status || 'human-confirmed',
+      reviewStatus: row.review_status || 'verified',
+      reviewReason: row.review_reason || undefined,
+      reviewMarkedAt: row.review_marked_at || undefined,
       memoryType: row.memory_type,
       sourceProjectId: row.project_id,
     };

@@ -24,6 +24,10 @@ export {
   recordLongTermMemorySchema,
 } from './longTermMemory.js';
 export {
+  handleRecordResultFeedback,
+  recordResultFeedbackSchema,
+} from './feedbackLoop.js';
+export {
   getDependencyChainSchema,
   handleGetDependencyChain,
   handleLinkMemories,

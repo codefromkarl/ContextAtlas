@@ -187,6 +187,24 @@ contextatlas alert:config --disable <rule-id>
 contextatlas alert:config --reset
 ```
 
+`contextatlas ops:metrics` 现在会输出团队级质量指标，包括：
+
+- 查询成功率
+- 空结果率
+- 用户纠错率
+- memory stale 比例
+- 查询延迟
+- 索引失败率
+- 仓库质量分布（repo quality distribution）
+- 模块质量分布（module quality distribution）
+
+模块质量分布会综合：
+
+- `reviewStatus`（如 `needs-review`）
+- 与模块绑定的反馈信号（如 `memory-stale` / `wrong-module` / `not-helpful`）
+
+用于识别需要优先复核的 feature memories。
+
 默认 `contextatlas search` / MCP `codebase-retrieval` 结果卡片现在会固定补充：
 
 - `Source` 层级：Code / Feature Memory / Decision Record / Long-term Memory / Cross-project Hub

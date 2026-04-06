@@ -190,6 +190,7 @@ function formatModuleMemory(memory: FeatureMemory): string {
 - **Location**: ${memory.location.dir}
 - **Files**: ${memory.location.files.join(', ') || 'N/A'}
 - **Exports**: ${memory.api.exports.join(', ') || 'N/A'}${endpoints}
+- **Confirmation Status**: ${memory.confirmationStatus || 'human-confirmed'}
 - **Data Flow**: ${memory.dataFlow || 'N/A'}
 - **Key Patterns**: ${memory.keyPatterns.join(', ') || 'N/A'}
 - **Internal Dependencies**: ${memory.dependencies.imports.join(', ') || 'N/A'}
@@ -231,6 +232,9 @@ function applyBudget(params: BudgetParams): { memories: FeatureMemory[] } {
 
   const dedup = new Map<string, Candidate>();
   for (const memory of params.memories) {
+    if (memory.confirmationStatus === 'suggested') {
+      continue;
+    }
     const key = buildMemoryKey(memory);
     if (dedup.has(key)) {
       continue;
@@ -364,7 +368,11 @@ function calculateRelevance(
   }
 
   const recencySignal = calculateRecencyBoost(memory.lastUpdated);
-  const score = normalizedMatchSignal * 2 + querySignal + recencySignal;
+  const score =
+    normalizedMatchSignal * 2
+    + querySignal
+    + recencySignal
+    + getConfirmationStatusBoost(memory.confirmationStatus);
   return Number.isFinite(score) && score > 0 ? score : 0.1;
 }
 
@@ -434,4 +442,19 @@ function normalizeModuleName(value: string): string {
 
 function buildMemoryKey(memory: FeatureMemory): string {
   return `${normalizeModuleName(memory.name)}::${memory.location.dir.toLowerCase().trim()}`;
+}
+
+function getConfirmationStatusBoost(
+  status: FeatureMemory['confirmationStatus'],
+): number {
+  switch (status) {
+    case 'human-confirmed':
+      return 0.6;
+    case 'agent-inferred':
+      return 0.15;
+    case 'suggested':
+      return -10;
+    default:
+      return 0.4;
+  }
 }

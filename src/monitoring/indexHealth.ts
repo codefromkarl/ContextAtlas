@@ -26,6 +26,9 @@ export interface SnapshotHealth {
   projectId: string;
   hasCurrentSnapshot: boolean;
   currentSnapshotId: string | null;
+  lastSuccessfulAt: string | null;
+  lastSuccessfulAgeHuman: string | null;
+  lastSuccessfulScope: 'full' | 'incremental' | null;
   totalSnapshots: number;
   snapshotIds: string[];
   hasIndexDb: boolean;
@@ -170,6 +173,7 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
 
   const hasIndexDb = fs.existsSync(dbPath);
   const hasVectorIndex = fs.existsSync(vectorDir);
+  const lastSuccessfulExecution = resolveLastSuccessfulExecution(projectId);
 
   let dbIntegrity: 'ok' | 'corrupted' | 'missing' = hasIndexDb ? 'ok' : 'missing';
   let fileCount = 0;
@@ -244,6 +248,9 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
     projectId,
     hasCurrentSnapshot: currentSnapshotId !== null,
     currentSnapshotId,
+    lastSuccessfulAt: lastSuccessfulExecution?.finishedAtIso || null,
+    lastSuccessfulAgeHuman: lastSuccessfulExecution?.ageHuman || null,
+    lastSuccessfulScope: lastSuccessfulExecution?.scope || null,
     totalSnapshots: snapshotIds.length,
     snapshotIds,
     hasIndexDb,
@@ -258,6 +265,47 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
     chunkFtsCoverage,
     lastModified,
   };
+}
+
+function resolveLastSuccessfulExecution(projectId: string): {
+  finishedAtIso: string;
+  ageHuman: string;
+  scope: 'full' | 'incremental';
+} | null {
+  const dbPath = resolveQueueDbPath();
+  if (!fs.existsSync(dbPath)) {
+    return null;
+  }
+
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const row = db
+      .prepare(
+        `
+        SELECT scope, finished_at
+        FROM index_tasks
+        WHERE project_id = ?
+          AND status = 'done'
+          AND finished_at IS NOT NULL
+        ORDER BY finished_at DESC
+        LIMIT 1
+      `,
+      )
+      .get(projectId) as { scope: 'full' | 'incremental'; finished_at: number } | undefined;
+
+    if (!row?.finished_at) {
+      return null;
+    }
+
+    const finishedAt = new Date(row.finished_at);
+    return {
+      finishedAtIso: finishedAt.toISOString(),
+      ageHuman: formatAge(Date.now() - row.finished_at),
+      scope: row.scope,
+    };
+  } finally {
+    db.close();
+  }
 }
 
 function dirSize(dir: string): number {
@@ -425,9 +473,22 @@ export async function analyzeIndexHealth(
 
 export function formatIndexHealthReport(report: IndexHealthReport): string {
   const lines: string[] = [];
+  const latestSuccessSnapshot = report.snapshots.find((snap) => snap.lastSuccessfulAt) || null;
 
-  lines.push('Index Health Report');
+  lines.push('Index Health Panel');
   lines.push(`Status: ${report.overall.status.toUpperCase()}`);
+  lines.push('');
+
+  lines.push('Overview:');
+  lines.push(`  Queue Length: ${report.queue.queued}`);
+  lines.push(`  Running Tasks: ${report.queue.running}`);
+  lines.push(`  Failed Tasks: ${report.queue.failed}`);
+  lines.push(
+    `  Latest Success: ${latestSuccessSnapshot?.lastSuccessfulAt || 'n/a'}${latestSuccessSnapshot?.lastSuccessfulScope ? ` (${latestSuccessSnapshot.lastSuccessfulScope})` : ''}`,
+  );
+  if (report.queue.oldestQueuedAgeHuman) {
+    lines.push(`  Oldest Queued: ${report.queue.oldestQueuedAgeHuman}`);
+  }
   lines.push('');
 
   lines.push('Queue:');
@@ -457,10 +518,28 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
   }
   lines.push('');
 
-  lines.push('Snapshots:');
+  lines.push('Recovery Path:');
+  if (report.overall.recommendations.length > 0) {
+    for (const rec of report.overall.recommendations) {
+      lines.push(`  - ${rec}`);
+    }
+  } else {
+    lines.push('  - No recovery action needed');
+  }
+  lines.push('');
+
+  lines.push('Project Panels:');
   for (const snap of report.snapshots) {
     lines.push(`  ${snap.projectId}:`);
-    lines.push(`    Current: ${snap.currentSnapshotId || 'none'}`);
+    lines.push(`    Current Status: ${snap.dbIntegrity === 'corrupted' ? 'corrupted' : 'ready'}`);
+    lines.push(`    Snapshot Version: ${snap.currentSnapshotId || 'none'}`);
+    if (snap.lastSuccessfulAt) {
+      lines.push(
+        `    Last Success: ${snap.lastSuccessfulAt} (${snap.lastSuccessfulScope || 'unknown'}, ${snap.lastSuccessfulAgeHuman})`,
+      );
+    }
+    lines.push(`    Latest Mode: ${snap.lastSuccessfulScope || 'unknown'}`);
+    lines.push(`    Snapshot Count: ${snap.totalSnapshots}`);
     lines.push(`    Snapshots: ${snap.totalSnapshots}`);
     lines.push(
       `    DB: ${snap.hasIndexDb ? `${(snap.dbSizeBytes / 1024).toFixed(1)}KB` : 'missing'} (${snap.dbIntegrity})`,
@@ -475,6 +554,13 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
     if (snap.lastModified) {
       lines.push(`    Updated: ${snap.lastModified}`);
     }
+    const recoveryHints = buildSnapshotRecoveryHints(snap);
+    if (recoveryHints.length > 0) {
+      lines.push('    Recovery:');
+      for (const hint of recoveryHints) {
+        lines.push(`      - ${hint}`);
+      }
+    }
   }
   lines.push('');
 
@@ -486,14 +572,34 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
     lines.push('');
   }
 
-  if (report.overall.recommendations.length > 0) {
-    lines.push('Recommendations:');
-    for (const rec of report.overall.recommendations) {
-      lines.push(`  - ${rec}`);
-    }
-  } else {
+  if (report.overall.recommendations.length === 0) {
     lines.push('No issues detected. All systems healthy.');
   }
 
   return lines.join('\n');
+}
+
+function buildSnapshotRecoveryHints(snap: SnapshotHealth): string[] {
+  const hints: string[] = [];
+
+  if (!snap.hasCurrentSnapshot) {
+    hints.push(`Run full index: contextatlas index ${snap.projectId} --force`);
+  }
+  if (snap.dbIntegrity === 'corrupted') {
+    hints.push(`Rebuild corrupted index: contextatlas index ${snap.projectId} --force`);
+  }
+  if (snap.hasIndexDb && !snap.hasVectorIndex && snap.fileCount > 0) {
+    hints.push(`Regenerate vector index: contextatlas index ${snap.projectId} --force`);
+  }
+  if (snap.vectorChunkCount > 0 && (!snap.hasChunksFts || snap.chunkFtsCount === 0)) {
+    hints.push(`Rebuild chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`);
+  } else if (
+    snap.vectorChunkCount > 0
+    && snap.chunkFtsCoverage !== null
+    && snap.chunkFtsCoverage < 0.95
+  ) {
+    hints.push(`Repair chunk FTS coverage: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`);
+  }
+
+  return hints;
 }

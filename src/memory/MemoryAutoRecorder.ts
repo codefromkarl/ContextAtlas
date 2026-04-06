@@ -219,8 +219,8 @@ export class MemoryAutoRecorder {
 
     // 从会话摘要中提取可能的模块名（通过常见模式）
     const modulePatterns = [
-      /(?:创建了 | 实现了 | 修改了 | 开发了)\s*(?:一个\s*)?(\w+(?:Service|Module|Controller|Repository|Store|Manager))/g,
-      /(?:add|create|implement|modify|develop)\s*(?:a\s+)?(\w+(?:Service|Module|Controller|Repository|Store|Manager))/gi,
+      /(?:创建了|实现了|修改了|开发了)\s*(?:一个\s*)?(\w+(?:Service|Module|Controller|Repository|Store|Manager))/g,
+      /(?:add|create|implement|modify|develop)(?:ed|s|ing)?\s*(?:a\s+)?(\w+(?:Service|Module|Controller|Repository|Store|Manager))/gi,
     ];
 
     let moduleName: string | null = null;
@@ -408,6 +408,7 @@ export class MemoryAutoRecorder {
       dataFlow: '',
       keyPatterns: [],
       lastUpdated: new Date().toISOString(),
+      confirmationStatus: 'agent-inferred' as const,
     };
 
     return this.store.saveFeature(memory);

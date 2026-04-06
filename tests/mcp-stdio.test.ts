@@ -37,6 +37,7 @@ class McpStdIoClient {
       env: {
         ...process.env,
         HOME: homeDir,
+        CONTEXTATLAS_BASE_DIR: path.join(homeDir, '.contextatlas'),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });

@@ -29,6 +29,14 @@ const MAX_FILE_SIZE =
 const FALLBACK_LANGS = new Set(['python', 'go', 'rust', 'java', 'markdown', 'json']);
 
 /**
+ * 索引内容 schema 版本
+ *
+ * 用于显式标记 AST / 语义分片 / chunk metadata 规则的兼容性边界。
+ * 当分片策略或 chunk 结构发生不兼容变化时，应递增该版本，触发全量重建。
+ */
+export const INDEX_CONTENT_SCHEMA_VERSION = 1;
+
+/**
  * 检查 JSON 文件是否应该跳过索引
  *
  * 跳过条件：

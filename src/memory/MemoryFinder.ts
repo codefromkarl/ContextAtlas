@@ -75,6 +75,9 @@ export class MemoryFinder {
       const results: MemorySearchResult[] = [];
 
       for (const memory of routeResult.memories) {
+        if (memory.confirmationStatus === 'suggested') {
+          continue;
+        }
         const { score, matchFields } = this.calculateScore(memory, queryLower);
 
         if (score > 0) {
@@ -110,6 +113,9 @@ export class MemoryFinder {
     const results: MemorySearchResult[] = [];
 
     for (const memory of memories) {
+      if (memory.confirmationStatus === 'suggested') {
+        continue;
+      }
       const { score, matchFields } = this.calculateScore(memory, queryLower);
 
       if (score > 0) {
@@ -186,6 +192,7 @@ export class MemoryFinder {
       matchFields.push('imports');
     }
 
+    score += getConfirmationStatusScore(memory.confirmationStatus);
     return { score, matchFields };
   }
 
@@ -223,5 +230,20 @@ export class MemoryFinder {
     return memories.sort((a, b) =>
       new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
     );
+  }
+}
+
+function getConfirmationStatusScore(
+  status: FeatureMemory['confirmationStatus'],
+): number {
+  switch (status) {
+    case 'human-confirmed':
+      return 6;
+    case 'agent-inferred':
+      return 2;
+    case 'suggested':
+      return -100;
+    default:
+      return 4;
   }
 }

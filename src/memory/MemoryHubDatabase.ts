@@ -40,6 +40,10 @@ export interface FeatureMemoryRow {
   data_flow: string;
   key_patterns: string; // JSON
   memory_type: 'local' | 'shared' | 'pattern' | 'framework';
+  confirmation_status?: 'suggested' | 'agent-inferred' | 'human-confirmed';
+  review_status?: 'verified' | 'needs-review';
+  review_reason?: string;
+  review_marked_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -128,6 +132,10 @@ export class MemoryHubDatabase {
         data_flow TEXT DEFAULT '',
         key_patterns TEXT DEFAULT '[]',
         memory_type TEXT DEFAULT 'local' CHECK(memory_type IN ('local', 'shared', 'pattern', 'framework')),
+        confirmation_status TEXT DEFAULT 'human-confirmed' CHECK(confirmation_status IN ('suggested', 'agent-inferred', 'human-confirmed')),
+        review_status TEXT DEFAULT 'verified' CHECK(review_status IN ('verified', 'needs-review')),
+        review_reason TEXT,
+        review_marked_at TEXT,
         snapshot_id TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),
@@ -228,6 +236,30 @@ export class MemoryHubDatabase {
     }
     try {
       this.db.exec(`ALTER TABLE feature_memories ADD COLUMN key_patterns TEXT DEFAULT '[]'`);
+    } catch {
+      // column exists
+    }
+    try {
+      this.db.exec(
+        "ALTER TABLE feature_memories ADD COLUMN confirmation_status TEXT DEFAULT 'human-confirmed' CHECK(confirmation_status IN ('suggested', 'agent-inferred', 'human-confirmed'))",
+      );
+    } catch {
+      // column exists
+    }
+    try {
+      this.db.exec(
+        "ALTER TABLE feature_memories ADD COLUMN review_status TEXT DEFAULT 'verified' CHECK(review_status IN ('verified', 'needs-review'))",
+      );
+    } catch {
+      // column exists
+    }
+    try {
+      this.db.exec('ALTER TABLE feature_memories ADD COLUMN review_reason TEXT');
+    } catch {
+      // column exists
+    }
+    try {
+      this.db.exec('ALTER TABLE feature_memories ADD COLUMN review_marked_at TEXT');
     } catch {
       // column exists
     }
@@ -564,17 +596,22 @@ export class MemoryHubDatabase {
     data_flow?: string;
     key_patterns?: string[];
     memory_type?: 'local' | 'shared' | 'pattern' | 'framework';
+    confirmation_status?: 'suggested' | 'agent-inferred' | 'human-confirmed';
+    review_status?: 'verified' | 'needs-review';
+    review_reason?: string;
+    review_marked_at?: string;
     snapshot_id?: string;
+    updated_at?: string;
   }): number {
     const insert = this.db.prepare(`
       INSERT INTO feature_memories (
         project_id, name, responsibility, location_dir,
         location_files, api_exports, api_endpoints, dependencies, data_flow, key_patterns,
-        memory_type, snapshot_id, updated_at
+        memory_type, confirmation_status, review_status, review_reason, review_marked_at, snapshot_id, updated_at
       ) VALUES (
         @project_id, @name, @responsibility, @location_dir,
         @location_files, @api_exports, @api_endpoints, @dependencies, @data_flow, @key_patterns,
-        @memory_type, @snapshot_id, datetime('now')
+        @memory_type, @confirmation_status, @review_status, @review_reason, @review_marked_at, @snapshot_id, COALESCE(@updated_at, datetime('now'))
       )
       ON CONFLICT(project_id, name) DO UPDATE SET
         responsibility = @responsibility,
@@ -586,8 +623,12 @@ export class MemoryHubDatabase {
         data_flow = @data_flow,
         key_patterns = @key_patterns,
         memory_type = @memory_type,
+        confirmation_status = @confirmation_status,
+        review_status = @review_status,
+        review_reason = @review_reason,
+        review_marked_at = @review_marked_at,
         snapshot_id = @snapshot_id,
-        updated_at = datetime('now')
+        updated_at = COALESCE(@updated_at, datetime('now'))
     `);
 
     insert.run({
@@ -602,7 +643,12 @@ export class MemoryHubDatabase {
       data_flow: memory.data_flow || '',
       key_patterns: JSON.stringify(memory.key_patterns || []),
       memory_type: memory.memory_type || 'local',
+      confirmation_status: memory.confirmation_status || 'human-confirmed',
+      review_status: memory.review_status || 'verified',
+      review_reason: memory.review_reason || null,
+      review_marked_at: memory.review_marked_at || null,
       snapshot_id: memory.snapshot_id,
+      updated_at: memory.updated_at,
     });
 
     const persistedMemory = this.getMemory(memory.project_id, memory.name);
@@ -652,6 +698,32 @@ export class MemoryHubDatabase {
 
     const stmt = this.db.prepare('DELETE FROM feature_memories WHERE project_id = ? AND name = ?');
     const result = stmt.run(projectId, name);
+    return result.changes > 0;
+  }
+
+  updateMemoryReviewStatus(
+    projectId: string,
+    name: string,
+    review: {
+      review_status: 'verified' | 'needs-review';
+      review_reason?: string | null;
+      review_marked_at?: string | null;
+    },
+  ): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE feature_memories
+      SET review_status = ?,
+          review_reason = ?,
+          review_marked_at = ?
+      WHERE project_id = ? AND name = ?
+    `);
+    const result = stmt.run(
+      review.review_status,
+      review.review_reason ?? null,
+      review.review_marked_at ?? null,
+      projectId,
+      name,
+    );
     return result.changes > 0;
   }
 

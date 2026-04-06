@@ -65,6 +65,12 @@ jobs:
       - name: Build
         run: pnpm run build:release
 
+      - name: Run tests
+        run: pnpm test
+
+      - name: Run release smoke gate
+        run: pnpm smoke:release
+
       - name: Verify tag matches package.json version
         run: |
           PKG="$(node -p "require('./package.json').version")"
@@ -105,3 +111,12 @@ jobs:
             # or
             pnpm add -g @codefromkarl/context-atlas
             ```
+
+            ### Run
+            ```bash
+            contextatlas start /path/to/repo
+            contextatlas mcp
+            ```
+
+            Published package: `@codefromkarl/context-atlas`
+            Default CLI command: `contextatlas`

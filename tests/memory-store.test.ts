@@ -40,3 +40,36 @@ test('read-only MemoryStore operations do not auto-register project rows', async
     }
   });
 });
+
+
+test('MemoryStore can save, read, and list task checkpoints', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+
+    await store.saveCheckpoint({
+      id: 'chk_overview',
+      repoPath: projectRoot,
+      title: 'Overview checkpoint',
+      goal: 'Understand retrieval flow',
+      phase: 'overview',
+      summary: 'Captured current understanding of retrieval flow',
+      activeBlockIds: ['block:1'],
+      exploredRefs: ['src/search/SearchService.ts:L1-L20'],
+      keyFindings: ['SearchService orchestrates recall and pack'],
+      unresolvedQuestions: ['How should expansion candidates be ranked?'],
+      nextSteps: ['Inspect GraphExpander'],
+      createdAt: '2026-04-07T10:00:00.000Z',
+      updatedAt: '2026-04-07T10:00:00.000Z',
+    });
+
+    const loaded = await store.readCheckpoint('chk_overview');
+    assert.ok(loaded);
+    assert.equal(loaded?.title, 'Overview checkpoint');
+    assert.equal(loaded?.phase, 'overview');
+
+    const listed = await store.listCheckpoints();
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].id, 'chk_overview');
+  });
+});

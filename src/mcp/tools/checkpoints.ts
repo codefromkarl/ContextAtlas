@@ -1,0 +1,127 @@
+import crypto from 'node:crypto';
+import { z } from 'zod';
+import type { TaskCheckpoint } from '../../memory/types.js';
+import { MemoryStore } from '../../memory/MemoryStore.js';
+import { responseFormatSchema } from './responseFormat.js';
+
+export const createCheckpointSchema = z.object({
+  repo_path: z.string().describe('Absolute repository root path'),
+  title: z.string().describe('Checkpoint title'),
+  goal: z.string().describe('Task goal'),
+  phase: z.enum(['overview', 'research', 'debug', 'implementation', 'verification', 'handoff']),
+  summary: z.string().describe('Compact checkpoint summary'),
+  activeBlockIds: z.array(z.string()).optional().default([]),
+  exploredRefs: z.array(z.string()).optional().default([]),
+  keyFindings: z.array(z.string()).optional().default([]),
+  unresolvedQuestions: z.array(z.string()).optional().default([]),
+  nextSteps: z.array(z.string()).optional().default([]),
+  format: responseFormatSchema.optional().default('text'),
+});
+
+export const loadCheckpointSchema = z.object({
+  repo_path: z.string().describe('Absolute repository root path'),
+  checkpoint_id: z.string().describe('Checkpoint id'),
+  format: responseFormatSchema.optional().default('text'),
+});
+
+export const listCheckpointsSchema = z.object({
+  repo_path: z.string().describe('Absolute repository root path'),
+  format: responseFormatSchema.optional().default('text'),
+});
+
+export type CreateCheckpointInput = z.infer<typeof createCheckpointSchema>;
+export type LoadCheckpointInput = z.infer<typeof loadCheckpointSchema>;
+export type ListCheckpointsInput = z.infer<typeof listCheckpointsSchema>;
+
+function formatCheckpointText(checkpoint: TaskCheckpoint): string {
+  return [
+    '## Task Checkpoint',
+    `- **ID**: ${checkpoint.id}`,
+    `- **Title**: ${checkpoint.title}`,
+    `- **Goal**: ${checkpoint.goal}`,
+    `- **Phase**: ${checkpoint.phase}`,
+    `- **Summary**: ${checkpoint.summary}`,
+    `- **Active Blocks**: ${checkpoint.activeBlockIds.length}`,
+    `- **Explored Refs**: ${checkpoint.exploredRefs.length}`,
+    '',
+    '### Key Findings',
+    ...(checkpoint.keyFindings.length > 0 ? checkpoint.keyFindings.map((item) => `- ${item}`) : ['- None']),
+    '',
+    '### Unresolved Questions',
+    ...(checkpoint.unresolvedQuestions.length > 0
+      ? checkpoint.unresolvedQuestions.map((item) => `- ${item}`)
+      : ['- None']),
+    '',
+    '### Next Steps',
+    ...(checkpoint.nextSteps.length > 0 ? checkpoint.nextSteps.map((item) => `- ${item}`) : ['- None']),
+  ].join('\n');
+}
+
+export async function handleCreateCheckpoint(
+  args: CreateCheckpointInput,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  const store = new MemoryStore(args.repo_path);
+  const now = new Date().toISOString();
+  const checkpoint: TaskCheckpoint = {
+    id: `chk_${crypto.createHash('sha1').update(`${args.repo_path}:${args.title}:${args.goal}:${now}`).digest('hex').slice(0, 12)}`,
+    repoPath: args.repo_path,
+    title: args.title,
+    goal: args.goal,
+    phase: args.phase,
+    summary: args.summary,
+    activeBlockIds: args.activeBlockIds,
+    exploredRefs: args.exploredRefs,
+    keyFindings: args.keyFindings,
+    unresolvedQuestions: args.unresolvedQuestions,
+    nextSteps: args.nextSteps,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const savedTo = await store.saveCheckpoint(checkpoint);
+  if (args.format === 'json') {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ tool: 'create_checkpoint', checkpoint, savedTo }, null, 2) }],
+    };
+  }
+  return {
+    content: [{ type: 'text', text: `${formatCheckpointText(checkpoint)}
+
+- **Saved to**: ${savedTo}` }],
+  };
+}
+
+export async function handleLoadCheckpoint(
+  args: LoadCheckpointInput,
+): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+  const store = new MemoryStore(args.repo_path);
+  const checkpoint = await store.readCheckpoint(args.checkpoint_id);
+  if (!checkpoint) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Checkpoint not found: ${args.checkpoint_id}` }],
+    };
+  }
+  if (args.format === 'json') {
+    return { content: [{ type: 'text', text: JSON.stringify({ tool: 'load_checkpoint', checkpoint }, null, 2) }] };
+  }
+  return { content: [{ type: 'text', text: formatCheckpointText(checkpoint) }] };
+}
+
+export async function handleListCheckpoints(
+  args: ListCheckpointsInput,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  const store = new MemoryStore(args.repo_path);
+  const checkpoints = await store.listCheckpoints();
+  if (args.format === 'json') {
+    return { content: [{ type: 'text', text: JSON.stringify({ tool: 'list_checkpoints', total: checkpoints.length, checkpoints }, null, 2) }] };
+  }
+  const lines = [
+    '## Task Checkpoints',
+    `- **Total**: ${checkpoints.length}`,
+    '',
+    ...(checkpoints.length > 0
+      ? checkpoints.map((checkpoint) => `- ${checkpoint.id} | ${checkpoint.phase} | ${checkpoint.title}`)
+      : ['- None']),
+  ];
+  return { content: [{ type: 'text', text: lines.join('\n') }] };
+}

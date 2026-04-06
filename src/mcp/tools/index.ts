@@ -51,3 +51,12 @@ export {
   recordDecisionSchema,
   recordMemorySchema,
 } from './projectMemory.js';
+
+export {
+  createCheckpointSchema,
+  handleCreateCheckpoint,
+  handleListCheckpoints,
+  handleLoadCheckpoint,
+  listCheckpointsSchema,
+  loadCheckpointSchema,
+} from './checkpoints.js';

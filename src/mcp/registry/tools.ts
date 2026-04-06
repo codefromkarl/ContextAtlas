@@ -1,7 +1,10 @@
 import { createResponseFormatInputSchemaProperty } from '../tools/responseFormat.js';
 import {
   codebaseRetrievalSchema,
+  createCheckpointSchema,
   deleteMemorySchema,
+  listCheckpointsSchema,
+  loadCheckpointSchema,
   findMemorySchema,
   getDependencyChainSchema,
   getProjectProfileSchema,
@@ -83,8 +86,69 @@ Examples of BAD queries:
           description:
             'HARD FILTERS. An optional list of EXACT, KNOWN identifiers (class/function names, constants) that MUST appear in the code. Only use terms you are 100% sure exist. Leave empty if exploring.',
         },
+        response_format: {
+          ...responseFormatProperty,
+        },
       },
       required: ['repo_path', 'information_request'],
+    },
+  },
+  {
+    name: 'create_checkpoint',
+    description: `
+Create a durable task checkpoint for later resume or handoff.
+
+Use this after research, debugging, or implementation milestones when you want to preserve current task state outside the conversation transcript.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string', description: 'Absolute repository root path' },
+        title: { type: 'string', description: 'Checkpoint title' },
+        goal: { type: 'string', description: 'Task goal' },
+        phase: {
+          type: 'string',
+          enum: ['overview', 'research', 'debug', 'implementation', 'verification', 'handoff'],
+          description: 'Current task phase',
+        },
+        summary: { type: 'string', description: 'Compact checkpoint summary' },
+        activeBlockIds: { type: 'array', items: { type: 'string' }, description: 'Pinned context block ids' },
+        exploredRefs: { type: 'array', items: { type: 'string' }, description: 'Evidence references explored so far' },
+        keyFindings: { type: 'array', items: { type: 'string' }, description: 'Key findings' },
+        unresolvedQuestions: { type: 'array', items: { type: 'string' }, description: 'Open questions' },
+        nextSteps: { type: 'array', items: { type: 'string' }, description: 'Recommended next steps' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['repo_path', 'title', 'goal', 'phase', 'summary'],
+    },
+  },
+  {
+    name: 'load_checkpoint',
+    description: `
+Load a previously saved task checkpoint for resume or handoff.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string', description: 'Absolute repository root path' },
+        checkpoint_id: { type: 'string', description: 'Checkpoint id' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['repo_path', 'checkpoint_id'],
+    },
+  },
+  {
+    name: 'list_checkpoints',
+    description: `
+List durable task checkpoints saved for the current repository.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string', description: 'Absolute repository root path' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['repo_path'],
     },
   },
   {

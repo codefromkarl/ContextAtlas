@@ -26,6 +26,7 @@ import type {
   MemoryCatalog,
   ProjectProfile,
   ResolvedLongTermMemoryItem,
+  TaskCheckpoint,
 } from './types.js';
 
 const CATALOG_META_KEY = 'catalog';
@@ -319,6 +320,51 @@ export class MemoryStore {
       return [];
     }
     return this.hub.listMemories(this.projectId).map((row) => this.mapRowToFeature(row));
+  }
+
+  async saveCheckpoint(checkpoint: TaskCheckpoint): Promise<string> {
+    await this.initializeWritable();
+    const key = `checkpoint:${checkpoint.id}`;
+    const normalized: TaskCheckpoint = {
+      ...checkpoint,
+      repoPath: this.projectRoot,
+      updatedAt: new Date().toISOString(),
+      createdAt: checkpoint.createdAt || new Date().toISOString(),
+    };
+    this.hub.setProjectMeta(this.projectId, key, JSON.stringify(normalized));
+    return `sqlite://memory-hub.db#project=${this.projectId}&checkpoint=${encodeURIComponent(checkpoint.id)}`;
+  }
+
+  async readCheckpoint(checkpointId: string): Promise<TaskCheckpoint | null> {
+    await this.initializeReadOnly();
+    if (!this.hasProject()) {
+      return null;
+    }
+    const raw = this.hub.getProjectMeta(this.projectId, `checkpoint:${checkpointId}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as TaskCheckpoint;
+    } catch {
+      return null;
+    }
+  }
+
+  async listCheckpoints(): Promise<TaskCheckpoint[]> {
+    await this.initializeReadOnly();
+    if (!this.hasProject()) {
+      return [];
+    }
+    const rows = this.hub.listProjectMeta(this.projectId, 'checkpoint:');
+    return rows
+      .map((row) => {
+        try {
+          return JSON.parse(row.meta_value) as TaskCheckpoint;
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is TaskCheckpoint => value !== null)
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   }
 
   // ===========================================

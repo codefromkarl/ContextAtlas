@@ -7,6 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { deriveStableProjectId } from '../src/db/index.ts';
 import { handleListMemoryCatalog } from '../src/mcp/tools/listMemoryCatalog.ts';
+import { handleCreateCheckpoint, handleListCheckpoints, handleLoadCheckpoint } from '../src/mcp/tools/checkpoints.ts';
 import { handleLoadModuleMemory } from '../src/mcp/tools/loadModuleMemory.ts';
 import { handleManageProjects } from '../src/mcp/tools/memoryHub.ts';
 import { handleFindMemory } from '../src/mcp/tools/projectMemory.ts';
@@ -512,5 +513,50 @@ test('load_module_memory excludes suggested memories from main path results', as
     assert.equal(payload.result_count, 1);
     assert.equal(payload.memories[0].name, 'SearchService');
     assert.equal(payload.memories[0].confirmationStatus, 'human-confirmed');
+  });
+});
+
+
+test('checkpoint MCP tools can create, load, and list checkpoints', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const createResponse = await handleCreateCheckpoint({
+      repo_path: projectRoot,
+      title: 'Retrieval overview',
+      goal: 'Understand retrieval path',
+      phase: 'overview',
+      summary: 'Captured current retrieval overview',
+      activeBlockIds: ['block:overview'],
+      exploredRefs: ['src/search/SearchService.ts:L1-L30'],
+      keyFindings: ['SearchService is the main orchestration entry'],
+      unresolvedQuestions: ['How to persist handoff state?'],
+      nextSteps: ['Inspect MemoryStore'],
+      format: 'json',
+    });
+
+    const created = JSON.parse(createResponse.content[0].text);
+    assert.equal(created.tool, 'create_checkpoint');
+    assert.equal(created.checkpoint.phase, 'overview');
+    assert.ok(created.checkpoint.id);
+
+    const loadResponse = await handleLoadCheckpoint({
+      repo_path: projectRoot,
+      checkpoint_id: created.checkpoint.id,
+      format: 'json',
+    });
+    const loaded = JSON.parse(loadResponse.content[0].text);
+    assert.equal(loaded.tool, 'load_checkpoint');
+    assert.equal(loaded.checkpoint.id, created.checkpoint.id);
+    assert.equal(loaded.checkpoint.goal, 'Understand retrieval path');
+
+    const listResponse = await handleListCheckpoints({
+      repo_path: projectRoot,
+      format: 'json',
+    });
+    const listed = JSON.parse(listResponse.content[0].text);
+    assert.equal(listed.tool, 'list_checkpoints');
+    assert.equal(listed.total, 1);
+    assert.equal(listed.checkpoints[0].id, created.checkpoint.id);
   });
 });

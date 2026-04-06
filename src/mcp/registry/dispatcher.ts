@@ -1,7 +1,11 @@
 import type { ToolTextResponse } from '../response.js';
 import {
   codebaseRetrievalSchema,
+  createCheckpointSchema,
   deleteMemorySchema,
+  handleCreateCheckpoint,
+  handleListCheckpoints,
+  handleLoadCheckpoint,
   findMemorySchema,
   getDependencyChainSchema,
   getProjectProfileSchema,
@@ -24,7 +28,9 @@ import {
   handleSessionEnd,
   handleSuggestMemory,
   linkMemoriesSchema,
+  listCheckpointsSchema,
   listMemoryCatalogSchema,
+  loadCheckpointSchema,
   loadModuleMemorySchema,
   maintainMemoryCatalogSchema,
   manageLongTermMemorySchema,
@@ -53,6 +59,12 @@ export function createToolDispatcher(cwd: string) {
     switch (name) {
       case 'codebase-retrieval':
         return handleCodebaseRetrieval(codebaseRetrievalSchema.parse(args), onProgress);
+      case 'create_checkpoint':
+        return handleCreateCheckpoint(createCheckpointSchema.parse(args));
+      case 'load_checkpoint':
+        return handleLoadCheckpoint(loadCheckpointSchema.parse(args));
+      case 'list_checkpoints':
+        return handleListCheckpoints(listCheckpointsSchema.parse(args));
       case 'find_memory':
         return handleFindMemory(findMemorySchema.parse(args), cwd);
       case 'record_memory':

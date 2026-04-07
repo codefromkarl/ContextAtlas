@@ -316,6 +316,35 @@ export class VectorStore {
     return await this.table.countRows();
   }
 
+  async analyzeTextPayloads(): Promise<{
+    rows: number;
+    displayCodeBytes: number;
+    vectorTextBytes: number;
+  }> {
+    if (!this.table) {
+      return {
+        rows: 0,
+        displayCodeBytes: 0,
+        vectorTextBytes: 0,
+      };
+    }
+
+    const rows = await this.table.query().toArray();
+    let displayCodeBytes = 0;
+    let vectorTextBytes = 0;
+
+    for (const row of rows as ChunkRecord[]) {
+      displayCodeBytes += Buffer.byteLength(row.display_code || '', 'utf8');
+      vectorTextBytes += Buffer.byteLength(row.vector_text || '', 'utf8');
+    }
+
+    return {
+      rows: rows.length,
+      displayCodeBytes,
+      vectorTextBytes,
+    };
+  }
+
   /**
    * 清空所有数据
    */

@@ -305,7 +305,8 @@ export class Indexer {
             chunk_index: chunkIdx,
             vector: embeddings[globalIdx],
             display_code: chunk.displayCode,
-            vector_text: chunk.vectorText,
+            // Embedding 已完成；在线查询链路不再读取 vector_text，避免持久化重复正文。
+            vector_text: '',
             language: chunk.metadata.language,
             breadcrumb: chunk.metadata.contextPath.join(' > '),
             start_index: chunk.metadata.startIndex,

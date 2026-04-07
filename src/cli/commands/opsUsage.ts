@@ -67,4 +67,30 @@ export function registerOpsUsageCommands(cli: CommandRegistrar): void {
         exitWithError('usage 数据清理失败', { error: error.message });
       }
     });
+
+  cli
+    .command('storage:analyze', '分析 SQLite / FTS / LanceDB 的文本存储冗余')
+    .option('--project-id <id>', '按项目 ID 分析（默认根据当前目录推导）')
+    .option('--json', '以 JSON 输出报告')
+    .action(async (options: { projectId?: string; json?: boolean }) => {
+      try {
+        const { generateProjectId } = await import('../../db/index.js');
+        const { analyzeStorageRedundancy, formatStorageRedundancyReport } = await import(
+          '../../monitoring/storageAnalysis.js'
+        );
+
+        const projectId = options.projectId || generateProjectId(process.cwd());
+        const report = await analyzeStorageRedundancy({ projectId });
+
+        if (options.json) {
+          writeJson(report);
+          return;
+        }
+
+        writeText(formatStorageRedundancyReport(report));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('生成存储冗余报告失败', { error: error.message });
+      }
+    });
 }

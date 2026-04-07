@@ -13,10 +13,15 @@ const DEFAULT_SNAPSHOT_RETENTION = 5;
 type SnapshotSource = 'current' | 'legacy' | 'empty';
 export type SnapshotCopyMode = 'copy' | 'reflink';
 export type SnapshotCopyStrategy = 'copy' | 'reflink-preferred';
+export interface SnapshotArtifactSelection {
+  indexDb?: boolean;
+  vectorStore?: boolean;
+}
 
 export interface SnapshotPrepareOptions {
   copyStrategy?: SnapshotCopyStrategy;
   fileCopier?: SnapshotFileCopier;
+  artifacts?: SnapshotArtifactSelection;
 }
 
 export type SnapshotFileCopier = (
@@ -53,6 +58,12 @@ export interface SnapshotValidationOptions {
 export interface SnapshotPruneResult {
   kept: string[];
   deleted: string[];
+}
+
+export interface EnsureSnapshotArtifactsResult {
+  indexDbCopied: boolean;
+  vectorStoreCopied: boolean;
+  copyMode: SnapshotCopyMode | null;
 }
 
 function effectiveBaseDir(baseDir?: string): string {
@@ -97,6 +108,13 @@ function hasVectorDir(dir: string): boolean {
   return fs.existsSync(path.join(dir, VECTOR_DIR_NAME));
 }
 
+function normalizeArtifactSelection(selection?: SnapshotArtifactSelection): Required<SnapshotArtifactSelection> {
+  return {
+    indexDb: selection?.indexDb !== false,
+    vectorStore: selection?.vectorStore !== false,
+  };
+}
+
 function defaultFileCopier(sourcePath: string, targetPath: string, mode: SnapshotCopyMode): void {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   if (mode === 'reflink') {
@@ -132,12 +150,17 @@ function copyDataArtifacts(
   sourceDir: string,
   targetDir: string,
   options: SnapshotPrepareOptions = {},
-): SnapshotCopyMode {
+): { copyMode: SnapshotCopyMode | null; copied: Required<SnapshotArtifactSelection> } {
   const preferredMode: SnapshotCopyMode =
     options.copyStrategy === 'copy' ? 'copy' : 'reflink';
   const fallbackMode: SnapshotCopyMode = 'copy';
   const fileCopier = options.fileCopier ?? defaultFileCopier;
+  const artifacts = normalizeArtifactSelection(options.artifacts);
   let appliedMode = preferredMode;
+  const copied = {
+    indexDb: false,
+    vectorStore: false,
+  };
 
   const copyFileWithFallback = (sourcePath: string, targetPath: string): void => {
     try {
@@ -165,16 +188,21 @@ function copyDataArtifacts(
   };
 
   const sourceDb = path.join(sourceDir, INDEX_DB_FILE);
-  if (fs.existsSync(sourceDb)) {
+  if (artifacts.indexDb && fs.existsSync(sourceDb)) {
     copyFileWithFallback(sourceDb, path.join(targetDir, INDEX_DB_FILE));
+    copied.indexDb = true;
   }
 
   const sourceVector = path.join(sourceDir, VECTOR_DIR_NAME);
-  if (fs.existsSync(sourceVector)) {
+  if (artifacts.vectorStore && fs.existsSync(sourceVector)) {
     copyDirWithFallback(sourceVector, path.join(targetDir, VECTOR_DIR_NAME));
+    copied.vectorStore = true;
   }
 
-  return appliedMode;
+  return {
+    copyMode: copied.indexDb || copied.vectorStore ? appliedMode : null,
+    copied,
+  };
 }
 
 function makeSnapshotId(): string {
@@ -244,17 +272,85 @@ export function prepareWritableSnapshot(
 
   const currentId = resolveCurrentSnapshotId(projectId, base);
   if (currentId) {
-    const copyMode = copyDataArtifacts(snapshotDir(projectId, currentId, base), targetDir, options);
+    const { copyMode } = copyDataArtifacts(snapshotDir(projectId, currentId, base), targetDir, options);
     return { snapshotId, snapshotDir: targetDir, source: 'current', copyMode };
   }
 
   const legacyDir = legacyDataDir(projectId, base);
   if (hasIndexDb(legacyDir) || hasVectorDir(legacyDir)) {
-    const copyMode = copyDataArtifacts(legacyDir, targetDir, options);
+    const { copyMode } = copyDataArtifacts(legacyDir, targetDir, options);
     return { snapshotId, snapshotDir: targetDir, source: 'legacy', copyMode };
   }
 
   return { snapshotId, snapshotDir: targetDir, source: 'empty', copyMode: null };
+}
+
+export function ensureSnapshotArtifacts(
+  projectId: string,
+  snapshotId: string,
+  baseDir?: string,
+  artifacts: SnapshotArtifactSelection = {},
+  options: Omit<SnapshotPrepareOptions, 'artifacts'> = {},
+): EnsureSnapshotArtifactsResult {
+  const base = effectiveBaseDir(baseDir);
+  const targetDir = snapshotDir(projectId, snapshotId, base);
+  if (!fs.existsSync(targetDir)) {
+    throw new Error(`快照目录不存在: ${targetDir}`);
+  }
+
+  const selection = normalizeArtifactSelection(artifacts);
+  if (!selection.indexDb && !selection.vectorStore) {
+    return {
+      indexDbCopied: false,
+      vectorStoreCopied: false,
+      copyMode: null,
+    };
+  }
+
+  const currentId = resolveCurrentSnapshotId(projectId, base);
+  const sourceDir =
+    currentId
+      ? snapshotDir(projectId, currentId, base)
+      : legacyDataDir(projectId, base);
+
+  if (!fs.existsSync(sourceDir) || sourceDir === targetDir) {
+    return {
+      indexDbCopied: false,
+      vectorStoreCopied: false,
+      copyMode: null,
+    };
+  }
+
+  const localSelection: SnapshotArtifactSelection = {
+    indexDb:
+      selection.indexDb
+      && !fs.existsSync(path.join(targetDir, INDEX_DB_FILE))
+      && fs.existsSync(path.join(sourceDir, INDEX_DB_FILE)),
+    vectorStore:
+      selection.vectorStore
+      && !fs.existsSync(path.join(targetDir, VECTOR_DIR_NAME))
+      && fs.existsSync(path.join(sourceDir, VECTOR_DIR_NAME)),
+  };
+
+  const normalizedLocalSelection = normalizeArtifactSelection(localSelection);
+  if (!normalizedLocalSelection.indexDb && !normalizedLocalSelection.vectorStore) {
+    return {
+      indexDbCopied: false,
+      vectorStoreCopied: false,
+      copyMode: null,
+    };
+  }
+
+  const result = copyDataArtifacts(sourceDir, targetDir, {
+    ...options,
+    artifacts: localSelection,
+  });
+
+  return {
+    indexDbCopied: result.copied.indexDb,
+    vectorStoreCopied: result.copied.vectorStore,
+    copyMode: result.copyMode,
+  };
 }
 
 export function commitSnapshot(projectId: string, snapshotId: string, baseDir?: string): void {

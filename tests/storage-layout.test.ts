@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   commitSnapshot,
+  ensureSnapshotArtifacts,
   hasIndexedData,
   pruneSnapshots,
   prepareWritableSnapshot,
@@ -78,6 +79,38 @@ test('存在 current 快照时，新的 staging 快照从 current 复制', () =>
     'seed',
   );
   assert.ok(second.copyMode === 'copy' || second.copyMode === 'reflink');
+});
+
+test('可先仅复制 index.db，后续再惰性补齐 vectors.lance', () => {
+  const baseDir = createTempBaseDir();
+  const projectId = 'proj-lazy-vector-copy';
+
+  const first = prepareWritableSnapshot(projectId, baseDir);
+  fs.writeFileSync(path.join(first.snapshotDir, 'index.db'), 'current-db');
+  fs.mkdirSync(path.join(first.snapshotDir, 'vectors.lance'), { recursive: true });
+  fs.writeFileSync(path.join(first.snapshotDir, 'vectors.lance', 'seed.txt'), 'seed');
+  commitSnapshot(projectId, first.snapshotId, baseDir);
+
+  const second = prepareWritableSnapshot(projectId, baseDir, {
+    artifacts: {
+      indexDb: true,
+      vectorStore: false,
+    },
+  });
+
+  assert.equal(second.source, 'current');
+  assert.equal(fs.readFileSync(path.join(second.snapshotDir, 'index.db'), 'utf-8'), 'current-db');
+  assert.equal(fs.existsSync(path.join(second.snapshotDir, 'vectors.lance')), false);
+
+  const ensured = ensureSnapshotArtifacts(projectId, second.snapshotId, baseDir, {
+    vectorStore: true,
+  });
+
+  assert.ok(ensured.vectorStoreCopied);
+  assert.equal(
+    fs.readFileSync(path.join(second.snapshotDir, 'vectors.lance', 'seed.txt'), 'utf-8'),
+    'seed',
+  );
 });
 
 test('reflink-preferred 在文件复制失败时回退到普通复制', () => {

@@ -21,6 +21,7 @@ import {
 import { closeAllIndexers, getIndexer } from '../indexer/index.js';
 import {
   commitSnapshot,
+  ensureSnapshotArtifacts,
   prepareWritableSnapshot,
   pruneSnapshots,
   validateSnapshot,
@@ -97,6 +98,8 @@ export interface ScanOptions {
   snapshotId?: string | null;
   /** 进度回调 */
   onProgress?: ProgressCallback;
+  /** 需要进入向量阶段前，按需补齐快照中的向量工件 */
+  ensureVectorArtifacts?: (() => void | Promise<void>) | null;
 }
 
 export interface SnapshotScanOptions extends Omit<ScanOptions, 'snapshotId'> {
@@ -323,15 +326,28 @@ async function scanWithIncrementalHint(
     };
 
     if (options.vectorIndex !== false) {
+      let vectorArtifactsReady = false;
+      const ensureVectorArtifacts = async (): Promise<void> => {
+        if (vectorArtifactsReady) return;
+        await options.ensureVectorArtifacts?.();
+        vectorArtifactsReady = true;
+      };
       const embeddingConfig = getEmbeddingConfig();
-      const indexer = await getIndexer(projectId, embeddingConfig.dimensions, options.snapshotId);
+      let indexer: Awaited<ReturnType<typeof getIndexer>> | null = null;
+      const getOrCreateIndexer = async () => {
+        await ensureVectorArtifacts();
+        if (!indexer) {
+          indexer = await getIndexer(projectId, embeddingConfig.dimensions, options.snapshotId);
+        }
+        return indexer;
+      };
       let vectorDelta = { indexed: 0, deleted: 0, errors: 0 };
       let hasReportedVectorStage = false;
 
       if (candidateResults.length > 0) {
         hasReportedVectorStage = true;
         options.onProgress?.(45, 100, '正在准备向量索引...');
-        const indexStats = await indexer.indexFiles(db, candidateResults, (completed, total) => {
+        const indexStats = await (await getOrCreateIndexer()).indexFiles(db, candidateResults, (completed, total) => {
           const progress = 45 + Math.floor((completed / total) * 54);
           options.onProgress?.(progress, 100, `正在生成向量嵌入... (${completed}/${total} 批次)`);
         });
@@ -347,7 +363,7 @@ async function scanWithIncrementalHint(
           options.onProgress?.(45, 100, '正在准备向量索引...');
         }
         const deletedResults = createDeletedResults(hint.deletedPaths);
-        const indexStats = await indexer.indexFiles(db, deletedResults);
+        const indexStats = await (await getOrCreateIndexer()).indexFiles(db, deletedResults);
         vectorDelta = {
           indexed: vectorDelta.indexed + indexStats.indexed,
           deleted: vectorDelta.deleted + indexStats.deleted,
@@ -366,7 +382,7 @@ async function scanWithIncrementalHint(
           if (!hasReportedVectorStage) {
             options.onProgress?.(45, 100, '正在准备向量索引...');
           }
-          const indexStats = await indexer.indexFiles(db, healingFiles, (completed, total) => {
+          const indexStats = await (await getOrCreateIndexer()).indexFiles(db, healingFiles, (completed, total) => {
             const progress = 45 + Math.floor((completed / total) * 54);
             options.onProgress?.(progress, 100, `正在生成向量嵌入... (${completed}/${total} 批次)`);
           });
@@ -445,6 +461,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
       // 清空向量索引
       if (options.vectorIndex !== false) {
         const embeddingConfig = getEmbeddingConfig();
+        await options.ensureVectorArtifacts?.();
         const indexer = await getIndexer(projectId, embeddingConfig.dimensions, options.snapshotId);
         await indexer.clear();
       }
@@ -482,8 +499,19 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
     // ===== 向量索引 =====
     let indexer = null;
     if (options.vectorIndex !== false) {
+      let vectorArtifactsReady = false;
+      const ensureVectorArtifacts = async (): Promise<void> => {
+        if (vectorArtifactsReady) return;
+        await options.ensureVectorArtifacts?.();
+        vectorArtifactsReady = true;
+      };
       const embeddingConfig = getEmbeddingConfig();
-      indexer = await getIndexer(projectId, embeddingConfig.dimensions, options.snapshotId);
+      indexer = {
+        get: async () => {
+          await ensureVectorArtifacts();
+          return getIndexer(projectId, embeddingConfig.dimensions, options.snapshotId);
+        },
+      };
     }
 
     const processBatchSize = 100;
@@ -527,7 +555,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
             options.onProgress?.(45, 100, '正在同步向量索引状态...');
           }
 
-          const indexStats = await indexer.indexFiles(db, needsVectorIndex, (completed, total) => {
+          const indexStats = await (await indexer.get()).indexFiles(db, needsVectorIndex, (completed, total) => {
             const progress = 45 + Math.floor((completed / total) * 54);
             options.onProgress?.(progress, 100, `正在生成向量嵌入... (${completed}/${total} 批次)`);
           });
@@ -559,7 +587,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
           options.onProgress?.(45, 100, '正在准备向量索引...');
         }
         options.onProgress?.(45, 100, '正在同步向量索引状态...');
-        const indexStats = await indexer.indexFiles(db, deletedResults);
+        const indexStats = await (await indexer.get()).indexFiles(db, deletedResults);
         stats = mergeScanStats(stats, {
           added: 0,
           modified: 0,
@@ -608,7 +636,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
           .map((result) => ({ ...result, status: 'modified' as const }));
 
         if (healingFiles.length > 0) {
-          const indexStats = await indexer.indexFiles(db, healingFiles, (completed, total) => {
+          const indexStats = await (await indexer.get()).indexFiles(db, healingFiles, (completed, total) => {
             const progress = 45 + Math.floor((completed / total) * 54);
             options.onProgress?.(progress, 100, `正在生成向量嵌入... (${completed}/${total} 批次)`);
           });
@@ -659,16 +687,31 @@ export async function scanWithSnapshotSwap(
   }
 
   const projectId = generateProjectId(rootPath);
-  const staging = prepareWritableSnapshot(projectId);
+  const staging = prepareWritableSnapshot(projectId, undefined, {
+    artifacts: {
+      indexDb: true,
+      vectorStore: false,
+    },
+  });
+  const ensureVectorArtifacts = (): void => {
+    ensureSnapshotArtifacts(projectId, staging.snapshotId, undefined, {
+      vectorStore: true,
+    });
+  };
   const scanOptions = {
     ...options,
     snapshotId: staging.snapshotId,
+    ensureVectorArtifacts,
   };
   const hinted =
     options.incrementalHint
       ? await scanWithIncrementalHint(rootPath, scanOptions, options.incrementalHint)
       : null;
   const stats = hinted ?? await scan(rootPath, scanOptions);
+
+  if (options.vectorIndex !== false) {
+    ensureVectorArtifacts();
+  }
 
   if (options.validateBeforeSwap !== false) {
     await validateSnapshot(projectId, staging.snapshotId, {

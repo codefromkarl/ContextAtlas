@@ -121,7 +121,7 @@ export async function handleSessionEnd(
       }
 
       savedBlocks.push(
-        `### 长期记忆\n${persisted.map((memory) => `- **${memory.type}**: ${memory.title}`).join('\n')}`,
+        `### 长期记忆\n${persisted.map(({ memory, action }) => `- **${memory.type}**: ${memory.title} (${action})`).join('\n')}`,
       );
     }
 

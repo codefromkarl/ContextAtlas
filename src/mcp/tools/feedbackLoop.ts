@@ -41,7 +41,7 @@ export async function handleRecordResultFeedback(
     .filter(Boolean)
     .join(' | ');
 
-  const memory = await store.appendLongTermMemoryItem({
+  const { memory, action } = await store.appendLongTermMemoryItem({
     type: 'feedback',
     title,
     summary,
@@ -51,6 +51,8 @@ export async function handleRecordResultFeedback(
     scope: 'project',
     source: 'user-explicit',
     confidence: 1,
+    durability: 'stable',
+    provenance: [args.query, args.targetId || args.targetType],
     lastVerifiedAt: new Date().toISOString(),
   });
 
@@ -62,6 +64,7 @@ export async function handleRecordResultFeedback(
           text: JSON.stringify(
             {
               tool: 'record_result_feedback',
+              write_action: action,
               memory,
             },
             null,

@@ -593,10 +593,12 @@ export class MemoryStore {
       createdAt?: string;
       updatedAt?: string;
     },
-  ): Promise<LongTermMemoryItem> {
+  ): Promise<{ memory: LongTermMemoryItem; action: 'created' | 'merged' | 'updated' }> {
     const now = new Date().toISOString();
     const item: LongTermMemoryItem = {
       ...input,
+      durability: input.durability || 'stable',
+      provenance: [...new Set(input.provenance || [])],
       id: input.id || crypto.randomUUID(),
       createdAt: input.createdAt || now,
       updatedAt: input.updatedAt || now,
@@ -609,16 +611,45 @@ export class MemoryStore {
       items[existingIndex] = {
         ...previous,
         ...item,
+        durability: this.mergeDurability(previous.durability, item.durability),
+        provenance: this.mergeStringList(previous.provenance, item.provenance),
+        tags: this.mergeStringList(previous.tags, item.tags),
+        links: this.mergeStringList(previous.links, item.links),
+        confidence: Math.max(previous.confidence || 0, item.confidence || 0),
+        source: this.mergeLongTermMemorySource(previous.source, item.source),
         createdAt: previous?.createdAt || item.createdAt,
         updatedAt: now,
       };
       await this.saveLongTermMemory(item.type, item.scope, items);
-      return items[existingIndex] || item;
+      return { memory: items[existingIndex] || item, action: 'updated' };
+    }
+
+    const mergeIndex = items.findIndex((entry) => this.isSameLongTermMemory(entry, item));
+    if (mergeIndex >= 0) {
+      const previous = items[mergeIndex];
+      items[mergeIndex] = {
+        ...previous,
+        summary: item.summary.length >= previous.summary.length ? item.summary : previous.summary,
+        why: item.why || previous.why,
+        howToApply: item.howToApply || previous.howToApply,
+        tags: this.mergeStringList(previous.tags, item.tags),
+        links: this.mergeStringList(previous.links, item.links),
+        provenance: this.mergeStringList(previous.provenance, item.provenance),
+        durability: this.mergeDurability(previous.durability, item.durability),
+        confidence: Math.max(previous.confidence || 0, item.confidence || 0),
+        source: this.mergeLongTermMemorySource(previous.source, item.source),
+        lastVerifiedAt: item.lastVerifiedAt || previous.lastVerifiedAt,
+        validFrom: item.validFrom || previous.validFrom,
+        validUntil: item.validUntil || previous.validUntil,
+        updatedAt: now,
+      };
+      await this.saveLongTermMemory(item.type, item.scope, items);
+      return { memory: items[mergeIndex], action: 'merged' };
     }
 
     items.push(item);
     await this.saveLongTermMemory(item.type, item.scope, items);
-    return item;
+    return { memory: item, action: 'created' };
   }
 
   async readLongTermMemory(
@@ -865,6 +896,11 @@ export class MemoryStore {
           confidence:
             typeof item.confidence === 'number' ? item.confidence : Number(item.confidence ?? 0.5),
           links: Array.isArray(item.links) ? item.links.map(String) : [],
+          durability:
+            item.durability === 'ephemeral' || item.durability === 'stable'
+              ? item.durability
+              : 'stable',
+          provenance: Array.isArray(item.provenance) ? item.provenance.map(String) : [],
           validFrom: item.validFrom ? String(item.validFrom) : undefined,
           validUntil: item.validUntil ? String(item.validUntil) : undefined,
           lastVerifiedAt: item.lastVerifiedAt ? String(item.lastVerifiedAt) : undefined,
@@ -873,6 +909,39 @@ export class MemoryStore {
         },
       ];
     });
+  }
+
+  private isSameLongTermMemory(a: LongTermMemoryItem, b: LongTermMemoryItem): boolean {
+    return a.type === b.type
+      && a.scope === b.scope
+      && this.normalizeMemoryText(a.title) === this.normalizeMemoryText(b.title)
+      && this.normalizeMemoryText(a.summary) === this.normalizeMemoryText(b.summary);
+  }
+
+  private normalizeMemoryText(input: string): string {
+    return input.toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  private mergeStringList(a?: string[], b?: string[]): string[] {
+    return [...new Set([...(a || []), ...(b || [])].filter(Boolean))];
+  }
+
+  private mergeDurability(
+    a?: LongTermMemoryItem['durability'],
+    b?: LongTermMemoryItem['durability'],
+  ): LongTermMemoryItem['durability'] {
+    if (a === 'stable' || b === 'stable') return 'stable';
+    return a || b || 'stable';
+  }
+
+  private mergeLongTermMemorySource(
+    a?: LongTermMemoryItem['source'],
+    b?: LongTermMemoryItem['source'],
+  ): LongTermMemoryItem['source'] {
+    const rank = { 'agent-inferred': 1, 'tool-result': 2, 'user-explicit': 3 } as const;
+    const left = a || 'agent-inferred';
+    const right = b || 'agent-inferred';
+    return rank[left] >= rank[right] ? left : right;
   }
 
   private calculateLongTermMemoryScore(

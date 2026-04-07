@@ -336,6 +336,10 @@ export interface LongTermMemoryItem {
   title: string;
   /** 核心摘要 */
   summary: string;
+  /** 治理层 durability：stable=长期保留，ephemeral=任务态/短周期 */
+  durability?: 'stable' | 'ephemeral';
+  /** 来源引用/证据标识 */
+  provenance?: string[];
   /** 为什么要记住 */
   why?: string;
   /** 后续如何应用 */

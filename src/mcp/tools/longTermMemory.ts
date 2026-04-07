@@ -22,6 +22,8 @@ export const recordLongTermMemorySchema = z.object({
     .describe('Memory source'),
   confidence: z.number().optional().default(1).describe('Confidence score'),
   links: z.array(z.string()).optional().default([]).describe('External links'),
+  durability: z.enum(['stable', 'ephemeral']).optional().default('stable').describe('Memory durability class'),
+  provenance: z.array(z.string()).optional().default([]).describe('Evidence or provenance references'),
   validFrom: z.string().optional().describe('Effective date in ISO format'),
   validUntil: z.string().optional().describe('Expiry/deadline in ISO format'),
   lastVerifiedAt: z.string().optional().describe('Last verification date in ISO format'),
@@ -82,7 +84,7 @@ export async function handleRecordLongTermMemory(
     'MCP record_long_term_memory 调用开始',
   );
 
-  const memory = await store.appendLongTermMemoryItem({
+  const { memory, action } = await store.appendLongTermMemoryItem({
     type: args.type,
     title: args.title,
     summary: args.summary,
@@ -93,6 +95,8 @@ export async function handleRecordLongTermMemory(
     source: args.source,
     confidence: args.confidence,
     links: args.links,
+    durability: args.durability,
+    provenance: args.provenance,
     validFrom: args.validFrom,
     validUntil: args.validUntil,
     lastVerifiedAt: args.lastVerifiedAt,
@@ -103,7 +107,7 @@ export async function handleRecordLongTermMemory(
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ tool: 'record_long_term_memory', memory }, null, 2),
+          text: JSON.stringify({ tool: 'record_long_term_memory', write_action: action, memory }, null, 2),
         },
       ],
     };

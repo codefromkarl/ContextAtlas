@@ -418,3 +418,105 @@ test('memory:record-long-term CLI records explicit reference memories', async ()
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+
+test('record_long_term_memory merges duplicate entries and preserves provenance', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const first = await handleRecordLongTermMemory(
+      {
+        type: 'feedback',
+        title: '提交前先跑 lint',
+        summary: '提交代码前必须运行 lint',
+        provenance: ['guide:v1'],
+        durability: 'stable',
+        scope: 'project',
+        source: 'agent-inferred',
+        confidence: 0.6,
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const firstPayload = JSON.parse(first.content[0].text);
+    assert.equal(firstPayload.write_action, 'created');
+
+    const second = await handleRecordLongTermMemory(
+      {
+        type: 'feedback',
+        title: '提交前先跑 lint',
+        summary: '提交代码前必须运行 lint',
+        provenance: ['guide:v2'],
+        durability: 'stable',
+        scope: 'project',
+        source: 'user-explicit',
+        confidence: 1,
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const secondPayload = JSON.parse(second.content[0].text);
+    assert.equal(secondPayload.write_action, 'merged');
+
+    const listResponse = await handleManageLongTermMemory(
+      {
+        action: 'list',
+        types: ['feedback'],
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const listPayload = JSON.parse(listResponse.content[0].text);
+    assert.equal(listPayload.result_count, 1);
+    assert.deepEqual(listPayload.results[0].provenance.sort(), ['guide:v1', 'guide:v2']);
+    assert.equal(listPayload.results[0].confidence, 1);
+    assert.equal(listPayload.results[0].source, 'user-explicit');
+    assert.equal(listPayload.results[0].durability, 'stable');
+  });
+});
+
+test('record_result_feedback merges duplicate feedback and returns write_action', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const { handleRecordResultFeedback } = await import('../src/mcp/tools/feedbackLoop.ts');
+
+    const first = await handleRecordResultFeedback(
+      {
+        outcome: 'memory-stale',
+        targetType: 'feature-memory',
+        query: 'Trace retrieval flow',
+        targetId: 'SearchService',
+        details: 'legacy path',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const firstPayload = JSON.parse(first.content[0].text);
+    assert.equal(firstPayload.write_action, 'created');
+
+    const second = await handleRecordResultFeedback(
+      {
+        outcome: 'memory-stale',
+        targetType: 'feature-memory',
+        query: 'Trace retrieval flow',
+        targetId: 'SearchService',
+        details: 'legacy path',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const secondPayload = JSON.parse(second.content[0].text);
+    assert.equal(secondPayload.write_action, 'merged');
+
+    const store = new MemoryStore(projectRoot);
+    const feedback = await store.findLongTermMemories('SearchService', {
+      types: ['feedback'],
+      scope: 'project',
+      staleDays: 30,
+    });
+    assert.equal(feedback.length, 1);
+    assert.ok(feedback[0].memory.provenance?.includes('Trace retrieval flow'));
+    assert.ok(feedback[0].memory.provenance?.includes('SearchService'));
+  });
+});

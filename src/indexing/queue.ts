@@ -7,6 +7,7 @@ import { expandHome, resolveBaseDir } from '../runtimePaths.js';
 import type {
   EnqueueIndexTaskInput,
   EnqueueIndexTaskResult,
+  IncrementalExecutionHint,
   IndexTask,
   IndexTaskScope,
 } from './types.js';
@@ -54,6 +55,7 @@ function openQueueDb(): Database.Database {
       dedupe_key TEXT NOT NULL,
       reason TEXT,
       requested_by TEXT,
+      execution_hint_json TEXT,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
       finished_at INTEGER,
@@ -69,7 +71,25 @@ function openQueueDb(): Database.Database {
     ON index_tasks(status, priority DESC, created_at ASC);
   `);
 
+  try {
+    db.exec('ALTER TABLE index_tasks ADD COLUMN execution_hint_json TEXT');
+  } catch {
+    // ignore when column already exists
+  }
+
   return db;
+}
+
+function parseExecutionHint(raw: unknown): IncrementalExecutionHint | null {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as IncrementalExecutionHint;
+  } catch {
+    return null;
+  }
 }
 
 function toTask(row: Record<string, unknown>): IndexTask {
@@ -88,6 +108,7 @@ function toTask(row: Record<string, unknown>): IndexTask {
     finishedAt: (row.finished_at as number | null) ?? null,
     attempts: Number(row.attempts),
     lastError: (row.last_error as string | null) ?? null,
+    executionHint: parseExecutionHint(row.execution_hint_json),
   };
 }
 
@@ -165,8 +186,8 @@ export function enqueueIndexTask(input: EnqueueIndexTaskInput): EnqueueIndexTask
       `
       INSERT INTO index_tasks (
         task_id, project_id, repo_path, scope, status,
-        priority, dedupe_key, reason, requested_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        priority, dedupe_key, reason, requested_by, execution_hint_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       taskId,
@@ -178,6 +199,7 @@ export function enqueueIndexTask(input: EnqueueIndexTaskInput): EnqueueIndexTask
       dedupeKey,
       input.reason ?? null,
       input.requestedBy ?? null,
+      input.executionHint ? JSON.stringify(input.executionHint) : null,
       now,
     );
 

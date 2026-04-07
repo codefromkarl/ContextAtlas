@@ -11,6 +11,7 @@ import {
   initDb,
 } from '../db/index.js';
 import { enqueueIndexTask } from './queue.js';
+import type { IncrementalExecutionHint } from './types.js';
 import { MEMORY_CATALOG_VERSION, MemoryRouter } from '../memory/MemoryRouter.js';
 import { MemoryStore } from '../memory/MemoryStore.js';
 import type { FeatureMemory } from '../memory/types.js';
@@ -19,6 +20,8 @@ import { crawl } from '../scanner/crawler.js';
 import { initFilter } from '../scanner/filter.js';
 import { INDEX_CONTENT_SCHEMA_VERSION } from '../scanner/processor.js';
 import { processFiles } from '../scanner/processor.js';
+
+const DEFAULT_INCREMENTAL_HINT_TTL_MS = 60_000;
 
 export interface ImpactedMemorySummary {
   name: string;
@@ -75,6 +78,7 @@ export interface IndexUpdatePlan {
   commands: string[];
   memoryCatalogStatus: 'missing' | 'consistent' | 'inconsistent' | 'version-mismatch';
   schemaStatus: IndexPlanSchemaStatus;
+  executionHint: IncrementalExecutionHint | null;
 }
 
 export interface IndexUpdateExecutionResult {
@@ -140,6 +144,7 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
           staleModuleNames: [],
         },
       },
+      executionHint: null,
     };
   }
 
@@ -307,6 +312,10 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
       commands,
       memoryCatalogStatus: catalogStatus.status,
       schemaStatus,
+      executionHint:
+        mode === 'incremental'
+          ? buildIncrementalExecutionHint(fileResults, deleted, healing, changeSummary)
+          : null,
     };
   } finally {
     db.close();
@@ -335,6 +344,7 @@ export async function executeIndexUpdatePlan(
     priority: options.priority,
     requestedBy: options.requestedBy || 'index:update',
     reason: plan.reasons.map((reason) => reason.code).join(','),
+    executionHint: plan.executionHint,
   });
 
   return {
@@ -342,6 +352,34 @@ export async function executeIndexUpdatePlan(
     enqueued: true,
     taskId: enqueueResult.task.taskId,
     reusedExisting: enqueueResult.reusedExisting,
+  };
+}
+
+function buildIncrementalExecutionHint(
+  fileResults: Awaited<ReturnType<typeof processFiles>>,
+  deletedPaths: string[],
+  healingPaths: Set<string>,
+  changeSummary: IndexUpdatePlan['changeSummary'],
+): IncrementalExecutionHint {
+  return {
+    generatedAt: Date.now(),
+    ttlMs: DEFAULT_INCREMENTAL_HINT_TTL_MS,
+    changeSummary,
+    candidates: fileResults
+      .filter((result) => result.status === 'added' || result.status === 'modified')
+      .map((result) => ({
+        relPath: result.relPath,
+        mtime: result.mtime,
+        size: result.size,
+      })),
+    deletedPaths,
+    healingPaths: fileResults
+      .filter((result) => result.status === 'unchanged' && healingPaths.has(result.relPath))
+      .map((result) => ({
+        relPath: result.relPath,
+        mtime: result.mtime,
+        size: result.size,
+      })),
   };
 }
 

@@ -15,6 +15,30 @@ export const INDEX_TASK_STATUS = {
 
 export type IndexTaskStatus = (typeof INDEX_TASK_STATUS)[keyof typeof INDEX_TASK_STATUS];
 
+export interface IncrementalHintEntry {
+  relPath: string;
+  mtime: number;
+  size: number;
+}
+
+export interface IncrementalExecutionHint {
+  generatedAt: number;
+  ttlMs: number;
+  changeSummary: {
+    added: number;
+    modified: number;
+    deleted: number;
+    unchangedNeedingVectorRepair: number;
+    unchanged: number;
+    skipped: number;
+    errors: number;
+    totalFiles: number;
+  };
+  candidates: IncrementalHintEntry[];
+  deletedPaths: string[];
+  healingPaths: IncrementalHintEntry[];
+}
+
 export interface IndexTask {
   taskId: string;
   projectId: string;
@@ -30,6 +54,7 @@ export interface IndexTask {
   finishedAt: number | null;
   attempts: number;
   lastError: string | null;
+  executionHint: IncrementalExecutionHint | null;
 }
 
 export interface EnqueueIndexTaskInput {
@@ -39,6 +64,7 @@ export interface EnqueueIndexTaskInput {
   priority?: number;
   reason?: string;
   requestedBy?: string;
+  executionHint?: IncrementalExecutionHint | null;
 }
 
 export interface EnqueueIndexTaskResult {

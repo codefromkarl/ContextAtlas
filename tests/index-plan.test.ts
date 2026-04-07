@@ -408,6 +408,12 @@ test('executeIndexUpdatePlan enqueues incremental task when repo files changed',
     const task = getTaskById(result.taskId!);
     assert.equal(task?.scope, 'incremental');
     assert.equal(task?.requestedBy, 'test');
+    assert.ok(task?.executionHint);
+    assert.equal(task?.executionHint?.changeSummary.modified, 1);
+    assert.deepEqual(
+      task?.executionHint?.candidates.map((item) => item.relPath),
+      ['src/auth.ts'],
+    );
   });
 });
 

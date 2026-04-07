@@ -80,7 +80,15 @@ function resolveStaleRunningMs(): number {
 async function defaultExecutor(task: IndexTask): Promise<void> {
   const { withLock } = await import('../utils/lock.js');
   const { scanWithSnapshotSwap } = await import('../scanner/index.js');
-  await withLock(task.projectId, 'index', async () => scanWithSnapshotSwap(task.repoPath, { vectorIndex: true }));
+  await withLock(
+    task.projectId,
+    'index',
+    async () =>
+      scanWithSnapshotSwap(task.repoPath, {
+        vectorIndex: true,
+        incrementalHint: task.scope === 'incremental' ? task.executionHint : null,
+      }),
+  );
 }
 
 function sleep(ms: number): Promise<void> {

@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getEmbeddingConfig } from '../config.js';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../storage/layout.js';
 import { logger } from '../utils/logger.js';
 import { closeAllVectorStores } from '../vectorStore/index.js';
+import type { IncrementalExecutionHint } from '../indexing/types.js';
 import { crawl } from './crawler.js';
 import { initFilter } from './filter.js';
 import { type ProcessResult, processFiles } from './processor.js';
@@ -102,6 +104,8 @@ export interface SnapshotScanOptions extends Omit<ScanOptions, 'snapshotId'> {
   snapshotRetention?: number;
   /** 是否在切换 current 前做健康检查，默认 true */
   validateBeforeSwap?: boolean;
+  /** 预扫描生成的增量执行提示 */
+  incrementalHint?: IncrementalExecutionHint | null;
 }
 
 export function summarizeProcessResults(results: ProcessResult[]): ProcessResultsSummary {
@@ -209,6 +213,182 @@ function createDeletedResults(paths: string[]): ProcessResult[] {
     size: 0,
     status: 'deleted' as const,
   }));
+}
+
+function isFileStatMatch(expected: { mtime: number; size: number }, actual: { mtime: number; size: number }): boolean {
+  return expected.size === actual.size && expected.mtime === actual.mtime;
+}
+
+async function validateIncrementalHint(
+  rootPath: string,
+  hint: IncrementalExecutionHint,
+): Promise<boolean> {
+  if (Date.now() - hint.generatedAt > hint.ttlMs) {
+    return false;
+  }
+
+  const candidates = [...hint.candidates, ...hint.healingPaths];
+  for (const item of candidates) {
+    try {
+      const stat = await fs.stat(path.join(rootPath, item.relPath));
+      if (!isFileStatMatch(item, { mtime: stat.mtimeMs, size: stat.size })) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  for (const relPath of hint.deletedPaths) {
+    try {
+      await fs.stat(path.join(rootPath, relPath));
+      return false;
+    } catch {
+      // expected missing
+    }
+  }
+
+  return true;
+}
+
+async function scanWithIncrementalHint(
+  rootPath: string,
+  options: ScanOptions,
+  hint: IncrementalExecutionHint,
+): Promise<ScanStats | null> {
+  if (!(await validateIncrementalHint(rootPath, hint))) {
+    logger.info('增量执行提示已失效，回退到常规扫描');
+    return null;
+  }
+
+  const projectId = generateProjectId(rootPath);
+  const db = initDb(projectId, options.snapshotId);
+
+  try {
+    await initFilter(rootPath);
+
+    let forceReindex = options.force ?? false;
+    if (options.vectorIndex !== false) {
+      const currentDimensions = getEmbeddingConfig().dimensions;
+      const storedDimensions = getStoredEmbeddingDimensions(db);
+      const storedSchemaVersion = getStoredIndexContentSchemaVersion(db);
+
+      if (storedDimensions !== null && storedDimensions !== currentDimensions) {
+        forceReindex = true;
+      }
+
+      if (
+        storedSchemaVersion !== null
+        && storedSchemaVersion !== INDEX_CONTENT_SCHEMA_VERSION
+      ) {
+        forceReindex = true;
+      }
+
+      setStoredEmbeddingDimensions(db, currentDimensions);
+      setStoredIndexContentSchemaVersion(db, INDEX_CONTENT_SCHEMA_VERSION);
+    }
+
+    if (forceReindex) {
+      return null;
+    }
+
+    const knownFiles = getAllFileMeta(db);
+    const candidateFilePaths = hint.candidates.map((item) => path.join(rootPath, item.relPath));
+    const candidateResults = candidateFilePaths.length > 0
+      ? await processFiles(rootPath, candidateFilePaths, knownFiles)
+      : [];
+    const candidateSummary = summarizeProcessResults(candidateResults);
+
+    if (candidateSummary.toAdd.length > 0) {
+      batchUpsert(db, candidateSummary.toAdd);
+    }
+    if (candidateSummary.toUpdateMtime.length > 0) {
+      batchUpdateMtime(db, candidateSummary.toUpdateMtime);
+    }
+
+    if (hint.deletedPaths.length > 0) {
+      batchDelete(db, hint.deletedPaths);
+    }
+
+    let stats: ScanStats = {
+      totalFiles: hint.changeSummary.totalFiles,
+      added: hint.changeSummary.added,
+      modified: hint.changeSummary.modified,
+      unchanged: hint.changeSummary.unchanged,
+      deleted: hint.changeSummary.deleted,
+      skipped: hint.changeSummary.skipped,
+      errors: hint.changeSummary.errors,
+    };
+
+    if (options.vectorIndex !== false) {
+      const embeddingConfig = getEmbeddingConfig();
+      const indexer = await getIndexer(projectId, embeddingConfig.dimensions, options.snapshotId);
+      let vectorDelta = { indexed: 0, deleted: 0, errors: 0 };
+      let hasReportedVectorStage = false;
+
+      if (candidateResults.length > 0) {
+        hasReportedVectorStage = true;
+        options.onProgress?.(45, 100, '正在准备向量索引...');
+        const indexStats = await indexer.indexFiles(db, candidateResults, (completed, total) => {
+          const progress = 45 + Math.floor((completed / total) * 54);
+          options.onProgress?.(progress, 100, `正在生成向量嵌入... (${completed}/${total} 批次)`);
+        });
+        vectorDelta = {
+          indexed: vectorDelta.indexed + indexStats.indexed,
+          deleted: vectorDelta.deleted + indexStats.deleted,
+          errors: vectorDelta.errors + indexStats.errors,
+        };
+      }
+
+      if (hint.deletedPaths.length > 0) {
+        if (!hasReportedVectorStage) {
+          options.onProgress?.(45, 100, '正在准备向量索引...');
+        }
+        const deletedResults = createDeletedResults(hint.deletedPaths);
+        const indexStats = await indexer.indexFiles(db, deletedResults);
+        vectorDelta = {
+          indexed: vectorDelta.indexed + indexStats.indexed,
+          deleted: vectorDelta.deleted + indexStats.deleted,
+          errors: vectorDelta.errors + indexStats.errors,
+        };
+      }
+
+      if (hint.healingPaths.length > 0) {
+        const healingFilePaths = hint.healingPaths.map((item) => path.join(rootPath, item.relPath));
+        const processedHealingFiles = await processFiles(rootPath, healingFilePaths, new Map());
+        const healingFiles = processedHealingFiles
+          .filter((result) => result.status === 'added' || result.status === 'modified')
+          .map((result) => ({ ...result, status: 'modified' as const }));
+
+        if (healingFiles.length > 0) {
+          if (!hasReportedVectorStage) {
+            options.onProgress?.(45, 100, '正在准备向量索引...');
+          }
+          const indexStats = await indexer.indexFiles(db, healingFiles, (completed, total) => {
+            const progress = 45 + Math.floor((completed / total) * 54);
+            options.onProgress?.(progress, 100, `正在生成向量嵌入... (${completed}/${total} 批次)`);
+          });
+          vectorDelta = {
+            indexed: vectorDelta.indexed + indexStats.indexed,
+            deleted: vectorDelta.deleted + indexStats.deleted,
+            errors: vectorDelta.errors + indexStats.errors,
+          };
+        }
+      }
+
+      stats = {
+        ...stats,
+        vectorIndex: vectorDelta,
+      };
+    }
+
+    options.onProgress?.(100, 100, '索引完成');
+    return stats;
+  } finally {
+    closeDb(db);
+    closeAllIndexers();
+    await closeAllVectorStores();
+  }
 }
 
 /**
@@ -473,10 +653,15 @@ export async function scanWithSnapshotSwap(
 ): Promise<ScanStats> {
   const projectId = generateProjectId(rootPath);
   const staging = prepareWritableSnapshot(projectId);
-  const stats = await scan(rootPath, {
+  const scanOptions = {
     ...options,
     snapshotId: staging.snapshotId,
-  });
+  };
+  const hinted =
+    options.incrementalHint
+      ? await scanWithIncrementalHint(rootPath, scanOptions, options.incrementalHint)
+      : null;
+  const stats = hinted ?? await scan(rootPath, scanOptions);
 
   if (options.validateBeforeSwap !== false) {
     await validateSnapshot(projectId, staging.snapshotId, {

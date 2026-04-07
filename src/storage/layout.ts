@@ -11,6 +11,19 @@ const VECTOR_DIR_NAME = 'vectors.lance';
 const DEFAULT_SNAPSHOT_RETENTION = 5;
 
 type SnapshotSource = 'current' | 'legacy' | 'empty';
+export type SnapshotCopyMode = 'copy' | 'reflink';
+export type SnapshotCopyStrategy = 'copy' | 'reflink-preferred';
+
+export interface SnapshotPrepareOptions {
+  copyStrategy?: SnapshotCopyStrategy;
+  fileCopier?: SnapshotFileCopier;
+}
+
+export type SnapshotFileCopier = (
+  sourcePath: string,
+  targetPath: string,
+  mode: SnapshotCopyMode,
+) => void;
 
 interface IndexPathsOptions {
   baseDir?: string;
@@ -29,6 +42,7 @@ export interface PreparedSnapshot {
   snapshotId: string;
   snapshotDir: string;
   source: SnapshotSource;
+  copyMode: SnapshotCopyMode | null;
 }
 
 export interface SnapshotValidationOptions {
@@ -83,19 +97,84 @@ function hasVectorDir(dir: string): boolean {
   return fs.existsSync(path.join(dir, VECTOR_DIR_NAME));
 }
 
-function copyDataArtifacts(sourceDir: string, targetDir: string): void {
+function defaultFileCopier(sourcePath: string, targetPath: string, mode: SnapshotCopyMode): void {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  if (mode === 'reflink') {
+    fs.copyFileSync(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE);
+    return;
+  }
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function copyDirectoryRecursive(
+  sourceDir: string,
+  targetDir: string,
+  mode: SnapshotCopyMode,
+  fileCopier: SnapshotFileCopier,
+): void {
+  fs.mkdirSync(targetDir, { recursive: true });
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(targetDir, entry.name);
+
+    if (entry.isDirectory()) {
+      copyDirectoryRecursive(sourcePath, targetPath, mode, fileCopier);
+      continue;
+    }
+
+    fileCopier(sourcePath, targetPath, mode);
+  }
+}
+
+function copyDataArtifacts(
+  sourceDir: string,
+  targetDir: string,
+  options: SnapshotPrepareOptions = {},
+): SnapshotCopyMode {
+  const preferredMode: SnapshotCopyMode =
+    options.copyStrategy === 'copy' ? 'copy' : 'reflink';
+  const fallbackMode: SnapshotCopyMode = 'copy';
+  const fileCopier = options.fileCopier ?? defaultFileCopier;
+  let appliedMode = preferredMode;
+
+  const copyFileWithFallback = (sourcePath: string, targetPath: string): void => {
+    try {
+      fileCopier(sourcePath, targetPath, preferredMode);
+    } catch (error) {
+      if (preferredMode !== 'reflink') {
+        throw error;
+      }
+      fileCopier(sourcePath, targetPath, fallbackMode);
+      appliedMode = fallbackMode;
+    }
+  };
+
+  const copyDirWithFallback = (sourcePath: string, targetPath: string): void => {
+    try {
+      copyDirectoryRecursive(sourcePath, targetPath, preferredMode, fileCopier);
+    } catch (error) {
+      if (preferredMode !== 'reflink') {
+        throw error;
+      }
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      copyDirectoryRecursive(sourcePath, targetPath, fallbackMode, fileCopier);
+      appliedMode = fallbackMode;
+    }
+  };
+
   const sourceDb = path.join(sourceDir, INDEX_DB_FILE);
   if (fs.existsSync(sourceDb)) {
-    fs.cpSync(sourceDb, path.join(targetDir, INDEX_DB_FILE), { force: true });
+    copyFileWithFallback(sourceDb, path.join(targetDir, INDEX_DB_FILE));
   }
 
   const sourceVector = path.join(sourceDir, VECTOR_DIR_NAME);
   if (fs.existsSync(sourceVector)) {
-    fs.cpSync(sourceVector, path.join(targetDir, VECTOR_DIR_NAME), {
-      recursive: true,
-      force: true,
-    });
+    copyDirWithFallback(sourceVector, path.join(targetDir, VECTOR_DIR_NAME));
   }
+
+  return appliedMode;
 }
 
 function makeSnapshotId(): string {
@@ -148,7 +227,11 @@ export function hasIndexedData(projectId: string, baseDir?: string): boolean {
   return hasIndexDb(legacyPaths.dataDir);
 }
 
-export function prepareWritableSnapshot(projectId: string, baseDir?: string): PreparedSnapshot {
+export function prepareWritableSnapshot(
+  projectId: string,
+  baseDir?: string,
+  options: SnapshotPrepareOptions = {},
+): PreparedSnapshot {
   const base = effectiveBaseDir(baseDir);
   const project = projectDir(projectId, base);
   const snapshotRoot = snapshotsDir(projectId, base);
@@ -161,17 +244,17 @@ export function prepareWritableSnapshot(projectId: string, baseDir?: string): Pr
 
   const currentId = resolveCurrentSnapshotId(projectId, base);
   if (currentId) {
-    copyDataArtifacts(snapshotDir(projectId, currentId, base), targetDir);
-    return { snapshotId, snapshotDir: targetDir, source: 'current' };
+    const copyMode = copyDataArtifacts(snapshotDir(projectId, currentId, base), targetDir, options);
+    return { snapshotId, snapshotDir: targetDir, source: 'current', copyMode };
   }
 
   const legacyDir = legacyDataDir(projectId, base);
   if (hasIndexDb(legacyDir) || hasVectorDir(legacyDir)) {
-    copyDataArtifacts(legacyDir, targetDir);
-    return { snapshotId, snapshotDir: targetDir, source: 'legacy' };
+    const copyMode = copyDataArtifacts(legacyDir, targetDir, options);
+    return { snapshotId, snapshotDir: targetDir, source: 'legacy', copyMode };
   }
 
-  return { snapshotId, snapshotDir: targetDir, source: 'empty' };
+  return { snapshotId, snapshotDir: targetDir, source: 'empty', copyMode: null };
 }
 
 export function commitSnapshot(projectId: string, snapshotId: string, baseDir?: string): void {

@@ -9,6 +9,7 @@ import {
   hasIndexedData,
   pruneSnapshots,
   prepareWritableSnapshot,
+  type SnapshotCopyMode,
   resolveCurrentSnapshotId,
   resolveIndexPaths,
   validateSnapshot,
@@ -56,6 +57,7 @@ test('存在 legacy 索引时，staging 快照会复制 legacy 数据', () => {
     fs.readFileSync(path.join(prepared.snapshotDir, 'vectors.lance', 'marker.txt'), 'utf-8'),
     'legacy-vector',
   );
+  assert.ok(prepared.copyMode === 'copy' || prepared.copyMode === 'reflink');
 });
 
 test('存在 current 快照时，新的 staging 快照从 current 复制', () => {
@@ -74,6 +76,40 @@ test('存在 current 快照时，新的 staging 快照从 current 复制', () =>
   assert.equal(
     fs.readFileSync(path.join(second.snapshotDir, 'vectors.lance', 'seed.txt'), 'utf-8'),
     'seed',
+  );
+  assert.ok(second.copyMode === 'copy' || second.copyMode === 'reflink');
+});
+
+test('reflink-preferred 在文件复制失败时回退到普通复制', () => {
+  const baseDir = createTempBaseDir();
+  const projectId = 'proj-reflink-fallback';
+  const legacyPaths = resolveIndexPaths(projectId, { baseDir, snapshotId: null });
+
+  fs.mkdirSync(path.dirname(legacyPaths.dbPath), { recursive: true });
+  fs.writeFileSync(legacyPaths.dbPath, 'legacy-db');
+  fs.mkdirSync(legacyPaths.vectorPath, { recursive: true });
+  fs.writeFileSync(path.join(legacyPaths.vectorPath, 'marker.txt'), 'legacy-vector');
+
+  const calls: SnapshotCopyMode[] = [];
+  const prepared = prepareWritableSnapshot(projectId, baseDir, {
+    copyStrategy: 'reflink-preferred',
+    fileCopier: (source, target, mode) => {
+      calls.push(mode);
+      if (mode === 'reflink') {
+        throw new Error(`reflink unsupported for ${path.basename(source)}`);
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(source, target);
+    },
+  });
+
+  assert.equal(prepared.source, 'legacy');
+  assert.equal(prepared.copyMode, 'copy');
+  assert.deepEqual(calls, ['reflink', 'copy', 'reflink', 'copy']);
+  assert.equal(fs.readFileSync(path.join(prepared.snapshotDir, 'index.db'), 'utf-8'), 'legacy-db');
+  assert.equal(
+    fs.readFileSync(path.join(prepared.snapshotDir, 'vectors.lance', 'marker.txt'), 'utf-8'),
+    'legacy-vector',
   );
 });
 

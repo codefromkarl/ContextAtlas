@@ -93,7 +93,7 @@ contextatlas search \
 contextatlas memory:find "auth"
 contextatlas memory:suggest "Auth Module" --files "src/auth/auth.service.ts"
 contextatlas memory:record "Auth Module" --desc "用户认证" --dir "src/auth"
-contextatlas memory:record "SearchService" --desc "混合检索核心" --dir "src/search" --confirmation-status human-confirmed
+contextatlas memory:record "SearchService" --desc "检索主流程编排 facade" --dir "src/search" --confirmation-status human-confirmed
 contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
 contextatlas memory:list
 contextatlas memory:delete "Auth Module"
@@ -139,7 +139,7 @@ contextatlas profile:import-omc --force
 ```bash
 contextatlas hub:register-project /path/to/project --name "My Project"
 contextatlas hub:list-projects
-contextatlas hub:save-memory <projectId> "SearchService" --desc "混合搜索核心" --dir "src/search"
+contextatlas hub:save-memory <projectId> "SearchService" --desc "检索编排 facade" --dir "src/search"
 contextatlas hub:search --category search
 contextatlas hub:fts "向量 搜索"
 contextatlas hub:link <fromProject> <fromModule> <toProject> <toModule> depends_on

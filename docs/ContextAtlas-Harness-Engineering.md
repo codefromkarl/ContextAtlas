@@ -221,10 +221,11 @@ contextatlas health:full --json
 │ └─ Memory Governance                                │
 ├──────────────────────────────────────────────────────┤
 │ Retrieval & Memory Infra  ◀ 现有主干                 │
-│ ├─ SearchService                                    │
+│ ├─ SearchService facade                             │
+│ ├─ HybridRecallEngine / RerankPolicy                │
 │ ├─ GraphExpander                                    │
 │ ├─ ContextPacker                                    │
-│ ├─ MemoryStore / MemoryRouter                       │
+│ ├─ MemoryStore facade / MemoryRouter                │
 │ └─ MCP tools                                        │
 ├──────────────────────────────────────────────────────┤
 │ Storage (SQLite / LanceDB / Memory Hub)             │
@@ -233,7 +234,7 @@ contextatlas health:full --json
 
 也就是说：
 
-- **SearchService** 仍负责“找”
+- **SearchService** 仍负责组织“找”的主流程
 - **GraphExpander** 仍负责“补关系”
 - **ContextPacker** 仍负责“装”
 - **新增的 lifecycle 层** 负责“存、压、交接、恢复、治理”

@@ -411,6 +411,13 @@ contextatlas alert:eval
   → 返回结构化上下文
 ```
 
+当前实现里，`SearchService` 主要负责编排，不再直接承载所有细节逻辑：
+
+- `HybridRecallEngine` 负责向量/词法召回、FTS fallback 和 RRF 融合
+- `RerankPolicy` 负责 rerank 池选择和 Smart TopK cutoff
+- `SnippetExtractor` 负责 rerank 文本构造和命中片段截取
+- `GraphExpander` 和 `ContextPacker` 继续负责扩展与打包
+
 ### 索引链路
 
 ```text
@@ -422,6 +429,25 @@ contextatlas alert:eval
   → indexing/ 队列状态更新
 ```
 
+### 记忆链路
+
+```text
+Feature / Decision / Profile / Long-term write
+  → MemoryStore facade
+  → bootstrap 初始化项目与兼容导入
+  → 子存储执行持久化与同步
+  → Memory Hub / Router / 查询工具读取
+```
+
+当前 `memory/` 下的职责边界是：
+
+- `MemoryStore` 作为统一 facade，对 CLI、MCP 和 monitoring 保持稳定入口
+- `MemoryStoreBootstrap` 负责只读/可写初始化、项目注册和兼容导入
+- `ProjectMetaStore` 负责 checkpoint、catalog、profile 和 global memory
+- `FeatureMemoryRepository` 与 `FeatureMemoryCatalogCoordinator` 负责 feature memory 存储和 catalog 同步
+- `DecisionStore` 负责架构决策记录映射
+- `LongTermMemoryService` 负责长期记忆的追加、检索、状态和清理
+
 ## 项目结构
 
 ```text
@@ -432,10 +458,10 @@ src/
 ├── indexer/              # 向量索引编排
 ├── indexing/             # 索引队列与 daemon
 ├── mcp/                  # MCP server 与工具定义
-├── memory/               # 项目记忆 / 长期记忆 / 跨项目 Hub
+├── memory/               # MemoryStore facade + bootstrap + 子存储 + 跨项目 Hub
 ├── monitoring/           # 检索监控 / 健康检查 / 告警
 ├── scanner/              # 文件发现与增量扫描
-├── search/               # SearchService / GraphExpander / ContextPacker
+├── search/               # SearchService facade + recall / rerank / snippet / expand / pack 子模块
 ├── storage/              # 快照布局与原子切换
 ├── usage/                # 使用追踪与优化分析
 └── vectorStore/          # LanceDB 向量存储

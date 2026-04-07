@@ -409,6 +409,13 @@ User question
   → structured context output
 ```
 
+In the current implementation, `SearchService` is mostly an orchestration facade instead of a single all-in-one engine:
+
+- `HybridRecallEngine` handles vector + lexical recall, FTS fallback, and RRF fusion
+- `RerankPolicy` owns rerank pool selection and Smart TopK cutoff
+- `SnippetExtractor` builds rerank text and hit-centered snippets
+- `GraphExpander` and `ContextPacker` still own expansion and packing
+
 ### Indexing path
 
 ```text
@@ -420,6 +427,25 @@ File changes
   → indexing/ queue state update
 ```
 
+### Memory path
+
+```text
+Feature / Decision / Profile / Long-term write
+  → MemoryStore facade
+  → bootstrap project initialization and compatibility import
+  → focused sub-stores persist and sync data
+  → Memory Hub / Router / retrieval tools read it back
+```
+
+The current `memory/` boundaries are:
+
+- `MemoryStore` stays as the stable facade for CLI, MCP, and monitoring
+- `MemoryStoreBootstrap` handles read-only/writable initialization, project registration, and compatibility import
+- `ProjectMetaStore` owns checkpoints, catalog, profile, and global memory
+- `FeatureMemoryRepository` and `FeatureMemoryCatalogCoordinator` own feature memory persistence and catalog sync
+- `DecisionStore` owns decision-record mapping and persistence
+- `LongTermMemoryService` owns append/find/status/prune logic for long-term memory
+
 ## Project structure
 
 ```text
@@ -430,10 +456,10 @@ src/
 ├── indexer/              # Vector indexing orchestration
 ├── indexing/             # Index queue and daemon
 ├── mcp/                  # MCP server and tool definitions
-├── memory/               # Project memory / long-term memory / cross-project hub
+├── memory/               # MemoryStore facade + bootstrap + sub-stores + cross-project hub
 ├── monitoring/           # Retrieval monitoring / health / alerts
 ├── scanner/              # File discovery and incremental scanning
-├── search/               # SearchService / GraphExpander / ContextPacker
+├── search/               # SearchService facade + recall / rerank / snippet / expand / pack submodules
 ├── storage/              # Snapshot layout and atomic switching
 ├── usage/                # Usage tracking and optimization analysis
 └── vectorStore/          # LanceDB vector storage

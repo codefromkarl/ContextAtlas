@@ -93,4 +93,53 @@ export function registerOpsUsageCommands(cli: CommandRegistrar): void {
         exitWithError('生成存储冗余报告失败', { error: error.message });
       }
     });
+
+  cli
+    .command('perf:benchmark', '运行离线索引性能基准（small/medium/large × full/incremental/repair/noop）')
+    .option('--size <size>', 'small | medium | large', { default: 'small' })
+    .option('--scenario <scenario>', 'full | incremental | repair | noop', { default: 'noop' })
+    .option('--matrix', '运行整组 benchmark matrix')
+    .option('--json', '以 JSON 输出报告')
+    .action(async (options: {
+      size?: string;
+      scenario?: string;
+      matrix?: boolean;
+      json?: boolean;
+    }) => {
+      try {
+        const {
+          buildBenchmarkMatrix,
+          formatIndexBenchmarkMatrixReport,
+          formatIndexBenchmarkReport,
+          runIndexBenchmark,
+        } = await import('../../monitoring/indexBenchmark.js');
+
+        if (options.matrix) {
+          const reports = [];
+          for (const item of buildBenchmarkMatrix()) {
+            reports.push(await runIndexBenchmark(item));
+          }
+          if (options.json) {
+            writeJson(reports);
+            return;
+          }
+          writeText(formatIndexBenchmarkMatrixReport(reports));
+          return;
+        }
+
+        const report = await runIndexBenchmark({
+          size: (options.size as 'small' | 'medium' | 'large') || 'small',
+          scenario:
+            (options.scenario as 'full' | 'incremental' | 'repair' | 'noop') || 'noop',
+        });
+        if (options.json) {
+          writeJson(report);
+          return;
+        }
+        writeText(formatIndexBenchmarkReport(report));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('运行性能基准失败', { error: error.message });
+      }
+    });
 }

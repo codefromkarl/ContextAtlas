@@ -19,6 +19,7 @@ test('buildReleaseSmokePlan covers daemon, monitoring, MCP, and search regressio
       'mcp-help',
       'health-full',
       'monitoring-retrieval-help',
+      'benchmark-small-noop',
       'cold-start-search',
     ],
   );

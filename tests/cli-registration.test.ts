@@ -67,6 +67,7 @@ test('registerCliCommands registers major command groups through a single entryp
   assert.ok(registered.includes('task:status'));
   assert.ok(registered.includes('task:inspect <taskId>'));
   assert.ok(registered.includes('storage:analyze'));
+  assert.ok(registered.includes('perf:benchmark'));
 });
 
 test('registerBootstrapCommands registers startup-oriented commands', () => {
@@ -250,6 +251,7 @@ test('registerOpsCommands registers operations commands through a single entrypo
   assert.ok(registered.includes('usage:index-report'));
   assert.ok(registered.includes('usage:purge'));
   assert.ok(registered.includes('storage:analyze'));
+  assert.ok(registered.includes('perf:benchmark'));
   assert.ok(registered.includes('health:check'));
   assert.ok(registered.includes('memory:health'));
   assert.ok(registered.includes('health:full'));
@@ -268,7 +270,7 @@ test('registerOpsUsageCommands registers usage-oriented ops commands', () => {
 
   const registered = Array.from(cli.commands.keys());
 
-  assert.deepEqual(registered, ['usage:index-report', 'usage:purge', 'storage:analyze']);
+  assert.deepEqual(registered, ['usage:index-report', 'usage:purge', 'storage:analyze', 'perf:benchmark']);
 });
 
 test('registerOpsHealthCommands registers health-oriented ops commands', () => {

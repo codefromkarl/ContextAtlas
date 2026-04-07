@@ -53,6 +53,11 @@ export function buildReleaseSmokePlan(input: {
       expectedPatterns: [/monitor:retrieval/, /--json/],
     },
     {
+      name: 'benchmark-small-noop',
+      command: ['node', cliEntry, 'perf:benchmark', '--size', 'small', '--scenario', 'noop', '--json'],
+      expectedPatterns: [/"size"\s*:\s*"small"/, /"scenario"\s*:\s*"noop"/, /"durationMs"/],
+    },
+    {
       name: 'cold-start-search',
       command: [
         'node',

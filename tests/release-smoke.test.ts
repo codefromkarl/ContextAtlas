@@ -11,7 +11,7 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
     fixtureRepoPath: '/tmp/contextatlas-smoke/repo',
   });
 
-  assert.equal(plan.length, 8);
+  assert.equal(plan.length, 9);
   assert.deepEqual(
     plan.map((step) => step.name),
     [
@@ -22,6 +22,7 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
       'mcp-help',
       'health-full',
       'monitoring-retrieval-help',
+      'benchmark-small-noop',
       'cold-start-search',
     ],
   );
@@ -38,6 +39,16 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
   assert.deepEqual(plan[5].command, ['node', '/repo/dist/index.js', 'health:full', '--json']);
   assert.deepEqual(plan[6].command, ['node', '/repo/dist/index.js', 'monitor:retrieval', '--help']);
   assert.deepEqual(plan[7].command, [
+    'node',
+    '/repo/dist/index.js',
+    'perf:benchmark',
+    '--size',
+    'small',
+    '--scenario',
+    'noop',
+    '--json',
+  ]);
+  assert.deepEqual(plan[8].command, [
     'node',
     '/repo/dist/index.js',
     'search',

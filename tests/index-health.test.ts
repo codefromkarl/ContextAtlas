@@ -75,6 +75,11 @@ test('analyzeIndexHealth reports degraded chunk FTS coverage when vector chunks 
   assert.ok(
     report.overall.recommendations.some((rec) => rec.includes('fts:rebuild-chunks')),
   );
+  assert.ok(
+    report.overall.repairPlan.autoFixable.some(
+      (item) => item.actionId === 'rebuild-chunk-fts' && item.projectId === projectId,
+    ),
+  );
 });
 
 test('analyzeIndexHealth reports last successful index time and latest scope per project', async () => {
@@ -179,6 +184,24 @@ test('formatIndexHealthReport exposes panel-style overview and recovery path', (
         '启动守护进程: contextatlas daemon start',
         '查看失败详情并修复: contextatlas health:check --json',
       ],
+      repairPlan: {
+        autoFixable: [
+          {
+            kind: 'auto',
+            actionId: 'start-daemon',
+            projectId: null,
+            message: '启动守护进程: contextatlas daemon start',
+          },
+        ],
+        manual: [
+          {
+            kind: 'manual',
+            actionId: null,
+            projectId: null,
+            message: '查看失败详情并修复: contextatlas health:check --json',
+          },
+        ],
+      },
     },
   });
 
@@ -187,6 +210,8 @@ test('formatIndexHealthReport exposes panel-style overview and recovery path', (
   assert.match(output, /Queue Length: 3/);
   assert.match(output, /Recent Failures:/);
   assert.match(output, /Recovery Path:/);
+  assert.match(output, /Auto Fixable:/);
+  assert.match(output, /Manual Checks:/);
   assert.match(output, /contextatlas daemon start/);
   assert.match(output, /Project Panels:/);
   assert.match(output, /Snapshot Version: snap-20260406/);

@@ -59,6 +59,20 @@ export interface IndexHealthReport {
     status: 'healthy' | 'degraded' | 'unhealthy';
     issues: string[];
     recommendations: string[];
+    repairPlan: {
+      autoFixable: Array<{
+        kind: 'auto';
+        actionId: string;
+        projectId: string | null;
+        message: string;
+      }>;
+      manual: Array<{
+        kind: 'manual';
+        actionId: null;
+        projectId: string | null;
+        message: string;
+      }>;
+    };
   };
 }
 
@@ -400,43 +414,91 @@ export async function analyzeIndexHealth(
 
   const issues: string[] = [];
   const recommendations: string[] = [];
+  const autoFixable: IndexHealthReport['overall']['repairPlan']['autoFixable'] = [];
+  const manual: IndexHealthReport['overall']['repairPlan']['manual'] = [];
 
   if (queue.queued > 5) {
     issues.push(`队列积压: ${queue.queued} 个任务等待中`);
-    recommendations.push('启动或检查守护进程: contextatlas daemon start');
+    const message = '启动或检查守护进程: contextatlas daemon start';
+    recommendations.push(message);
+    autoFixable.push({
+      kind: 'auto',
+      actionId: 'start-daemon',
+      projectId: null,
+      message,
+    });
   }
 
   if (queue.oldestQueuedAgeMs && queue.oldestQueuedAgeMs > 30 * 60 * 1000) {
     issues.push(`最老排队任务已等待 ${queue.oldestQueuedAgeHuman}`);
+    manual.push({
+      kind: 'manual',
+      actionId: null,
+      projectId: null,
+      message: '检查守护进程是否正常运行',
+    });
     recommendations.push('检查守护进程是否正常运行');
   }
 
   if (queue.failed > 0) {
     issues.push(`${queue.failed} 个索引任务执行失败`);
-    recommendations.push('查看失败详情并修复: contextatlas health:check --json');
+    const message = '查看失败详情并修复: contextatlas health:check --json';
+    recommendations.push(message);
+    manual.push({
+      kind: 'manual',
+      actionId: null,
+      projectId: null,
+      message,
+    });
   }
 
   for (const snap of snapshots) {
     if (!snap.hasCurrentSnapshot) {
       issues.push(`项目 ${snap.projectId}: 无当前快照`);
-      recommendations.push(`重新索引: contextatlas index ${snap.projectId}`);
+      const message = `重新索引: contextatlas index ${snap.projectId}`;
+      recommendations.push(message);
+      manual.push({
+        kind: 'manual',
+        actionId: null,
+        projectId: snap.projectId,
+        message,
+      });
     }
 
     if (snap.dbIntegrity === 'corrupted') {
       issues.push(`项目 ${snap.projectId}: 索引数据库损坏`);
-      recommendations.push(`强制重建索引: contextatlas index ${snap.projectId} --force`);
+      const message = `强制重建索引: contextatlas index ${snap.projectId} --force`;
+      recommendations.push(message);
+      manual.push({
+        kind: 'manual',
+        actionId: null,
+        projectId: snap.projectId,
+        message,
+      });
     }
 
     if (snap.hasIndexDb && !snap.hasVectorIndex && snap.fileCount > 0) {
       issues.push(`项目 ${snap.projectId}: 缺少向量索引`);
-      recommendations.push(`重新索引以生成向量: contextatlas index ${snap.projectId} --force`);
+      const message = `重新索引以生成向量: contextatlas index ${snap.projectId} --force`;
+      recommendations.push(message);
+      manual.push({
+        kind: 'manual',
+        actionId: null,
+        projectId: snap.projectId,
+        message,
+      });
     }
 
     if (snap.vectorChunkCount > 0 && (!snap.hasChunksFts || snap.chunkFtsCount === 0)) {
       issues.push(`项目 ${snap.projectId}: chunk FTS 覆盖不足 (0/${snap.vectorChunkCount})`);
-      recommendations.push(
-        `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`,
-      );
+      const message = `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`;
+      recommendations.push(message);
+      autoFixable.push({
+        kind: 'auto',
+        actionId: 'rebuild-chunk-fts',
+        projectId: snap.projectId,
+        message,
+      });
     } else if (
       snap.vectorChunkCount > 0 &&
       snap.chunkFtsCoverage !== null &&
@@ -445,15 +507,27 @@ export async function analyzeIndexHealth(
       issues.push(
         `项目 ${snap.projectId}: chunk FTS 覆盖不足 (${snap.chunkFtsCount}/${snap.vectorChunkCount})`,
       );
-      recommendations.push(
-        `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`,
-      );
+      const message = `重建 chunk FTS: contextatlas fts:rebuild-chunks --project-id ${snap.projectId}`;
+      recommendations.push(message);
+      autoFixable.push({
+        kind: 'auto',
+        actionId: 'rebuild-chunk-fts',
+        projectId: snap.projectId,
+        message,
+      });
     }
   }
 
   if (!daemon.isRunning && queue.queued > 0) {
     issues.push('守护进程未运行但有排队任务');
-    recommendations.push('启动守护进程: contextatlas daemon start');
+    const message = '启动守护进程: contextatlas daemon start';
+    recommendations.push(message);
+    autoFixable.push({
+      kind: 'auto',
+      actionId: 'start-daemon',
+      projectId: null,
+      message,
+    });
   }
 
   const status: 'healthy' | 'degraded' | 'unhealthy' =
@@ -467,13 +541,25 @@ export async function analyzeIndexHealth(
     queue,
     snapshots,
     daemon,
-    overall: { status, issues, recommendations },
+    overall: {
+      status,
+      issues,
+      recommendations,
+      repairPlan: {
+        autoFixable: dedupeRepairEntries(autoFixable),
+        manual: dedupeRepairEntries(manual),
+      },
+    },
   };
 }
 
 export function formatIndexHealthReport(report: IndexHealthReport): string {
   const lines: string[] = [];
   const latestSuccessSnapshot = report.snapshots.find((snap) => snap.lastSuccessfulAt) || null;
+  const repairPlan = report.overall.repairPlan || {
+    autoFixable: [],
+    manual: [],
+  };
 
   lines.push('Index Health Panel');
   lines.push(`Status: ${report.overall.status.toUpperCase()}`);
@@ -528,6 +614,28 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
   }
   lines.push('');
 
+  lines.push('Auto Fixable:');
+  if (repairPlan.autoFixable.length > 0) {
+    for (const item of repairPlan.autoFixable) {
+      lines.push(
+        `  - ${item.message}${item.actionId ? ` [action=${item.actionId}]` : ''}${item.projectId ? ` [project=${item.projectId}]` : ''}`,
+      );
+    }
+  } else {
+    lines.push('  - No automatic repair action');
+  }
+  lines.push('');
+
+  lines.push('Manual Checks:');
+  if (repairPlan.manual.length > 0) {
+    for (const item of repairPlan.manual) {
+      lines.push(`  - ${item.message}${item.projectId ? ` [project=${item.projectId}]` : ''}`);
+    }
+  } else {
+    lines.push('  - No manual follow-up needed');
+  }
+  lines.push('');
+
   lines.push('Project Panels:');
   for (const snap of report.snapshots) {
     lines.push(`  ${snap.projectId}:`);
@@ -577,6 +685,15 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
   }
 
   return lines.join('\n');
+}
+
+function dedupeRepairEntries<T extends { message: string; projectId: string | null }>(entries: T[]): T[] {
+  return entries.filter(
+    (entry, index, array) =>
+      array.findIndex(
+        (candidate) => candidate.message === entry.message && candidate.projectId === entry.projectId,
+      ) === index,
+  );
 }
 
 function buildSnapshotRecoveryHints(snap: SnapshotHealth): string[] {

@@ -619,16 +619,28 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
         const healingIndexableCount = processedHealingFiles.filter(
           (result) => (result.status === 'added' || result.status === 'modified') && result.chunks.length > 0,
         ).length;
-        const healingSkippedCount = processedHealingFiles.filter(
-          (result) => (result.status === 'added' || result.status === 'modified') && result.chunks.length === 0,
+        const healingSettledCount = processedHealingFiles.filter(
+          (result) =>
+            (result.status === 'added' || result.status === 'modified')
+            && result.chunks.length === 0
+            && result.chunking?.settleNoChunks !== false,
+        ).length;
+        const healingPendingCount = processedHealingFiles.filter(
+          (result) =>
+            (result.status === 'added' || result.status === 'modified')
+            && result.chunks.length === 0
+            && result.chunking?.settleNoChunks === false,
         ).length;
 
         if (healingIndexableCount > 0) {
           logger.info({ count: healingIndexableCount }, '自愈：发现需要补索引的文件');
           options.onProgress?.(45, 100, `正在生成向量嵌入... (${healingIndexableCount} 个文件)`);
         }
-        if (healingSkippedCount > 0) {
-          logger.info({ count: healingSkippedCount }, '自愈：文件无可索引 chunk，标记为跳过');
+        if (healingSettledCount > 0) {
+          logger.info({ count: healingSettledCount }, '自愈：文件无可索引 chunk，标记为已收敛');
+        }
+        if (healingPendingCount > 0) {
+          logger.warn({ count: healingPendingCount }, '自愈：解析失败导致空 chunk，保留待修复状态');
         }
 
         const healingFiles = processedHealingFiles

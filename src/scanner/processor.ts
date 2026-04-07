@@ -26,7 +26,39 @@ const MAX_FILE_SIZE =
  * 需要兜底分片支持的目标语言集合
  * 这些语言的文件即使 AST 解析失败也会使用行分片保证可检索
  */
-const FALLBACK_LANGS = new Set(['python', 'go', 'rust', 'java', 'markdown', 'json']);
+const FALLBACK_LANGS = new Set([
+  'typescript',
+  'javascript',
+  'python',
+  'go',
+  'rust',
+  'java',
+  'markdown',
+  'json',
+  'c',
+  'cpp',
+  'c_sharp',
+  'kotlin',
+  'swift',
+  'shell',
+  'powershell',
+  'sql',
+  'yaml',
+  'toml',
+  'xml',
+  'html',
+  'css',
+  'scss',
+  'sass',
+  'less',
+  'vue',
+  'svelte',
+  'ruby',
+  'php',
+  'dart',
+  'lua',
+  'r',
+]);
 
 /**
  * 索引内容 schema 版本
@@ -95,6 +127,12 @@ export interface ProcessResult {
   size: number;
   status: 'added' | 'modified' | 'unchanged' | 'deleted' | 'skipped' | 'error';
   error?: string;
+  chunking?: {
+    strategy: 'ast' | 'fallback' | 'empty';
+    astFailed: boolean;
+    settleNoChunks: boolean;
+    emptyReason?: 'empty-content' | 'parse-failed' | 'splitter-returned-empty' | 'unsupported-language';
+  };
 }
 
 /**
@@ -104,6 +142,56 @@ export interface KnownFileMeta {
   mtime: number;
   hash: string;
   size: number;
+}
+
+function resolveChunkingState(input: {
+  hasIndexableContent: boolean;
+  usedFallback: boolean;
+  astFailed: boolean;
+  astAttempted: boolean;
+  hasChunks: boolean;
+}): NonNullable<ProcessResult['chunking']> {
+  if (!input.hasIndexableContent) {
+    return {
+      strategy: 'empty',
+      astFailed: false,
+      settleNoChunks: true,
+      emptyReason: 'empty-content',
+    };
+  }
+
+  if (input.hasChunks) {
+    return {
+      strategy: input.usedFallback ? 'fallback' : 'ast',
+      astFailed: input.astFailed,
+      settleNoChunks: false,
+    };
+  }
+
+  if (input.astFailed) {
+    return {
+      strategy: 'empty',
+      astFailed: true,
+      settleNoChunks: false,
+      emptyReason: 'parse-failed',
+    };
+  }
+
+  if (input.astAttempted) {
+    return {
+      strategy: 'empty',
+      astFailed: false,
+      settleNoChunks: false,
+      emptyReason: 'splitter-returned-empty',
+    };
+  }
+
+  return {
+    strategy: 'empty',
+    astFailed: false,
+    settleNoChunks: false,
+    emptyReason: 'unsupported-language',
+  };
 }
 
 /**
@@ -205,11 +293,37 @@ async function processFile(
       };
     }
 
+    const hasIndexableContent = content.trim().length > 0;
+    if (!hasIndexableContent) {
+      return {
+        absPath,
+        relPath,
+        hash,
+        content,
+        chunks: [],
+        language,
+        mtime,
+        size,
+        status: known ? 'modified' : 'added',
+        chunking: resolveChunkingState({
+          hasIndexableContent,
+          usedFallback: false,
+          astFailed: false,
+          astAttempted: false,
+          hasChunks: false,
+        }),
+      };
+    }
+
     // 语义分片
     let chunks: ProcessedChunk[] = [];
+    let astAttempted = false;
+    let astFailed = false;
+    let usedFallback = false;
 
     // 1. 尝试 AST 分片（如果语言支持）
     if (isLanguageSupported(language)) {
+      astAttempted = true;
       try {
         const parser = await getParser(language);
         if (parser) {
@@ -218,6 +332,7 @@ async function processFile(
         }
       } catch (err) {
         const error = err as { message?: string };
+        astFailed = true;
         // AST 分片失败，记录警告
         console.warn(`[Chunking] AST failed for ${relPath}: ${error.message}`);
       }
@@ -226,6 +341,7 @@ async function processFile(
     // 兜底分片：对 FALLBACK_LANGS 语言，如果 AST 分片失败或返回空，使用行分片
     if (chunks.length === 0 && FALLBACK_LANGS.has(language)) {
       chunks = splitter.splitPlainText(content, relPath, language);
+      usedFallback = chunks.length > 0;
     }
 
     return {
@@ -238,6 +354,13 @@ async function processFile(
       mtime,
       size,
       status: known ? 'modified' : 'added',
+      chunking: resolveChunkingState({
+        hasIndexableContent,
+        usedFallback,
+        astFailed,
+        astAttempted,
+        hasChunks: chunks.length > 0,
+      }),
     };
   } catch (err) {
     const error = err as { message?: string };

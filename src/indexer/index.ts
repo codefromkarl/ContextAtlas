@@ -97,6 +97,7 @@ export class Indexer {
     const toIndex: FileToIndex[] = [];
     const toDelete: string[] = [];
     const noChunkSettled: Array<{ path: string; hash: string }> = [];
+    const noChunkPending: Array<{ path: string; reason?: string }> = [];
 
     for (const result of results) {
       switch (result.status) {
@@ -114,10 +115,17 @@ export class Indexer {
             if (result.status === 'modified') {
               toDelete.push(result.relPath);
             }
-            noChunkSettled.push({
-              path: result.relPath,
-              hash: result.hash,
-            });
+            if (result.chunking?.settleNoChunks !== false) {
+              noChunkSettled.push({
+                path: result.relPath,
+                hash: result.hash,
+              });
+            } else {
+              noChunkPending.push({
+                path: result.relPath,
+                reason: result.chunking?.emptyReason,
+              });
+            }
             stats.skipped++;
           }
           break;
@@ -150,6 +158,12 @@ export class Indexer {
       logger.debug(
         { count: noChunkSettled.length },
         '无可索引 chunk，标记向量索引状态为已收敛',
+      );
+    }
+    if (noChunkPending.length > 0) {
+      logger.warn(
+        { count: noChunkPending.length, files: noChunkPending },
+        '文件无可索引 chunk，但未标记为已收敛，保留待自愈状态',
       );
     }
 

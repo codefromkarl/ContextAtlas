@@ -460,6 +460,7 @@ src/
 |------|------|
 | [First use guide](./docs/FIRST_USE.md) | Fast onboarding path for the default `contextatlas` loop |
 | [2026-04-06 update summary](./docs/UPDATE_2026_04_06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
+| [2026-04-07 update summary](./docs/UPDATE_2026_04_07.md) | Summary of the seven indexing phases covering lightweight planning, snapshot copy reduction, health repair, observability, fallback hardening, storage trimming, and benchmarks |
 | [Deployment guide](./docs/DEPLOYMENT.md) | Installation, deployment patterns, MCP integration, operations |
 | [CLI reference](./docs/CLI.md) | CLI commands, categories, and examples |
 | [MCP reference](./docs/MCP.md) | MCP tools, parameters, and calling patterns |

@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { MemoryRouter } from '../../memory/MemoryRouter.js';
+import type { AssemblyPlan, AssemblyProfileName } from '../../memory/MemoryRouter.js';
 import type { FeatureMemory } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
 import { responseFormatSchema } from './responseFormat.js';
@@ -57,6 +58,43 @@ export const loadModuleMemorySchema = z.object({
 
 export type LoadModuleMemoryInput = z.infer<typeof loadModuleMemorySchema>;
 
+interface LoadModuleMemoryPayload {
+  tool: 'load_module_memory';
+  input: {
+    moduleName?: string;
+    query?: string;
+    scope?: string;
+    filePaths?: string[];
+    phase?: AssemblyProfileName;
+    profile: AssemblyProfileName;
+    enableScopeCascade: boolean;
+    maxResults: number;
+    useMmr: boolean;
+    mmrLambda: number;
+  };
+  assembly: AssemblyPlan;
+  routing: LoadModuleMemoryRoutingSummary;
+  result_count: number;
+  match_details: LoadModuleMemoryMatchDetail[];
+  memories: FeatureMemory[];
+}
+
+interface LoadModuleMemoryMatchDetail {
+  module: string;
+  matchedBy: 'keyword' | 'path' | 'scope-cascade' | 'explicit-scope' | 'explicit-module';
+  detail: string;
+}
+
+interface LoadModuleMemoryRoutingSummary {
+  candidateCount: number;
+  selectedCount: number;
+  selectionStrategy: 'mmr' | 'ranked';
+  routeStrategy: string;
+  routeBreakdown: Array<{ matchedBy: LoadModuleMemoryMatchDetail['matchedBy']; count: number }>;
+  scopeCascadeApplied: boolean;
+  selectedModules: string[];
+}
+
 // ===========================================
 // 工具处理函数
 // ===========================================
@@ -88,15 +126,6 @@ export async function handleLoadModuleMemory(
     profile,
   } = args;
 
-  const assembly = resolveAssemblyProfile({
-    phase,
-    profile,
-    enableScopeCascade,
-    maxResults,
-    useMmr,
-    mmrLambda,
-  });
-
   logger.info(
     {
       moduleName,
@@ -105,11 +134,10 @@ export async function handleLoadModuleMemory(
       filePaths,
       phase,
       profile,
-      resolvedProfile: assembly.name,
-      enableScopeCascade: assembly.enableScopeCascade,
-      maxResults: assembly.maxResults,
-      useMmr: assembly.useMmr,
-      mmrLambda: assembly.mmrLambda,
+      enableScopeCascade,
+      maxResults,
+      useMmr,
+      mmrLambda,
     },
     'MCP load_module_memory 调用开始',
   );
@@ -119,23 +147,63 @@ export async function handleLoadModuleMemory(
   // 确保路由器已初始化
   await router.initialize();
 
-  const routeResult = await router.route({
+  const routed = await router.routeWithAssembly({
     moduleName,
     query,
     scope,
     filePaths,
-    enableScopeCascade: assembly.enableScopeCascade,
+    phase,
+    profile,
+    enableScopeCascade,
+    maxResults,
+    useMmr,
+    mmrLambda,
   });
+  const { assembly, routeResult } = routed;
 
   if (routeResult.memories.length === 0) {
+    const routing = buildRoutingSummary(routeResult.matchDetails, assembly, routeResult.memories.length, 0, []);
+    const assemblyInput = buildAssemblyInput({
+      moduleName,
+      query,
+      scope,
+      filePaths,
+      phase,
+      assembly,
+    });
+
+    if (format === 'json') {
+      const payload: LoadModuleMemoryPayload = {
+        tool: 'load_module_memory',
+        input: assemblyInput,
+        assembly,
+        routing,
+        result_count: 0,
+        match_details: routeResult.matchDetails,
+        memories: [],
+      };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              ...payload,
+              message: 'No module memories matched the given input.',
+            }, null, 2),
+          },
+        ],
+      };
+    }
+
     const hints: string[] = [];
     if (moduleName) hints.push(`moduleName: "${moduleName}"`);
     if (query) hints.push(`query: "${query}"`);
     if (scope) hints.push(`scope: "${scope}"`);
     if (filePaths && filePaths.length > 0) hints.push(`filePaths: ${filePaths.join(', ')}`);
-    if (assembly.enableScopeCascade) hints.push('enableScopeCascade: true');
     hints.push(`profile: ${assembly.name}`);
+    hints.push(`source: ${assembly.source}`);
     hints.push(`maxResults: ${assembly.maxResults}`);
+    if (assembly.enableScopeCascade) hints.push('enableScopeCascade: true');
     if (!assembly.useMmr) hints.push('useMmr: false');
     if (assembly.mmrLambda !== 0.65) hints.push(`mmrLambda: ${assembly.mmrLambda}`);
 
@@ -143,7 +211,7 @@ export async function handleLoadModuleMemory(
       content: [
         {
           type: 'text',
-          text: `No module memories matched the given input (${hints.join(', ')}).\n\nTry refining moduleName/query/filePaths/scope first. If routing still seems wrong, use list_memory_catalog as a debug tool to inspect available modules and scopes.`,
+          text: `No module memories matched the given input (${hints.join(', ')}).\n\nTry refining moduleName/query/filePaths/scope first. If routing still seems wrong, use list_memory_catalog as a debug tool to inspect available modules and scopes.\n\n${formatAssemblyText(assembly)}\n${formatRoutingText(routeResult, assembly, 0, 'ranked', [])}`,
         },
       ],
     };
@@ -157,52 +225,62 @@ export async function handleLoadModuleMemory(
     useMmr: assembly.useMmr,
     mmrLambda: assembly.mmrLambda,
   });
-  const selectedKeys = new Set(selected.memories.map((m) => normalizeModuleName(m.name)));
+  const routing = buildRoutingSummary(
+    routeResult.matchDetails,
+    assembly,
+    routeResult.memories.length,
+    selected.memories.length,
+    selected.memories.map((m) => m.name),
+  );
+  const assemblyInput = buildAssemblyInput({
+    moduleName,
+    query,
+    scope,
+    filePaths,
+    phase,
+    assembly,
+  });
 
   if (format === 'json') {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            {
-              tool: 'load_module_memory',
-              input: {
-                moduleName,
-                query,
-                scope,
-                filePaths,
-                phase,
-                profile: assembly.name,
-                enableScopeCascade: assembly.enableScopeCascade,
-                maxResults: assembly.maxResults,
-                useMmr: assembly.useMmr,
-                mmrLambda: assembly.mmrLambda,
-              },
-              result_count: selected.memories.length,
-              match_details: routeResult.matchDetails,
-              memories: selected.memories,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
+    const payload: LoadModuleMemoryPayload = {
+      tool: 'load_module_memory',
+      input: assemblyInput,
+      assembly,
+      routing,
+      result_count: selected.memories.length,
+      match_details: routeResult.matchDetails,
+      memories: selected.memories,
     };
+    return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
   }
 
   const formatted = selected.memories.map((m) => formatModuleMemory(m)).join('\n\n---\n\n');
-
-  const matchSummary = routeResult.matchDetails
-    .filter((d) => selectedKeys.has(normalizeModuleName(d.module)))
-    .map((d) => `  - ${d.module}: ${d.matchedBy} (${d.detail})`)
-    .join('\n');
 
   return {
     content: [
       {
         type: 'text',
-        text: `## Loaded ${selected.memories.length} Module Memory(ies)\n\n**Assembly Profile**: ${assembly.name}\n\n**Budget**: maxResults=${assembly.maxResults}, useMmr=${assembly.useMmr}, mmrLambda=${assembly.mmrLambda}, enableScopeCascade=${assembly.enableScopeCascade}, candidates=${routeResult.memories.length}\n\n**Match Details:**\n${matchSummary || '  - N/A'}\n\n---\n\n${formatted}`,
+        text: [
+          `## Loaded ${selected.memories.length} Module Memory(ies)`,
+          '',
+          formatAssemblyText(assembly),
+          formatRoutingText(
+            routeResult,
+            assembly,
+            selected.memories.length,
+            routing.selectionStrategy,
+            selected.memories.map((memory) => memory.name),
+          ),
+          '',
+          '#### Match Details',
+          ...(routeResult.matchDetails.length > 0
+            ? routeResult.matchDetails.map((detail) => `- ${detail.module}: ${detail.matchedBy} (${detail.detail})`)
+            : ['- N/A']),
+          '',
+          '---',
+          '',
+          formatted,
+        ].join('\n'),
       },
     ],
   };
@@ -232,49 +310,102 @@ function formatModuleMemory(memory: FeatureMemory): string {
 - **Last Updated**: ${new Date(memory.lastUpdated).toLocaleString()}`;
 }
 
-type AssemblyProfileName = 'overview' | 'debug' | 'implementation' | 'verification' | 'handoff';
-
-function resolveAssemblyProfile(input: {
+function buildAssemblyInput(params: {
+  moduleName?: string;
+  query?: string;
+  scope?: string;
+  filePaths?: string[];
   phase?: AssemblyProfileName;
-  profile?: AssemblyProfileName;
-  enableScopeCascade: boolean;
-  maxResults: number;
-  useMmr: boolean;
-  mmrLambda: number;
-}): {
-  name: AssemblyProfileName;
-  enableScopeCascade: boolean;
-  maxResults: number;
-  useMmr: boolean;
-  mmrLambda: number;
-} {
-  const name = input.profile || input.phase || 'implementation';
-  const defaults: Record<AssemblyProfileName, { enableScopeCascade: boolean; maxResults: number; useMmr: boolean; mmrLambda: number }> = {
-    overview: { enableScopeCascade: false, maxResults: 4, useMmr: true, mmrLambda: 0.7 },
-    debug: { enableScopeCascade: false, maxResults: 6, useMmr: true, mmrLambda: 0.55 },
-    implementation: { enableScopeCascade: true, maxResults: 8, useMmr: true, mmrLambda: 0.65 },
-    verification: { enableScopeCascade: false, maxResults: 5, useMmr: true, mmrLambda: 0.6 },
-    handoff: { enableScopeCascade: false, maxResults: 6, useMmr: false, mmrLambda: 0.8 },
+  assembly: AssemblyPlan;
+}): LoadModuleMemoryPayload['input'] {
+  return {
+    moduleName: params.moduleName,
+    query: params.query,
+    scope: params.scope,
+    filePaths: params.filePaths,
+    phase: params.phase,
+    profile: params.assembly.name,
+    enableScopeCascade: params.assembly.enableScopeCascade,
+    maxResults: params.assembly.maxResults,
+    useMmr: params.assembly.useMmr,
+    mmrLambda: params.assembly.mmrLambda,
   };
+}
 
-  const base = defaults[name];
-  const shouldApplyProfileDefaults = Boolean(input.phase || input.profile);
+function summarizeRouteBreakdown(
+  matchDetails: LoadModuleMemoryMatchDetail[],
+): Array<{ matchedBy: LoadModuleMemoryMatchDetail['matchedBy']; count: number }> {
+  const counts = new Map<LoadModuleMemoryMatchDetail['matchedBy'], number>();
+  for (const detail of matchDetails) {
+    counts.set(detail.matchedBy, (counts.get(detail.matchedBy) || 0) + 1);
+  }
+  return Array.from(counts.entries()).map(([matchedBy, count]) => ({ matchedBy, count }));
+}
 
-  return shouldApplyProfileDefaults
-    ? {
-        name,
-        enableScopeCascade: base.enableScopeCascade,
-        maxResults: base.maxResults,
-        useMmr: base.useMmr,
-        mmrLambda: base.mmrLambda,
-      }
-    : {
-        name,
-        enableScopeCascade: input.enableScopeCascade,
-        maxResults: input.maxResults,
-        useMmr: input.useMmr,
-        mmrLambda: input.mmrLambda,
-      };
+function summarizeRouteStrategy(matchDetails: LoadModuleMemoryMatchDetail[]): string {
+  if (matchDetails.length === 0) {
+    return 'unmatched';
+  }
+
+  const kinds = Array.from(new Set(matchDetails.map((detail) => detail.matchedBy)));
+  return kinds.join(' + ');
+}
+
+function buildRoutingSummary(
+  matchDetails: LoadModuleMemoryMatchDetail[],
+  assembly: AssemblyPlan,
+  candidateCount: number,
+  selectedCount: number,
+  selectedModules: string[],
+): LoadModuleMemoryRoutingSummary {
+  return {
+    candidateCount,
+    selectedCount,
+    selectionStrategy: assembly.useMmr ? 'mmr' : 'ranked',
+    routeStrategy: summarizeRouteStrategy(matchDetails),
+    routeBreakdown: summarizeRouteBreakdown(matchDetails),
+    scopeCascadeApplied: assembly.enableScopeCascade && matchDetails.some((detail) => detail.matchedBy === 'scope-cascade'),
+    selectedModules,
+  };
+}
+
+function formatAssemblyText(assembly: AssemblyPlan): string {
+  return [
+    '#### Context Assembly',
+    `- **Assembly Profile**: ${assembly.name}`,
+    `- **Assembly Source**: ${assembly.source}`,
+    `- **Budget**: maxResults=${assembly.maxResults}, useMmr=${assembly.useMmr}, mmrLambda=${assembly.mmrLambda}, enableScopeCascade=${assembly.enableScopeCascade}`,
+  ].join('\n');
+}
+
+function formatRoutingText(
+  routeResult: {
+    matchedModules: string[];
+    matchDetails: LoadModuleMemoryMatchDetail[];
+    memories: FeatureMemory[];
+  },
+  assembly: AssemblyPlan,
+  selectedCount: number,
+  selectionStrategy: 'mmr' | 'ranked',
+  selectedModules: string[],
+): string {
+  const summary = buildRoutingSummary(
+    routeResult.matchDetails,
+    assembly,
+    routeResult.memories.length,
+    selectedCount,
+    selectedModules,
+  );
+  return [
+    '#### Routing Decision',
+    `- **Route Strategy**: ${summary.routeStrategy}`,
+    `- **Candidate Count**: ${summary.candidateCount}`,
+    `- **Selected Count**: ${summary.selectedCount}`,
+    `- **Selection Strategy**: ${selectionStrategy === 'mmr' ? 'MMR' : 'ranked'}`,
+    `- **Scope Cascade**: ${summary.scopeCascadeApplied ? 'enabled' : 'disabled'}`,
+    `- **Selected Modules**: ${summary.selectedModules.length > 0 ? summary.selectedModules.join(', ') : 'N/A'}`,
+    `- **Budget Used**: ${selectedCount}/${assembly.maxResults}`,
+  ].join('\n');
 }
 
 type MatchDetail = {

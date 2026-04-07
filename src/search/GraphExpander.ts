@@ -13,7 +13,7 @@ import { initDb } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 import { type ChunkRecord, getVectorStore, type VectorStore } from '../vectorStore/index.js';
 import { createResolvers, type ImportResolver } from './resolvers/index.js';
-import type { ScoredChunk, SearchConfig } from './types.js';
+import type { ExpansionCandidate, ScoredChunk, SearchConfig } from './types.js';
 
 // ===========================================
 // 类型定义
@@ -22,6 +22,8 @@ import type { ScoredChunk, SearchConfig } from './types.js';
 /** 扩展结果 */
 interface ExpandResult {
   chunks: ScoredChunk[];
+  explorationCandidates: ExpansionCandidate[];
+  nextInspectionSuggestions: string[];
   stats: {
     neighborCount: number;
     breadcrumbCount: number;
@@ -101,7 +103,7 @@ export class GraphExpander {
     };
 
     if (seeds.length === 0) {
-      return { chunks: [], stats };
+      return { chunks: [], explorationCandidates: [], nextInspectionSuggestions: [], stats };
     }
 
     // 已有的 chunk keys（用于去重）
@@ -126,9 +128,20 @@ export class GraphExpander {
     this.addChunks(importChunks, expandedChunks, existingKeys);
     stats.importCount = importChunks.length;
 
-    logger.debug(stats, '上下文扩展完成');
+    const explorationCandidates = this.buildExplorationCandidates(expandedChunks);
+    const nextInspectionSuggestions = explorationCandidates.map(
+      (candidate) => `Inspect ${candidate.filePath} (${candidate.reason})`,
+    );
 
-    return { chunks: expandedChunks, stats };
+    logger.debug(
+      {
+        ...stats,
+        explorationCandidateCount: explorationCandidates.length,
+      },
+      '上下文扩展完成',
+    );
+
+    return { chunks: expandedChunks, explorationCandidates, nextInspectionSuggestions, stats };
   }
 
   /**
@@ -516,6 +529,24 @@ export class GraphExpander {
     if (lower.endsWith('/__init__.py')) return true;
     if (lower.endsWith('/mod.rs')) return true;
     return /\/index\.(ts|tsx|js|jsx|mts|mjs|cts|cjs)$/.test(lower);
+  }
+
+  private buildExplorationCandidates(chunks: ScoredChunk[]): ExpansionCandidate[] {
+    const byFile = new Map<string, ScoredChunk>();
+    for (const chunk of [...chunks].sort((a, b) => b.score - a.score)) {
+      if (!byFile.has(chunk.filePath)) {
+        byFile.set(chunk.filePath, chunk);
+      }
+    }
+
+    return Array.from(byFile.values())
+      .slice(0, 5)
+      .map((chunk) => ({
+        filePath: chunk.filePath,
+        source: chunk.source,
+        reason: `expanded via ${chunk.source}`,
+        priority: chunk.source === 'import' ? 'high' : chunk.source === 'breadcrumb' ? 'medium' : 'low',
+      }));
   }
 }
 

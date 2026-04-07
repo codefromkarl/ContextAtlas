@@ -223,4 +223,78 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
         logger.info(`    理由：${d.rationale}`);
       }
     });
+
+  cli
+    .command('memory:create-checkpoint', '创建任务检查点')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--title <title>', '检查点标题')
+    .option('--goal <goal>', '任务目标')
+    .option('--phase <phase>', '阶段: overview | research | debug | implementation | verification | handoff')
+    .option('--summary <summary>', '检查点摘要')
+    .option('--active-block-ids <ids>', '激活的上下文块 ID，逗号分隔')
+    .option('--explored-refs <refs>', '已探索引用，逗号分隔')
+    .option('--key-findings <items>', '关键发现，逗号分隔')
+    .option('--unresolved-questions <items>', '未解决问题，逗号分隔')
+    .option('--next-steps <items>', '下一步，逗号分隔')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      if (!options.title || !options.goal || !options.phase || !options.summary) {
+        exitWithError('缺少 --title / --goal / --phase / --summary');
+      }
+
+      const phase = options.phase;
+      if (
+        phase !== 'overview' &&
+        phase !== 'research' &&
+        phase !== 'debug' &&
+        phase !== 'implementation' &&
+        phase !== 'verification' &&
+        phase !== 'handoff'
+      ) {
+        exitWithError(`不支持的 --phase: ${phase}`);
+      }
+
+      const { handleCreateCheckpoint } = await import('../../mcp/tools/checkpoints.js');
+      const response = await handleCreateCheckpoint({
+        repo_path: options.repo ? path.resolve(String(options.repo)) : process.cwd(),
+        title: String(options.title),
+        goal: String(options.goal),
+        phase,
+        summary: String(options.summary),
+        activeBlockIds: splitCommaSeparated(options['active-block-ids']),
+        exploredRefs: splitCommaSeparated(options['explored-refs']),
+        keyFindings: splitCommaSeparated(options['key-findings']),
+        unresolvedQuestions: splitCommaSeparated(options['unresolved-questions']),
+        nextSteps: splitCommaSeparated(options['next-steps']),
+        format: options.json ? 'json' : 'text',
+      });
+      writeText(joinToolText(response));
+    });
+
+  cli
+    .command('memory:load-checkpoint <checkpointId>', '加载任务检查点')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (checkpointId: string, options: Record<string, string | boolean | undefined>) => {
+      const { handleLoadCheckpoint } = await import('../../mcp/tools/checkpoints.js');
+      const response = await handleLoadCheckpoint({
+        repo_path: options.repo ? path.resolve(String(options.repo)) : process.cwd(),
+        checkpoint_id: checkpointId,
+        format: options.json ? 'json' : 'text',
+      });
+      writeText(joinToolText(response));
+    });
+
+  cli
+    .command('memory:list-checkpoints', '列出任务检查点')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      const { handleListCheckpoints } = await import('../../mcp/tools/checkpoints.js');
+      const response = await handleListCheckpoints({
+        repo_path: options.repo ? path.resolve(String(options.repo)) : process.cwd(),
+        format: options.json ? 'json' : 'text',
+      });
+      writeText(joinToolText(response));
+    });
 }

@@ -16,11 +16,12 @@ import { z } from 'zod';
 import { responseFormatSchema } from './responseFormat.js';
 import { generateProjectId } from '../../db/index.js';
 import type {
+  BlockFirstPayload,
+  CheckpointCandidate,
   ContextBlock,
   DecisionRecord,
   FeatureMemory,
   ResolvedLongTermMemoryItem,
-  TaskCheckpoint,
 } from '../../memory/types.js';
 import { resolveBaseDir } from '../../runtimePaths.js';
 // 注意：SearchService 和 scan 改为延迟导入，避免在 MCP 启动时就加载 native 模块
@@ -537,6 +538,7 @@ export async function handleCodebaseRetrieval(
       technicalTerms: technical_terms,
       semanticQuery,
       lexicalQuery,
+      responseMode: response_mode || 'expanded',
     },
   );
   const totalMs = initMs + (Date.now() - searchStart);
@@ -649,18 +651,23 @@ function formatMcpResponse(
   const contextBlocks = buildContextBlocks(pack, resultCard);
   const checkpointCandidate = buildCheckpointCandidate(options.repoPath, options.informationRequest, contextBlocks, resultCard);
   const overview = buildOverviewData(pack, resultCard, contextBlocks);
+  const blockFirst = buildBlockFirstPayload(contextBlocks, checkpointCandidate, resultCard.nextActions);
 
   if (options.responseFormat === 'json') {
     const payload = options.responseMode === 'overview'
       ? {
+          responseMode: options.responseMode,
           summary: overview.summary,
           topFiles: overview.topFiles,
+          contextBlocks,
           references: overview.references,
           expansionCandidates: overview.expansionCandidates,
           nextInspectionSuggestions: overview.nextInspectionSuggestions,
           checkpointCandidate,
+          blockFirst,
         }
       : {
+          responseMode: options.responseMode,
           summary: {
             codeBlocks: seeds.length,
             files: files.length,
@@ -671,6 +678,7 @@ function formatMcpResponse(
           expansionCandidates: overview.expansionCandidates,
           nextInspectionSuggestions: resultCard.nextActions,
           checkpointCandidate,
+          blockFirst,
         };
     return {
       content: [
@@ -1555,21 +1563,29 @@ function buildOverviewData(
     .sort((a, b) => b.segmentCount - a.segmentCount)
     .slice(0, 5);
 
-  const seen = new Set<string>();
-  const expansionCandidates = [...pack.expanded]
-    .sort((a, b) => b.score - a.score)
-    .filter((chunk) => {
-      const key = chunk.filePath;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 5)
-    .map((chunk) => ({
-      filePath: chunk.filePath,
-      reason: `expanded via ${chunk.source}`,
-      priority: chunk.source === 'import' ? 'high' : chunk.source === 'breadcrumb' ? 'medium' : 'low',
-    }));
+  const expansionCandidates = pack.expansionCandidates
+    ? pack.expansionCandidates.slice(0, 5).map((candidate) => ({
+        filePath: candidate.filePath,
+        reason: candidate.reason,
+        priority: candidate.priority,
+      }))
+    : (() => {
+        const seen = new Set<string>();
+        return [...pack.expanded]
+          .sort((a, b) => b.score - a.score)
+          .filter((chunk) => {
+            const key = chunk.filePath;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 5)
+          .map((chunk) => ({
+            filePath: chunk.filePath,
+            reason: `expanded via ${chunk.source}`,
+            priority: chunk.source === 'import' ? 'high' : chunk.source === 'breadcrumb' ? 'medium' : 'low',
+          }));
+      })();
 
   const references = contextBlocks
     .flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, source: item.source, ref: item.ref })))
@@ -1584,7 +1600,10 @@ function buildOverviewData(
     topFiles,
     references,
     expansionCandidates,
-    nextInspectionSuggestions: resultCard.nextActions,
+    nextInspectionSuggestions:
+      pack.nextInspectionSuggestions && pack.nextInspectionSuggestions.length > 0
+        ? pack.nextInspectionSuggestions
+        : resultCard.nextActions,
   };
 }
 
@@ -1593,7 +1612,7 @@ function buildCheckpointCandidate(
   informationRequest: string,
   contextBlocks: ReturnType<typeof buildContextBlocks>,
   resultCard: RetrievalResultCard,
-) : TaskCheckpoint {
+): CheckpointCandidate {
   const now = new Date().toISOString();
   return {
     id: `checkpoint:${crypto.createHash('sha1').update(`${repoPath}:${informationRequest}`).digest('hex').slice(0, 12)}`,
@@ -1609,6 +1628,29 @@ function buildCheckpointCandidate(
     nextSteps: resultCard.nextActions,
     createdAt: now,
     updatedAt: now,
+    source: 'retrieval',
+    confidence: 'high',
+    reason: 'Generated from retrieval context blocks and result-card reasoning',
+  };
+}
+
+function buildBlockFirstPayload(
+  contextBlocks: ContextBlock[],
+  checkpointCandidate: CheckpointCandidate,
+  nextInspectionSuggestions: string[],
+): BlockFirstPayload {
+  return {
+    schemaVersion: 1,
+    contextBlocks,
+    references: contextBlocks.flatMap((block) =>
+      block.provenance.map((item) => ({
+        blockId: block.id,
+        source: item.source,
+        ref: item.ref,
+      })),
+    ),
+    checkpointCandidate,
+    nextInspectionSuggestions,
   };
 }
 

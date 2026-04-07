@@ -179,6 +179,9 @@ test('registerMemoryCommands registers memory commands through a single entrypoi
   assert.ok(registered.includes('memory:check-consistency'));
   assert.ok(registered.includes('memory:prune-long-term'));
   assert.ok(registered.includes('memory:record-long-term'));
+  assert.ok(registered.includes('memory:create-checkpoint'));
+  assert.ok(registered.includes('memory:load-checkpoint <checkpointId>'));
+  assert.ok(registered.includes('memory:list-checkpoints'));
   assert.ok(registered.includes('feedback:record'));
   assert.ok(registered.includes('decision:record <id>'));
   assert.ok(registered.includes('decision:list'));
@@ -238,6 +241,9 @@ test('registerMemoryKnowledgeCommands registers long-term and decision commands'
     'feedback:record',
     'decision:record <id>',
     'decision:list',
+    'memory:create-checkpoint',
+    'memory:load-checkpoint <checkpointId>',
+    'memory:list-checkpoints',
   ]);
 });
 

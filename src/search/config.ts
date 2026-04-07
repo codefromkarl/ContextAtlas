@@ -40,6 +40,7 @@ export const DEFAULT_CONFIG: SearchConfig = {
   // ContextPacker
   maxSegmentsPerFile: 3,
   maxTotalChars: 48000,
+  maxContextBlocks: 12,
 
   // Smart TopK
   enableSmartTopK: true,

@@ -427,6 +427,10 @@ export class LongTermMemoryService {
     memory: LongTermMemoryItem,
     staleDays = this.defaultStaleDays,
   ): LongTermMemoryStatus {
+    if ((memory.provenance || []).some((item) => item.startsWith('superseded-by:'))) {
+      return 'superseded';
+    }
+
     if (this.isMemoryExpired(memory.validUntil)) {
       return 'expired';
     }
@@ -473,6 +477,10 @@ export class LongTermMemoryService {
     },
   ): boolean {
     if (memory.status === 'expired') {
+      return options?.includeExpired ?? true;
+    }
+
+    if (memory.status === 'superseded') {
       return options?.includeExpired ?? true;
     }
 

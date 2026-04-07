@@ -4,11 +4,12 @@
  * 在特定触发条件下自动记录或建议记录功能记忆与长期记忆
  */
 
+import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { logger } from '../utils/logger.js';
 import { MemoryStore } from './MemoryStore.js';
-import type { LongTermMemoryItem } from './types.js';
+import type { LongTermMemoryItem, TaskCheckpoint } from './types.js';
 
 interface AutoRecordTrigger {
   type: 'module-not-found' | 'new-file-created' | 'session-end' | 'explicit-request';
@@ -36,10 +37,12 @@ export interface AutoRecordSuggestion {
   shouldAutoRecord: boolean;
   suggestedMemory?: ExtractedMemoryInfo;
   suggestedLongTermMemories?: LongTermMemoryItem[];
+  suggestedCheckpoint?: TaskCheckpoint;
 }
 
 export class MemoryAutoRecorder {
   private readonly store: MemoryStore;
+  private readonly projectRoot: string;
   private readonly autoRecordEnabled: boolean;
   private readonly suggestionThreshold: number;
 
@@ -47,7 +50,8 @@ export class MemoryAutoRecorder {
     projectRoot: string,
     options?: { autoRecord?: boolean; suggestionThreshold?: number },
   ) {
-    this.store = new MemoryStore(projectRoot);
+    this.projectRoot = path.resolve(projectRoot);
+    this.store = new MemoryStore(this.projectRoot);
     this.autoRecordEnabled = options?.autoRecord ?? false;
     this.suggestionThreshold = options?.suggestionThreshold ?? 0.7;
   }
@@ -60,6 +64,7 @@ export class MemoryAutoRecorder {
     shouldAutoRecord: boolean;
     suggestedMemory?: ExtractedMemoryInfo;
     suggestedLongTermMemories?: LongTermMemoryItem[];
+    suggestedCheckpoint?: TaskCheckpoint;
   }> {
     logger.info({ type: trigger.type }, 'MemoryAutoRecorder 触发');
 
@@ -135,6 +140,7 @@ export class MemoryAutoRecorder {
     shouldAutoRecord: boolean;
     suggestedMemory?: ExtractedMemoryInfo;
     suggestedLongTermMemories?: LongTermMemoryItem[];
+    suggestedCheckpoint?: TaskCheckpoint;
   }> {
     // 从会话摘要中提取新模块信息
     const info = await this.extractMemoryFromSummary(summary);
@@ -144,6 +150,11 @@ export class MemoryAutoRecorder {
     const suggestedLongTermMemories = longTermMemories.filter(
       (memory) => memory.confidence >= this.suggestionThreshold,
     );
+    const suggestedCheckpoint = this.buildSessionCheckpoint(
+      summary,
+      suggestedMemory,
+      suggestedLongTermMemories,
+    );
 
     if (suggestedMemory || suggestedLongTermMemories.length > 0) {
       return {
@@ -151,10 +162,16 @@ export class MemoryAutoRecorder {
         shouldAutoRecord: this.autoRecordEnabled,
         suggestedMemory,
         suggestedLongTermMemories,
+        suggestedCheckpoint,
       };
     }
 
-    return { shouldSuggest: false, shouldAutoRecord: false, suggestedLongTermMemories: [] };
+    return {
+      shouldSuggest: false,
+      shouldAutoRecord: false,
+      suggestedLongTermMemories: [],
+      suggestedCheckpoint: this.autoRecordEnabled ? suggestedCheckpoint : undefined,
+    };
   }
 
   /**
@@ -273,19 +290,23 @@ export class MemoryAutoRecorder {
 
     const items: LongTermMemoryItem[] = [];
     const now = new Date().toISOString();
+    const summaryRef = `session-summary:${Buffer.from(normalized).toString('base64url').slice(0, 12)}`;
     const sentences = normalized
       .split(/[。！？!?]/)
       .map((sentence) => sentence.trim())
       .filter(Boolean);
 
-    for (const sentence of sentences) {
+    for (const [index, sentence] of sentences.entries()) {
+      const provenance = [summaryRef, `sentence:${index + 1}`];
       const urlMatches = [...sentence.matchAll(/https?:\/\/[^\s]+/g)].map((match) => match[0]);
       if (urlMatches.length > 0) {
         items.push({
-          id: `reference-${Buffer.from(sentence).toString('base64url').slice(0, 12)}`,
+          id: this.createStableId('reference', sentence),
           type: 'reference',
           title: sentence.includes('Grafana') ? '外部引用: Grafana 仪表盘' : '外部引用',
           summary: sentence,
+          durability: 'stable',
+          provenance,
           howToApply: '当需要查看外部系统状态或文档时优先参考这里。',
           tags: ['external-reference'],
           scope: 'project',
@@ -300,10 +321,12 @@ export class MemoryAutoRecorder {
       if (/(必须|不要|别|以后|统一|提交前)/.test(sentence)) {
         const whyMatch = sentence.match(/因为(.+)$/);
         items.push({
-          id: `feedback-${Buffer.from(sentence).toString('base64url').slice(0, 12)}`,
+          id: this.createStableId('feedback', sentence),
           type: 'feedback',
           title: this.buildFeedbackTitle(sentence),
           summary: sentence,
+          durability: 'stable',
+          provenance,
           why: whyMatch?.[1]?.trim(),
           howToApply: sentence,
           tags: ['workflow'],
@@ -321,10 +344,12 @@ export class MemoryAutoRecorder {
         !items.some((item) => item.summary === sentence && item.type === 'project-state')
       ) {
         items.push({
-          id: `project-state-${Buffer.from(sentence).toString('base64url').slice(0, 12)}`,
+          id: this.createStableId('project-state', sentence),
           type: 'project-state',
           title: this.buildProjectStateTitle(sentence),
           summary: sentence,
+          durability: 'ephemeral',
+          provenance,
           howToApply: '继续相关工作前先参考当前进度与约束。',
           tags: ['project-state'],
           scope: 'project',
@@ -338,10 +363,12 @@ export class MemoryAutoRecorder {
 
       if (/(我(更)?熟悉|第一次接触|偏好|希望你|解释尽量)/.test(sentence)) {
         items.push({
-          id: `user-${Buffer.from(sentence).toString('base64url').slice(0, 12)}`,
+          id: this.createStableId('user', sentence),
           type: 'user',
           title: '用户画像 / 偏好',
           summary: sentence,
+          durability: 'stable',
+          provenance,
           howToApply: '后续解释和协作方式应参考该偏好。',
           tags: ['user-preference'],
           scope: 'global-user',
@@ -384,6 +411,61 @@ export class MemoryAutoRecorder {
       return `${migrationTarget}状态`;
     }
     return '项目状态更新';
+  }
+
+  buildSessionCheckpoint(
+    summary: string,
+    suggestedMemory?: ExtractedMemoryInfo | null,
+    suggestedLongTermMemories: LongTermMemoryItem[] = [],
+  ): TaskCheckpoint {
+    const now = new Date().toISOString();
+    const normalizedSummary = summary.replace(/\s+/g, ' ').trim();
+    const summarySentence = normalizedSummary.split(/[。！？!?]/).find(Boolean)?.trim() || normalizedSummary;
+    const title = suggestedMemory?.name ? `${suggestedMemory.name} Handoff` : 'Session Handoff';
+    const goal = suggestedMemory?.responsibility
+      ? `Continue work on ${suggestedMemory.name}`
+      : summarySentence || 'Capture session handoff state';
+    const exploredRefs = [
+      ...(suggestedMemory
+        ? suggestedMemory.files.map((file) => path.posix.join(suggestedMemory.dir, file))
+        : []),
+      ...suggestedLongTermMemories.flatMap((memory) => memory.links || []),
+    ];
+    const activeBlockIds = [
+      ...(suggestedMemory ? [`feature:${suggestedMemory.name}`] : []),
+      ...suggestedLongTermMemories.map((memory) => `long-term:${memory.type}:${memory.id}`),
+    ];
+    const keyFindings = [
+      suggestedMemory?.responsibility?.trim(),
+      ...suggestedLongTermMemories.map((memory) => memory.summary.trim()),
+    ].filter((item): item is string => Boolean(item));
+    const unresolvedQuestions = normalizedSummary.match(/[^。！？!?]*\?/g)?.map((item) => item.trim()) || [];
+    const nextSteps = [
+      suggestedMemory ? `Review ${suggestedMemory.name} handoff bundle` : 'Review session handoff bundle',
+      ...(suggestedLongTermMemories.length > 0
+        ? ['Fold extracted long-term memories into follow-up work']
+        : []),
+    ];
+
+    return {
+      id: this.createStableId('chk', `${title}:${normalizedSummary}:${now}`),
+      repoPath: this.projectRoot,
+      title,
+      goal,
+      phase: 'handoff',
+      summary: summarySentence,
+      activeBlockIds,
+      exploredRefs: [...new Set(exploredRefs)],
+      keyFindings: [...new Set(keyFindings)],
+      unresolvedQuestions: [...new Set(unresolvedQuestions)],
+      nextSteps,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private createStableId(prefix: string, input: string): string {
+    return `${prefix}-${crypto.createHash('sha1').update(input).digest('hex').slice(0, 12)}`;
   }
 
   /**

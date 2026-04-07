@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { MemoryAutoRecorder } from '../../memory/MemoryAutoRecorder.js';
 import { MemoryHubDatabase } from '../../memory/MemoryHubDatabase.js';
 import { MemoryStore } from '../../memory/MemoryStore.js';
+import type { LongTermMemoryItem, ResolvedLongTermMemoryItem, TaskCheckpoint } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
 
 // ===========================================
@@ -59,7 +60,7 @@ export async function handleSessionEnd(
   logger.info({ project, autoRecord, summaryLength: summary.length }, 'MCP session_end 调用开始');
 
   const projectRoot = resolveProjectRoot(project);
-  const recorder = new MemoryAutoRecorder(projectRoot);
+  const recorder = new MemoryAutoRecorder(projectRoot, { autoRecord: Boolean(autoRecord) });
   const triggerResult = await recorder.onTrigger({
     type: 'session-end',
     context: { conversationSummary: summary, projectRoot },
@@ -67,10 +68,13 @@ export async function handleSessionEnd(
 
   const suggestedMemory = triggerResult.suggestedMemory;
   const suggestedLongTermMemories = triggerResult.suggestedLongTermMemories || [];
+  const suggestedCheckpoint = triggerResult.suggestedCheckpoint;
+  const shouldAutoRecord = Boolean(autoRecord || triggerResult.shouldAutoRecord);
 
   if (
-    !triggerResult.shouldSuggest ||
-    (!suggestedMemory && suggestedLongTermMemories.length === 0)
+    !triggerResult.shouldSuggest &&
+    !shouldAutoRecord &&
+    !suggestedCheckpoint
   ) {
     return {
       content: [
@@ -83,7 +87,7 @@ export async function handleSessionEnd(
   }
 
   // 如果启用自动记录，直接保存
-  if (autoRecord || triggerResult.shouldAutoRecord) {
+  if (shouldAutoRecord) {
     const store = new MemoryStore(projectRoot);
     const savedBlocks: string[] = [];
 
@@ -117,12 +121,17 @@ export async function handleSessionEnd(
     if (suggestedLongTermMemories.length > 0) {
       const persisted = [];
       for (const memory of suggestedLongTermMemories) {
-        persisted.push(await store.appendLongTermMemoryItem(memory));
+        persisted.push(await persistGovernedLongTermMemory(store, memory));
       }
 
       savedBlocks.push(
         `### 长期记忆\n${persisted.map(({ memory, action }) => `- **${memory.type}**: ${memory.title} (${action})`).join('\n')}`,
       );
+    }
+
+    if (suggestedCheckpoint) {
+      const savedTo = await store.saveCheckpoint(suggestedCheckpoint);
+      savedBlocks.push(formatCheckpointSavedBlock(suggestedCheckpoint, savedTo));
     }
 
     return {
@@ -153,6 +162,10 @@ export async function handleSessionEnd(
         )
         .join('\n')}`,
     );
+  }
+
+  if (suggestedCheckpoint) {
+    suggestionBlocks.push(formatCheckpointSuggestionBlock(suggestedCheckpoint));
   }
 
   return {
@@ -219,4 +232,71 @@ function resolveProjectRoot(projectId?: string): string {
   } finally {
     db.close();
   }
+}
+
+function formatCheckpointSavedBlock(checkpoint: TaskCheckpoint, savedTo: string): string {
+  return [
+    '### 任务检查点',
+    `- **标题**: ${checkpoint.title}`,
+    `- **阶段**: ${checkpoint.phase}`,
+    `- **目标**: ${checkpoint.goal}`,
+    `- **Summary**: ${checkpoint.summary}`,
+    `- **Saved to**: ${savedTo}`,
+  ].join('\n');
+}
+
+function formatCheckpointSuggestionBlock(checkpoint: TaskCheckpoint): string {
+  return [
+    '## 检测到会话检查点',
+    `**标题**: ${checkpoint.title}`,
+    `**阶段**: ${checkpoint.phase}`,
+    `**目标**: ${checkpoint.goal}`,
+    '',
+    '建议启用 `autoRecord=true` 以自动保存正式 checkpoint。',
+  ].join('\n');
+}
+
+async function persistGovernedLongTermMemory(
+  store: MemoryStore,
+  memory: LongTermMemoryItem,
+): Promise<{ memory: LongTermMemoryItem; action: 'created' | 'merged' | 'updated' }> {
+  if (memory.type !== 'project-state' && memory.type !== 'reference') {
+    return store.appendLongTermMemoryItem(memory);
+  }
+
+  const existing = await store.listLongTermMemories({
+    types: [memory.type],
+    scope: memory.scope,
+    includeExpired: true,
+  });
+  const activePeer = existing.find((item) => shouldSupersede(item, memory));
+
+  if (!activePeer) {
+    return store.appendLongTermMemoryItem(memory);
+  }
+
+  await store.appendLongTermMemoryItem({
+    ...activePeer,
+    validUntil: new Date().toISOString().slice(0, 10),
+    provenance: [...new Set([...(activePeer.provenance || []), `superseded-by:${memory.id}`])],
+  });
+
+  return store.appendLongTermMemoryItem({
+    ...memory,
+    provenance: [...new Set([...(memory.provenance || []), `supersedes:${activePeer.id}`])],
+  });
+}
+
+function shouldSupersede(
+  existing: ResolvedLongTermMemoryItem,
+  next: LongTermMemoryItem,
+): boolean {
+  if (existing.status === 'expired' || existing.status === 'superseded') {
+    return false;
+  }
+
+  return existing.type === next.type
+    && existing.scope === next.scope
+    && existing.title === next.title
+    && existing.summary !== next.summary;
 }

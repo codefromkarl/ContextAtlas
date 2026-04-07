@@ -42,6 +42,9 @@ export class ContextPacker {
           budgetLimitChars: this.config.maxTotalChars,
           budgetUsedChars: 0,
           budgetExhausted: false,
+          blockBudgetLimit: this.config.maxContextBlocks,
+          blockBudgetUsed: 0,
+          blockBudgetExhausted: false,
           filesConsidered: 0,
           filesIncluded: 0,
         },
@@ -74,6 +77,7 @@ export class ContextPacker {
     const contentMap = new Map(rows.map((r) => [r.path, r.content]));
     let segmentCount = 0;
     let budgetExhausted = false;
+    let blockBudgetExhausted = false;
 
     for (const { filePath, chunks: fileChunks } of sortedFiles) {
       // 从批量结果中获取文件内容
@@ -92,6 +96,10 @@ export class ContextPacker {
       // 预算检查
       const budgetedSegments: Segment[] = [];
       for (const seg of topSegments) {
+        if (segmentCount + budgetedSegments.length >= this.config.maxContextBlocks) {
+          blockBudgetExhausted = true;
+          break;
+        }
         if (totalChars + seg.text.length > this.config.maxTotalChars) {
           // 预算用尽，停止添加
           budgetExhausted = true;
@@ -107,7 +115,14 @@ export class ContextPacker {
       }
 
       // 预算用尽
-      if (totalChars >= this.config.maxTotalChars || budgetExhausted) break;
+      if (
+        totalChars >= this.config.maxTotalChars
+        || budgetExhausted
+        || segmentCount >= this.config.maxContextBlocks
+        || blockBudgetExhausted
+      ) {
+        break;
+      }
     }
 
     return {
@@ -118,6 +133,9 @@ export class ContextPacker {
         budgetLimitChars: this.config.maxTotalChars,
         budgetUsedChars: totalChars,
         budgetExhausted,
+        blockBudgetLimit: this.config.maxContextBlocks,
+        blockBudgetUsed: segmentCount,
+        blockBudgetExhausted,
         filesConsidered: sortedFiles.length,
         filesIncluded: result.length,
       },

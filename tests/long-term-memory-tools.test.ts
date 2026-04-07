@@ -204,7 +204,145 @@ test('session_end autoRecord saves inferred feature memory with agent-inferred c
     const memory = await store.readFeature('SearchService');
     assert.ok(memory);
     assert.equal(memory?.confirmationStatus, 'agent-inferred');
+
+    const checkpoints = await store.listCheckpoints();
+    assert.equal(checkpoints.length, 1);
+    assert.equal(checkpoints[0]?.phase, 'handoff');
+    assert.match(response.content[0].text, /任务检查点/);
   });
+});
+
+test('session_end autoRecord adds provenance/confidence and supersedes prior project-state snapshots', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await handleSessionEnd({
+      summary: '用户模块迁移截止日期是 2026-04-07，目前完成了查询部分，接下来做变更部分。',
+      project: projectRoot,
+      autoRecord: true,
+    });
+
+    await handleSessionEnd({
+      summary: '用户模块迁移截止日期是 2026-04-08，目前完成了变更部分，接下来做回归验证。',
+      project: projectRoot,
+      autoRecord: true,
+    });
+
+    const store = new MemoryStore(projectRoot);
+    const projectStates = await store.listLongTermMemories({
+      types: ['project-state'],
+      includeExpired: true,
+    });
+
+    assert.equal(projectStates.length, 2);
+    assert.ok(projectStates.some((memory) => memory.status === 'superseded'));
+    assert.ok(projectStates.some((memory) => memory.status === 'active'));
+
+    const latest = projectStates.find((memory) => memory.status === 'active');
+    const previous = projectStates.find((memory) => memory.status === 'superseded');
+    assert.ok(latest);
+    assert.ok(previous);
+    assert.ok(latest?.provenance?.some((item) => item.startsWith('session-summary:')));
+    assert.ok(latest?.provenance?.some((item) => item.startsWith('supersedes:')));
+    assert.equal(latest?.durability, 'ephemeral');
+    assert.equal(latest?.confidence, 0.84);
+    assert.ok(previous?.provenance?.some((item) => item.startsWith('superseded-by:')));
+  });
+});
+
+test('memory:create-checkpoint CLI records a checkpoint and load-checkpoint returns bundles', async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cw-checkpoint-cli-'));
+  const projectRoot = path.join(tempDir, 'project');
+  mkdirSync(projectRoot, { recursive: true });
+
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = tempDir;
+
+  try {
+    const createResult = spawnSync(
+      'node',
+      [
+        '--import',
+        'tsx',
+        'src/index.ts',
+        'memory:create-checkpoint',
+        '--repo',
+        projectRoot,
+        '--title',
+        'CLI Handoff',
+        '--goal',
+        'Capture session state',
+        '--phase',
+        'handoff',
+        '--summary',
+        'Captured CLI checkpoint state',
+        '--active-block-ids',
+        'block:a,block:b',
+        '--explored-refs',
+        'src/a.ts,src/b.ts',
+        '--key-findings',
+        'A,B',
+        '--next-steps',
+        'Inspect resume bundle',
+        '--json',
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: tempDir,
+        },
+      },
+    );
+
+    assert.equal(createResult.status, 0, createResult.stderr);
+    const created = JSON.parse(createResult.stdout);
+    assert.equal(created.tool, 'create_checkpoint');
+    assert.equal(created.handoffBundle.kind, 'handoff-bundle');
+    assert.equal(created.resumeBundle.kind, 'resume-bundle');
+
+    const loadResult = spawnSync(
+      'node',
+      [
+        '--import',
+        'tsx',
+        'src/index.ts',
+        'memory:load-checkpoint',
+        created.checkpoint.id,
+        '--repo',
+        projectRoot,
+        '--json',
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: tempDir,
+        },
+      },
+    );
+
+    assert.equal(loadResult.status, 0, loadResult.stderr);
+    const loaded = JSON.parse(loadResult.stdout);
+    assert.equal(loaded.tool, 'load_checkpoint');
+    assert.equal(loaded.handoffBundle.kind, 'handoff-bundle');
+    assert.equal(loaded.resumeBundle.kind, 'resume-bundle');
+
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(path.join(tempDir, 'memory-hub.db')));
+    const store = new MemoryStore(projectRoot);
+    const checkpoints = await store.listCheckpoints();
+    assert.equal(checkpoints.length, 1);
+    assert.equal(checkpoints[0]?.title, 'CLI Handoff');
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('expired long-term memories are excluded by default and returned with status when explicitly included', async () => {

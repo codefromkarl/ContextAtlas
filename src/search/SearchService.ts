@@ -21,11 +21,13 @@ import { applySmartCutoff, selectRerankPoolCandidates } from './RerankPolicy.js'
 import { buildRerankText } from './SnippetExtractor.js';
 import type {
   ContextPack,
+  ExpansionCandidate,
   QueryIntent,
   ResultStats,
   RetrievalStats,
   ScoredChunk,
   SearchConfig,
+  SearchResultMode,
 } from './types.js';
 
 export interface SearchDependencyLoaders<TIndexer = Indexer, TVectorStore = VectorStore, TDb = Database.Database> {
@@ -57,6 +59,7 @@ export interface BuildContextPackOptions {
   technicalTerms?: string[];
   semanticQuery?: string;
   lexicalQuery?: string;
+  responseMode?: SearchResultMode;
 }
 
 export function classifyQueryIntent(query: string, technicalTerms: string[] = []): QueryIntent {
@@ -131,6 +134,9 @@ function buildResultStats({
     budgetLimitChars: packStats.budgetLimitChars,
     budgetUsedChars: packStats.budgetUsedChars,
     budgetExhausted: packStats.budgetExhausted,
+    blockBudgetLimit: packStats.blockBudgetLimit,
+    blockBudgetUsed: packStats.blockBudgetUsed,
+    blockBudgetExhausted: packStats.blockBudgetExhausted,
     filesConsidered: packStats.filesConsidered,
     filesIncluded: packStats.filesIncluded,
   };
@@ -181,6 +187,7 @@ export class SearchService {
     const activeConfig = deriveQueryAwareSearchConfig(this.config, queryIntent);
     const semanticQuery = options.semanticQuery?.trim() || query;
     const lexicalQuery = options.lexicalQuery?.trim() || query;
+    const responseMode = options.responseMode || 'expanded';
     const timingMs: Record<string, number> = {};
     let t0 = Date.now();
 
@@ -219,14 +226,22 @@ export class SearchService {
     t0 = Date.now();
     onStage?.('expand');
     const queryTokens = this.extractQueryTokens(query);
-    const expanded = await this.expand(seeds, queryTokens, activeConfig);
+    const expandedResult = await this.expand(seeds, queryTokens, activeConfig);
+    const expanded = Array.isArray(expandedResult) ? expandedResult : expandedResult.chunks;
+    const expansionCandidates = Array.isArray(expandedResult)
+      ? []
+      : expandedResult.explorationCandidates;
+    const nextInspectionSuggestions = Array.isArray(expandedResult)
+      ? []
+      : expandedResult.nextInspectionSuggestions;
     timingMs.expand = Date.now() - t0;
 
     // 6. 打包
     t0 = Date.now();
     onStage?.('pack');
     const packer = new ContextPacker(this.projectId, activeConfig, this.snapshotId);
-    const packResult = await packer.packWithStats([...seeds, ...expanded]);
+    const chunksToPack = responseMode === 'overview' ? seeds : [...seeds, ...expanded];
+    const packResult = await packer.packWithStats(chunksToPack);
     const files = packResult.files;
     timingMs.pack = Date.now() - t0;
     const retrievalStats: RetrievalStats = {
@@ -245,9 +260,12 @@ export class SearchService {
 
     return {
       query,
+      mode: responseMode,
       seeds,
       expanded,
       files,
+      expansionCandidates,
+      nextInspectionSuggestions,
       debug: {
         wVec: activeConfig.wVec,
         wLex: activeConfig.wLex,
@@ -330,15 +348,29 @@ export class SearchService {
     seeds: ScoredChunk[],
     queryTokens: Set<string> | undefined,
     config: SearchConfig,
-  ): Promise<ScoredChunk[]> {
-    if (seeds.length === 0) return [];
+  ): Promise<{
+    chunks: ScoredChunk[];
+    explorationCandidates: ExpansionCandidate[];
+    nextInspectionSuggestions: string[];
+  }> {
+    if (seeds.length === 0) {
+      return {
+        chunks: [],
+        explorationCandidates: [],
+        nextInspectionSuggestions: [],
+      };
+    }
 
     const expander = await getGraphExpander(this.projectId, config, this.snapshotId);
-    const { chunks, stats } = await expander.expand(seeds, queryTokens);
+    const { chunks, stats, explorationCandidates, nextInspectionSuggestions } = await expander.expand(seeds, queryTokens);
 
     logger.debug(stats, '上下文扩展统计');
 
-    return chunks;
+    return {
+      chunks,
+      explorationCandidates,
+      nextInspectionSuggestions,
+    };
   }
   /**
    * 获取当前配置

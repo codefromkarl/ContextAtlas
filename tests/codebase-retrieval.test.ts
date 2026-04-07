@@ -55,6 +55,7 @@ test('handleCodebaseRetrieval completes success path with combined query telemet
     assert.deepEqual(options.technicalTerms, ['SearchService', 'indexHealth']);
     assert.equal(options.semanticQuery, 'Trace retrieval flow');
     assert.equal(options.lexicalQuery, 'SearchService indexHealth');
+    assert.equal(options.responseMode, 'expanded');
 
     return {
       query,
@@ -140,6 +141,9 @@ test('handleCodebaseRetrieval completes success path with combined query telemet
           inputTokens: 8,
         },
       },
+      mode: 'expanded' as const,
+      expansionCandidates: [],
+      nextInspectionSuggestions: [],
     };
   }) as typeof SearchService.prototype.buildContextPack;
 
@@ -483,6 +487,16 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
         },
       ],
       debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+      mode: 'overview' as const,
+      expansionCandidates: [
+        {
+          filePath: 'src/search/GraphExpander.ts',
+          source: 'import' as const,
+          reason: 'expanded via import',
+          priority: 'high' as const,
+        },
+      ],
+      nextInspectionSuggestions: ['Inspect src/search/GraphExpander.ts (expanded via import)'],
     };
   }) as typeof SearchService.prototype.buildContextPack;
 
@@ -495,11 +509,148 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
     });
 
     const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.responseMode, 'expanded');
     assert.equal(payload.summary.codeBlocks, 1);
     assert.ok(Array.isArray(payload.contextBlocks));
     assert.ok(payload.contextBlocks.some((block: { type: string }) => block.type === 'code-evidence'));
     assert.ok(payload.contextBlocks.some((block: { type: string }) => block.type === 'module-summary'));
+    assert.equal(payload.blockFirst.schemaVersion, 1);
+    assert.equal(payload.blockFirst.contextBlocks.length, payload.contextBlocks.length);
+    assert.equal(payload.blockFirst.checkpointCandidate.title, 'Trace retrieval flow');
+    assert.equal(payload.blockFirst.checkpointCandidate.source, 'retrieval');
+    assert.equal(payload.blockFirst.checkpointCandidate.confidence, 'high');
     assert.equal(payload.checkpointCandidate.goal, 'Trace retrieval flow');
+    assert.equal(payload.checkpointCandidate.phase, 'overview');
+    assert.ok(Array.isArray(payload.references));
+    assert.ok(Array.isArray(payload.nextInspectionSuggestions));
+  } finally {
+    SearchService.prototype.init = originalInit;
+    SearchService.prototype.buildContextPack = originalBuildContextPack;
+
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('handleCodebaseRetrieval returns block-first overview json payload when response_mode=overview', async () => {
+  const baseDir = createTempBaseDir();
+  const repoDir = path.join(baseDir, 'repo');
+  fs.mkdirSync(path.join(repoDir, 'src', 'search'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'src', 'search', 'SearchService.ts'), 'export class SearchService {}');
+
+  const previousEnv = {
+    CONTEXTATLAS_BASE_DIR: process.env.CONTEXTATLAS_BASE_DIR,
+    MCP_AUTO_INDEX: process.env.MCP_AUTO_INDEX,
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
+    RERANK_BASE_URL: process.env.RERANK_BASE_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+  };
+
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  process.env.MCP_AUTO_INDEX = 'false';
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
+  process.env.EMBEDDINGS_MODEL = 'test-embedding-model';
+  process.env.RERANK_API_KEY = 'test-key';
+  process.env.RERANK_BASE_URL = 'http://127.0.0.1/rerank';
+  process.env.RERANK_MODEL = 'test-rerank-model';
+
+  const projectId = generateProjectId(repoDir);
+  const db = initDb(projectId);
+  db.close();
+
+  const store = new MemoryStore(repoDir);
+  await store.saveFeature({
+    name: 'SearchService',
+    responsibility: '协调混合检索、精排和上下文打包',
+    location: { dir: 'src/search', files: ['SearchService.ts'] },
+    api: { exports: ['SearchService'], endpoints: [] },
+    dependencies: { imports: ['GraphExpander', 'ContextPacker'], external: [] },
+    dataFlow: 'query -> recall -> rerank -> expand -> pack',
+    keyPatterns: ['search', 'rerank', 'context pack'],
+    lastUpdated: new Date('2026-04-05T10:00:00Z').toISOString(),
+  });
+
+  const originalInit = SearchService.prototype.init;
+  const originalBuildContextPack = SearchService.prototype.buildContextPack;
+  SearchService.prototype.init = async function initMock(): Promise<void> {};
+  SearchService.prototype.buildContextPack = (async function buildContextPackMock() {
+    return {
+      query: 'Trace retrieval flow SearchService',
+      seeds: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          chunkIndex: 0,
+          score: 0.96,
+          source: 'vector' as const,
+          record: {
+            file_path: 'src/search/SearchService.ts',
+            chunk_index: 0,
+            content: 'export class SearchService {}',
+            display_code: 'export class SearchService {}',
+            breadcrumb: 'src/search/SearchService.ts > SearchService',
+            language: 'typescript',
+            hash: 'h1',
+            start_line: 1,
+            end_line: 1,
+            start_byte: 0,
+            end_byte: 30,
+            raw_start: 0,
+            raw_end: 30,
+            _distance: 0.04,
+          },
+        },
+      ],
+      expanded: [],
+      files: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          segments: [
+            {
+              filePath: 'src/search/SearchService.ts',
+              rawStart: 0,
+              rawEnd: 30,
+              startLine: 1,
+              endLine: 1,
+              score: 0.96,
+              breadcrumb: 'src/search/SearchService.ts > SearchService',
+              text: 'export class SearchService {}',
+            },
+          ],
+        },
+      ],
+      debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+    };
+  }) as typeof SearchService.prototype.buildContextPack;
+
+  try {
+    const response = await handleCodebaseRetrieval({
+      repo_path: repoDir,
+      information_request: 'Trace retrieval flow',
+      technical_terms: ['SearchService'],
+      response_format: 'json',
+      response_mode: 'overview',
+    });
+
+    const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.responseMode, 'overview');
+    assert.equal(payload.summary.codeBlocks, 1);
+    assert.ok(Array.isArray(payload.topFiles));
+    assert.ok(Array.isArray(payload.contextBlocks));
+    assert.equal(payload.blockFirst.schemaVersion, 1);
+    assert.ok(payload.blockFirst.contextBlocks.some((block: { type: string }) => block.type === 'code-evidence'));
+    assert.ok(payload.blockFirst.contextBlocks.some((block: { type: string }) => block.type === 'module-summary'));
+    assert.equal(payload.blockFirst.checkpointCandidate.source, 'retrieval');
     assert.equal(payload.checkpointCandidate.phase, 'overview');
     assert.ok(Array.isArray(payload.references));
     assert.ok(Array.isArray(payload.nextInspectionSuggestions));
@@ -919,7 +1070,10 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     assert.equal(payload.expansionCandidates[0].filePath, 'src/search/GraphExpander.ts');
     assert.equal(payload.expansionCandidates[0].reason, 'expanded via import');
     assert.ok(Array.isArray(payload.nextInspectionSuggestions));
-    assert.equal(payload.contextBlocks, undefined);
+    assert.ok(Array.isArray(payload.contextBlocks));
+    assert.equal(payload.contextBlocks.length, 2);
+    assert.equal(payload.blockFirst.schemaVersion, 1);
+    assert.equal(payload.blockFirst.contextBlocks.length, payload.contextBlocks.length);
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;

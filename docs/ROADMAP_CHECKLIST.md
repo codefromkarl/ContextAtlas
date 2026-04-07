@@ -212,41 +212,41 @@
 
 ### P3 对象模型
 
-- [ ] 定义 `ContextBlock` 类型与 block 分类
-- [ ] 定义 `TaskCheckpoint` 类型
-- [ ] 定义 `MemoryKind`：procedural / semantic / episodic / task-state
-- [ ] 统一 retrieval / memory / feedback 输出到 block-first 结构
+- [x] 定义 `ContextBlock` 类型与 block 分类
+- [x] 定义 `TaskCheckpoint` 类型
+- [x] 定义 `MemoryKind`：procedural / semantic / episodic / task-state
+- [x] 统一 retrieval / memory / feedback 输出到 block-first 结构
 
 ### P3 checkpoint / handoff / resume
 
-- [ ] 增加 checkpoint 存储模型与 CLI / MCP 入口
-- [ ] 新增 `create_checkpoint` / `load_checkpoint` / `list_checkpoints`
-- [ ] 让 `autoRecord` 支持生成正式 checkpoint，而不只是建议写入
-- [ ] 支持 handoff bundle 与 resume bundle
+- [x] 增加 checkpoint 存储模型与 CLI / MCP 入口
+- [x] 新增 `create_checkpoint` / `load_checkpoint` / `list_checkpoints`
+- [x] 让 `autoRecord` 支持生成正式 checkpoint，而不只是建议写入
+- [x] 支持 handoff bundle 与 resume bundle
 
 ### P3 progressive retrieval
 
-- [ ] `SearchService` 支持 `overview` / `expanded` 两种结果模式
-- [ ] `GraphExpander` 输出 exploration candidates 与 next-inspection suggestions
-- [ ] retrieval 结果优先返回引用与结构，再按需展开正文
+- [x] `SearchService` 支持 `overview` / `expanded` 两种结果模式
+- [x] `GraphExpander` 输出 exploration candidates 与 next-inspection suggestions
+- [x] retrieval 结果优先返回引用与结构，再按需展开正文
 
 ### P3 phase-aware context assembly
 
-- [ ] `MemoryRouter` 支持按 phase/profile 装配上下文
-- [ ] `loadModuleMemory` 支持 debug / implementation / handoff 等用途参数
-- [ ] `ContextPacker` 增加 block 级预算，而不只是 span / chars 预算
+- [x] `MemoryRouter` 支持按 phase/profile 装配上下文
+- [x] `loadModuleMemory` 支持 debug / implementation / handoff 等用途参数
+- [x] `ContextPacker` 增加 block 级预算，而不只是 span / chars 预算
 
 ### P3 记忆治理
 
-- [ ] `MemoryAutoRecorder` 增加 dedupe / merge / generalize / supersede
-- [ ] 自动写入附带 provenance / confidence
-- [ ] 区分稳定记忆与任务态临时记忆
-- [ ] stale / expired / superseded 生命周期与 UI/MCP 输出对齐
+- [x] `MemoryAutoRecorder` 增加 dedupe / merge / generalize / supersede
+- [x] 自动写入附带 provenance / confidence
+- [x] 区分稳定记忆与任务态临时记忆
+- [x] stale / expired / superseded 生命周期与 UI/MCP 输出对齐
 
 ### P3 验收标准
 
-- [ ] retrieval 结果可输出 block-first 结构
-- [ ] 长周期任务可通过 checkpoint 恢复，而不依赖自由文本总结
-- [ ] memory 可以明确区分 procedural / semantic / episodic / task-state
-- [ ] agent 可以先拿 overview，再按需展开代码正文
-- [ ] 记忆不会因自动写入而快速碎片化或污染
+- [x] retrieval 结果可输出 block-first 结构
+- [x] 长周期任务可通过 checkpoint 恢复，而不依赖自由文本总结
+- [x] memory 可以明确区分 procedural / semantic / episodic / task-state
+- [x] agent 可以先拿 overview，再按需展开代码正文
+- [x] 记忆不会因自动写入而快速碎片化或污染

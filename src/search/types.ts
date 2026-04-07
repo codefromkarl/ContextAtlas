@@ -46,6 +46,7 @@ export interface SearchConfig {
   // ContextPacker
   maxSegmentsPerFile: number;
   maxTotalChars: number;
+  maxContextBlocks: number;
 
   // === Smart TopK ===
   /** 是否启用智能 TopK 策略 */
@@ -148,6 +149,9 @@ export interface ResultStats {
   budgetLimitChars: number;
   budgetUsedChars: number;
   budgetExhausted: boolean;
+  blockBudgetLimit?: number;
+  blockBudgetUsed?: number;
+  blockBudgetExhausted?: boolean;
   filesConsidered: number;
   filesIncluded: number;
 }
@@ -158,8 +162,20 @@ export interface PackStats {
   budgetLimitChars: number;
   budgetUsedChars: number;
   budgetExhausted: boolean;
+  blockBudgetLimit?: number;
+  blockBudgetUsed?: number;
+  blockBudgetExhausted?: boolean;
   filesConsidered: number;
   filesIncluded: number;
+}
+
+export type SearchResultMode = 'overview' | 'expanded';
+
+export interface ExpansionCandidate {
+  filePath: string;
+  source: ChunkSource;
+  reason: string;
+  priority: 'high' | 'medium' | 'low';
 }
 
 export interface ContextPackDebug {
@@ -184,6 +200,12 @@ export interface ContextPack {
     filePath: string;
     segments: Segment[];
   }>;
+  /** 搜索结果模式 */
+  mode?: SearchResultMode;
+  /** 供 agent 按需扩展的探索候选 */
+  expansionCandidates?: ExpansionCandidate[];
+  /** 建议的下一步检查动作 */
+  nextInspectionSuggestions?: string[];
   /** 调试信息 */
   debug?: ContextPackDebug;
 }

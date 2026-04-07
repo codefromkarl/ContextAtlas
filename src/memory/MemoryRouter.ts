@@ -23,6 +23,24 @@ import type {
 
 /** catalog schema 版本号 */
 export const MEMORY_CATALOG_VERSION = 1;
+
+export type AssemblyProfileName = 'overview' | 'debug' | 'implementation' | 'verification' | 'handoff';
+export type AssemblySource = 'default' | 'phase' | 'profile';
+
+export interface AssemblyPlan {
+  name: AssemblyProfileName;
+  source: AssemblySource;
+  enableScopeCascade: boolean;
+  maxResults: number;
+  useMmr: boolean;
+  mmrLambda: number;
+}
+
+export interface RoutedAssembly {
+  assembly: AssemblyPlan;
+  routeResult: RouteResult;
+}
+
 const DEFAULT_GLOBAL_FILES: MemoryCatalog['globalMemoryFiles'] = [
   'profile',
   'conventions',
@@ -280,6 +298,19 @@ export class MemoryRouter {
     );
 
     return result;
+  }
+
+  async routeWithAssembly(input: AssemblyRouteInput): Promise<RoutedAssembly> {
+    const assembly = this.resolveAssemblyPlan(input);
+    const routeResult = await this.route({
+      moduleName: input.moduleName,
+      query: input.query,
+      scope: input.scope,
+      filePaths: input.filePaths,
+      enableScopeCascade: assembly.enableScopeCascade,
+    });
+
+    return { assembly, routeResult };
   }
 
   // ===========================================
@@ -650,6 +681,38 @@ export class MemoryRouter {
     return new RegExp(`^${pattern}$`);
   }
 
+  private resolveAssemblyPlan(input: AssemblyRouteInput): AssemblyPlan {
+    const name = input.profile || input.phase || 'implementation';
+    const defaults: Record<AssemblyProfileName, { enableScopeCascade: boolean; maxResults: number; useMmr: boolean; mmrLambda: number }> = {
+      overview: { enableScopeCascade: false, maxResults: 4, useMmr: true, mmrLambda: 0.7 },
+      debug: { enableScopeCascade: false, maxResults: 6, useMmr: true, mmrLambda: 0.55 },
+      implementation: { enableScopeCascade: true, maxResults: 8, useMmr: true, mmrLambda: 0.65 },
+      verification: { enableScopeCascade: false, maxResults: 5, useMmr: true, mmrLambda: 0.6 },
+      handoff: { enableScopeCascade: false, maxResults: 6, useMmr: false, mmrLambda: 0.8 },
+    };
+
+    const base = defaults[name];
+    const shouldApplyProfileDefaults = Boolean(input.phase || input.profile);
+
+    return shouldApplyProfileDefaults
+      ? {
+          name,
+          source: input.profile ? 'profile' : 'phase',
+          enableScopeCascade: base.enableScopeCascade,
+          maxResults: base.maxResults,
+          useMmr: base.useMmr,
+          mmrLambda: base.mmrLambda,
+        }
+      : {
+          name,
+          source: 'default',
+          enableScopeCascade: input.enableScopeCascade,
+          maxResults: input.maxResults,
+          useMmr: input.useMmr,
+          mmrLambda: input.mmrLambda,
+        };
+  }
+
   /** 确保 catalog 默认字段存在（含全局记忆清单） */
   private ensureCatalogDefaults(catalog: MemoryCatalog): boolean {
     let changed = false;
@@ -677,4 +740,13 @@ export class MemoryRouter {
 
     return changed;
   }
+}
+
+interface AssemblyRouteInput extends RouteInput {
+  phase?: AssemblyProfileName;
+  profile?: AssemblyProfileName;
+  enableScopeCascade: boolean;
+  maxResults: number;
+  useMmr: boolean;
+  mmrLambda: number;
 }

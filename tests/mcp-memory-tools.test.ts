@@ -539,6 +539,17 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
     assert.equal(created.tool, 'create_checkpoint');
     assert.equal(created.checkpoint.phase, 'overview');
     assert.ok(created.checkpoint.id);
+    assert.equal(created.contextBlocks[0].type, 'task-state');
+    assert.equal(created.contextBlocks[0].memoryKind, 'task-state');
+    assert.equal(created.handoff.checkpointId, created.checkpoint.id);
+    assert.equal(created.handoff.contextBlockId, created.contextBlocks[0].id);
+    assert.equal(created.handoffBundle.kind, 'handoff-bundle');
+    assert.equal(created.handoffBundle.checkpointId, created.checkpoint.id);
+    assert.equal(created.handoffBundle.handoff.checkpointId, created.checkpoint.id);
+    assert.equal(created.resumeBundle.kind, 'resume-bundle');
+    assert.equal(created.resumeBundle.resumeFromCheckpointId, created.checkpoint.id);
+    assert.equal(created.summary.activeBlockCount, 1);
+    assert.equal(created.summary.nextStepCount, 1);
 
     const loadResponse = await handleLoadCheckpoint({
       repo_path: projectRoot,
@@ -549,6 +560,10 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
     assert.equal(loaded.tool, 'load_checkpoint');
     assert.equal(loaded.checkpoint.id, created.checkpoint.id);
     assert.equal(loaded.checkpoint.goal, 'Understand retrieval path');
+    assert.equal(loaded.contextBlocks[0].type, 'task-state');
+    assert.equal(loaded.handoff.checkpointId, created.checkpoint.id);
+    assert.equal(loaded.handoffBundle.kind, 'handoff-bundle');
+    assert.equal(loaded.resumeBundle.kind, 'resume-bundle');
 
     const listResponse = await handleListCheckpoints({
       repo_path: projectRoot,
@@ -558,5 +573,15 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
     assert.equal(listed.tool, 'list_checkpoints');
     assert.equal(listed.total, 1);
     assert.equal(listed.checkpoints[0].id, created.checkpoint.id);
+    assert.equal(listed.contextBlocks[0].type, 'task-state');
+    assert.equal(listed.summary.phaseCounts.overview, 1);
+
+    const textResponse = await handleLoadCheckpoint({
+      repo_path: projectRoot,
+      checkpoint_id: created.checkpoint.id,
+      format: 'text',
+    });
+    assert.match(textResponse.content[0].text, /## Task Checkpoint/);
+    assert.match(textResponse.content[0].text, /### Next Steps/);
   });
 });

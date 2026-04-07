@@ -196,7 +196,7 @@ test('load_module_memory handoff profile disables mmr and uses handoff defaults'
 
     const response = await handleLoadModuleMemory(
       {
-        query: 'search service pipeline',
+        moduleName: 'SearchService',
         profile: 'handoff',
         format: 'json',
       },
@@ -205,9 +205,73 @@ test('load_module_memory handoff profile disables mmr and uses handoff defaults'
 
     const payload = JSON.parse(response.content[0].text);
     assert.equal(payload.input.profile, 'handoff');
+    assert.equal(payload.assembly.name, 'handoff');
+    assert.equal(payload.assembly.source, 'profile');
     assert.equal(payload.input.useMmr, false);
     assert.equal(payload.input.enableScopeCascade, false);
     assert.equal(payload.input.maxResults, 6);
     assert.equal(payload.input.mmrLambda, 0.8);
+    assert.equal(payload.routing.selectionStrategy, 'ranked');
+    assert.equal(payload.routing.scopeCascadeApplied, false);
+    assert.equal(payload.result_count, 1);
+    assert.deepEqual(payload.memories.map((memory: { name: string }) => memory.name), ['SearchService']);
+  });
+});
+
+test('load_module_memory debug phase emits phase-aware assembly text', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+
+    await store.saveFeature(buildMemory('SearchService', 'search service core pipeline', 'search.service.ts', ['search', 'service']));
+    await store.saveFeature(buildMemory('SearchPipelineService', 'search pipeline orchestration', 'search.pipeline.ts', ['search', 'pipeline']));
+
+    const response = await handleLoadModuleMemory(
+      {
+        moduleName: 'SearchService',
+        phase: 'debug',
+      },
+      projectRoot,
+    );
+
+    const text = response.content[0].text;
+    assert.match(text, /Assembly Profile\*\*: debug/);
+    assert.match(text, /Assembly Source\*\*: phase/);
+    assert.match(text, /Selection Strategy\*\*: MMR/);
+    assert.match(text, /Route Strategy\*\*: explicit-module/);
+    assert.match(text, /Budget Used\*\*: 1\/6/);
+  });
+});
+
+test('load_module_memory implementation phase expands scope and exposes routing summary', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+
+    await store.saveFeature(buildMemory('SearchService', 'search service core pipeline', 'search.service.ts', ['search', 'service']));
+    await store.saveFeature(buildMemory('SearchPipelineService', 'search pipeline orchestration', 'search.pipeline.ts', ['search', 'pipeline']));
+    await store.saveFeature(buildMemory('SearchUI', 'search dashboard rendering', 'search.ui.ts', ['search', 'ui']));
+
+    const response = await handleLoadModuleMemory(
+      {
+        moduleName: 'SearchService',
+        phase: 'implementation',
+        format: 'json',
+      },
+      projectRoot,
+    );
+
+    const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.assembly.name, 'implementation');
+    assert.equal(payload.assembly.source, 'phase');
+    assert.equal(payload.assembly.enableScopeCascade, true);
+    assert.equal(payload.routing.scopeCascadeApplied, true);
+    assert.equal(payload.routing.selectionStrategy, 'mmr');
+    assert.equal(payload.result_count, 3);
+    assert.ok(payload.routing.routeStrategy.includes('scope-cascade'));
+    assert.deepEqual(
+      payload.memories.map((memory: { name: string }) => memory.name).sort(),
+      ['SearchPipelineService', 'SearchService', 'SearchUI'],
+    );
   });
 });

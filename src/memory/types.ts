@@ -164,6 +164,8 @@ export interface ProjectProfile {
  */
 export type MemoryKind = 'procedural' | 'semantic' | 'episodic' | 'task-state';
 
+export type ContextBlockPriority = 'high' | 'medium' | 'low';
+
 export type ContextBlockType =
   | 'repo-rules'
   | 'module-summary'
@@ -185,19 +187,39 @@ export interface ContextBlockFreshness {
   confidence?: 'high' | 'medium' | 'low';
 }
 
+export interface ContextBlockReference {
+  blockId: string;
+  source: ContextBlockProvenance['source'];
+  ref: string;
+}
+
+export interface ContextBlockLink {
+  blockId: string;
+  relation: 'supports' | 'references' | 'expands' | 'conflicts-with' | 'follows-up';
+  targetBlockId?: string;
+  targetRef?: string;
+  reason?: string;
+}
+
 export interface ContextBlock {
   id: string;
   type: ContextBlockType;
   title: string;
   purpose: string;
   content: string;
-  priority: 'high' | 'medium' | 'low';
+  priority: ContextBlockPriority;
   pinned: boolean;
   expandable: boolean;
   budgetChars?: number;
   memoryKind?: MemoryKind;
   provenance: ContextBlockProvenance[];
   freshness?: ContextBlockFreshness;
+  summary?: string;
+  score?: number;
+  rank?: number;
+  references?: ContextBlockReference[];
+  relatedBlockIds?: string[];
+  links?: ContextBlockLink[];
 }
 
 export interface TaskCheckpoint {
@@ -214,6 +236,102 @@ export interface TaskCheckpoint {
   nextSteps: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type TaskCheckpointSource = 'retrieval' | 'manual' | 'auto' | 'handoff' | 'imported';
+
+export interface TaskCheckpointCandidate extends TaskCheckpoint {
+  source?: TaskCheckpointSource;
+  confidence?: ContextBlockFreshness['confidence'];
+  reason?: string;
+}
+
+export type CheckpointCandidate = TaskCheckpointCandidate;
+
+export interface CheckpointHandoff {
+  checkpointId: string;
+  repoPath: string;
+  title: string;
+  goal: string;
+  phase: TaskCheckpoint['phase'];
+  summary: string;
+  activeBlockIds: string[];
+  exploredRefs: string[];
+  keyFindings: string[];
+  unresolvedQuestions: string[];
+  nextSteps: string[];
+  contextBlockId: string;
+}
+
+export interface CheckpointSummary {
+  activeBlockCount: number;
+  exploredRefCount: number;
+  keyFindingCount: number;
+  unresolvedQuestionCount: number;
+  nextStepCount: number;
+}
+
+export interface CheckpointToolPayload {
+  tool: 'create_checkpoint' | 'load_checkpoint';
+  checkpoint: TaskCheckpoint;
+  contextBlocks: ContextBlock[];
+  handoff: CheckpointHandoff;
+  summary: CheckpointSummary;
+  savedTo?: string;
+}
+
+export interface CheckpointBundleBase {
+  bundleVersion: 1;
+  checkpointId: string;
+  repoPath: string;
+  title: string;
+  goal: string;
+  phase: TaskCheckpoint['phase'];
+  summary: string;
+  contextBlocks: ContextBlock[];
+}
+
+export interface CheckpointHandoffBundle extends CheckpointBundleBase {
+  kind: 'handoff-bundle';
+  handoff: CheckpointHandoff;
+  nextSteps: string[];
+}
+
+export interface CheckpointResumeBundle extends CheckpointBundleBase {
+  kind: 'resume-bundle';
+  resumeFromCheckpointId: string;
+  activeBlockIds: string[];
+  exploredRefs: string[];
+  keyFindings: string[];
+  unresolvedQuestions: string[];
+}
+
+export interface CheckpointToolPayloadWithBundles extends CheckpointToolPayload {
+  handoffBundle: CheckpointHandoffBundle;
+  resumeBundle: CheckpointResumeBundle;
+}
+
+export interface CheckpointListSummary {
+  total: number;
+  phaseCounts: Record<TaskCheckpoint['phase'], number>;
+}
+
+export interface CheckpointListPayload {
+  tool: 'list_checkpoints';
+  total: number;
+  checkpoints: TaskCheckpoint[];
+  contextBlocks: ContextBlock[];
+  summary: CheckpointListSummary;
+}
+
+export type BlockFirstSchemaVersion = 1;
+
+export interface BlockFirstPayload {
+  schemaVersion: BlockFirstSchemaVersion;
+  contextBlocks: ContextBlock[];
+  references: ContextBlockReference[];
+  checkpointCandidate: TaskCheckpointCandidate;
+  nextInspectionSuggestions: string[];
 }
 
 export interface MemorySearchResult {
@@ -316,7 +434,7 @@ export type LongTermMemoryScope = 'project' | 'global-user';
  * 长期记忆类型
  */
 export type LongTermMemoryType = 'user' | 'feedback' | 'project-state' | 'reference';
-export type LongTermMemoryStatus = 'active' | 'stale' | 'expired';
+export type LongTermMemoryStatus = 'active' | 'stale' | 'expired' | 'superseded';
 
 /**
  * 长期记忆条目

@@ -35,6 +35,13 @@ contextatlas index:update [path] --json
 contextatlas daemon start
 contextatlas daemon once            # 单次执行
 
+# 任务观察
+contextatlas task:status
+contextatlas task:status --project-id <projectId>
+contextatlas task:status --json
+contextatlas task:inspect <taskId>
+contextatlas task:inspect <taskId> --json
+
 # 本地搜索
 contextatlas search --information-request "用户认证流程是如何实现的？"
 contextatlas search \
@@ -162,6 +169,20 @@ contextatlas usage:index-report --days 7 --project-id <projectId>
 contextatlas health:check
 contextatlas health:check --json
 contextatlas health:check --project-id <projectId>
+contextatlas health:full
+contextatlas health:full --json
+contextatlas fts:rebuild-chunks --project-id <projectId>
+
+# 存储冗余分析
+contextatlas storage:analyze
+contextatlas storage:analyze --project-id <projectId>
+contextatlas storage:analyze --json
+
+# 离线索引基准
+contextatlas perf:benchmark --size small --scenario noop
+contextatlas perf:benchmark --size medium --scenario incremental --json
+contextatlas perf:benchmark --size small --scenario repair --json
+contextatlas perf:benchmark --matrix
 
 # 团队运维摘要
 contextatlas ops:summary
@@ -216,10 +237,36 @@ contextatlas alert:config --reset
 
 - 总览状态（当前状态 / 队列长度 / 最近成功索引）
 - 最近失败任务
+- 最老排队任务与最老运行中任务
+- stuck running 与当前 `Blocked On`
 - 最近一次成功索引时间
 - 最近一次成功索引的模式：`full` / `incremental`
 - 当前快照版本与 chunk FTS 覆盖情况
 - 建议恢复路径（如启动 daemon、重建 chunk FTS、强制重建索引）
+
+当你需要进一步排障时，可以直接使用：
+
+- `contextatlas task:status`：查看队列汇总、卡住任务和最近失败摘要
+- `contextatlas task:inspect <taskId>`：查看单任务详情与 execution hint 摘要
+- `contextatlas fts:rebuild-chunks --project-id <projectId>`：从当前向量索引回填 `chunks_fts`
+
+`contextatlas storage:analyze` 会量化当前项目的文本存储占比，覆盖：
+
+- `files.content`
+- `files_fts.content`
+- `chunks_fts.content`
+- LanceDB `display_code`
+- LanceDB `vector_text`
+
+用于判断哪些冗余可以先做低风险裁剪。
+
+`contextatlas perf:benchmark` 提供离线索引基准，不依赖外部 embedding API：
+
+- `--size`: `small` / `medium` / `large`
+- `--scenario`: `full` / `incremental` / `repair` / `noop`
+- `--matrix`: 跑完整矩阵，便于做回归对比
+
+其中 `small + noop` 已接入 release smoke gate，可作为最小性能回归门禁。
 
 ## MCP 服务器
 

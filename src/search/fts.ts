@@ -160,7 +160,57 @@ export function isChunksFtsInitialized(db: Database.Database): boolean {
 }
 
 /**
- * 批量插入 chunk FTS 索引
+ * 纯插入 chunk FTS 记录
+ *
+ * 调用方需自行保证旧记录已按文件删除。
+ */
+export function batchInsertChunkFts(
+  db: Database.Database,
+  chunks: Array<{
+    chunkId: string;
+    filePath: string;
+    chunkIndex: number;
+    breadcrumb: string;
+    content: string;
+  }>,
+): void {
+  const insertStmt = db.prepare(
+    'INSERT INTO chunks_fts(chunk_id, file_path, chunk_index, breadcrumb, content) VALUES (?, ?, ?, ?, ?)',
+  );
+
+  const transaction = db.transaction((items: typeof chunks) => {
+    for (const item of items) {
+      insertStmt.run(item.chunkId, item.filePath, item.chunkIndex, item.breadcrumb, item.content);
+    }
+  });
+
+  transaction(chunks);
+}
+
+/**
+ * 按文件替换 chunk FTS 记录
+ */
+export function replaceChunksFtsForFiles(
+  db: Database.Database,
+  filePaths: string[],
+  chunks: Array<{
+    chunkId: string;
+    filePath: string;
+    chunkIndex: number;
+    breadcrumb: string;
+    content: string;
+  }>,
+): void {
+  if (filePaths.length > 0) {
+    batchDeleteFileChunksFts(db, filePaths);
+  }
+  if (chunks.length > 0) {
+    batchInsertChunkFts(db, chunks);
+  }
+}
+
+/**
+ * 兼容旧 API：按文件替换 chunk FTS 记录
  */
 export function batchUpsertChunkFts(
   db: Database.Database,
@@ -172,19 +222,8 @@ export function batchUpsertChunkFts(
     content: string;
   }>,
 ): void {
-  const deleteStmt = db.prepare('DELETE FROM chunks_fts WHERE chunk_id = ?');
-  const insertStmt = db.prepare(
-    'INSERT INTO chunks_fts(chunk_id, file_path, chunk_index, breadcrumb, content) VALUES (?, ?, ?, ?, ?)',
-  );
-
-  const transaction = db.transaction((items: typeof chunks) => {
-    for (const item of items) {
-      deleteStmt.run(item.chunkId);
-      insertStmt.run(item.chunkId, item.filePath, item.chunkIndex, item.breadcrumb, item.content);
-    }
-  });
-
-  transaction(chunks);
+  const filePaths = [...new Set(chunks.map((chunk) => chunk.filePath))];
+  replaceChunksFtsForFiles(db, filePaths, chunks);
 }
 
 /**
@@ -241,7 +280,7 @@ export async function rebuildChunksFtsFromVectorStore(
     }
 
     if (payload.length > 0) {
-      batchUpsertChunkFts(db, payload);
+      batchInsertChunkFts(db, payload);
       chunksIndexed += payload.length;
     }
   }
@@ -363,23 +402,45 @@ export function searchChunksFts(
 }
 
 /**
- * 批量更新 FTS 索引
+ * 纯插入文件级 FTS 记录
+ *
+ * 调用方需自行保证旧记录已按 path 删除。
  */
-export function batchUpsertFileFts(
+export function batchInsertFileFts(
   db: Database.Database,
   files: Array<{ path: string; content: string }>,
 ): void {
-  const deleteFts = db.prepare('DELETE FROM files_fts WHERE path = ?');
   const insertFts = db.prepare('INSERT INTO files_fts(path, content) VALUES (?, ?)');
 
   const transaction = db.transaction((items: Array<{ path: string; content: string }>) => {
     for (const item of items) {
-      deleteFts.run(item.path);
       insertFts.run(item.path, item.content);
     }
   });
 
   transaction(files);
+}
+
+/**
+ * 按 path 替换文件级 FTS 记录
+ */
+export function replaceFileFtsEntries(
+  db: Database.Database,
+  files: Array<{ path: string; content: string }>,
+): void {
+  if (files.length === 0) return;
+  batchDeleteFileFts(db, [...new Set(files.map((file) => file.path))]);
+  batchInsertFileFts(db, files);
+}
+
+/**
+ * 兼容旧 API：按 path 替换文件级 FTS 记录
+ */
+export function batchUpsertFileFts(
+  db: Database.Database,
+  files: Array<{ path: string; content: string }>,
+): void {
+  replaceFileFtsEntries(db, files);
 }
 
 /**

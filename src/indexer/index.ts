@@ -19,8 +19,8 @@ import { batchUpdateVectorIndexHash, clearVectorIndexHash } from '../db/index.js
 import { locatePayloadTooLargeFile } from './payloadTooLarge.js';
 import type { ProcessResult } from '../scanner/processor.js';
 import {
+  batchInsertChunkFts,
   batchDeleteFileChunksFts,
-  batchUpsertChunkFts,
   isChunksFtsInitialized,
 } from '../search/fts.js';
 import { logger } from '../utils/logger.js';
@@ -363,7 +363,7 @@ export class Indexer {
 
         const flushFtsBuffer = (): void => {
           if (ftsBuffer.length === 0) return;
-          batchUpsertChunkFts(db, ftsBuffer);
+          batchInsertChunkFts(db, ftsBuffer);
           processedChunks += ftsBuffer.length;
           ftsBuffer.length = 0;
 

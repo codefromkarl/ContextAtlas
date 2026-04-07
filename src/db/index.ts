@@ -4,9 +4,9 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
   batchDeleteFileFts,
-  batchUpsertFileFts,
   initChunksFts,
   initFilesFts,
+  replaceFileFtsEntries,
 } from '../search/fts.js';
 import { resolveIndexPaths } from '../storage/layout.js';
 
@@ -225,7 +225,7 @@ export function batchUpsert(db: Database.Database, files: FileMeta[]): void {
     }
   }
   if (ftsFiles.length > 0) {
-    batchUpsertFileFts(db, ftsFiles);
+    replaceFileFtsEntries(db, ftsFiles);
   }
 }
 

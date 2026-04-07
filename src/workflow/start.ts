@@ -44,6 +44,8 @@ export async function buildStartGuide(repoPath: string): Promise<string> {
     : activeTask
       ? [
           '- Next Action: Keep daemon running with `contextatlas daemon start`',
+          `- Queue View: \`contextatlas task:status --project-id ${projectId}\``,
+          `- Task Detail: \`contextatlas task:inspect ${activeTask.taskId}\``,
           '- 完整模式会在索引完成后自动可用',
         ]
       : [

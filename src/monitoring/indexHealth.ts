@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { resolveQueueDbPath } from '../indexing/queue.js';
+import { getTaskStatusReport, resolveQueueDbPath } from '../indexing/queue.js';
 import { resolveBaseDir } from '../runtimePaths.js';
 import { VectorStore } from '../vectorStore/index.js';
 
@@ -14,11 +14,24 @@ export interface QueueHealth {
   canceled: number;
   oldestQueuedAgeMs: number | null;
   oldestQueuedAgeHuman: string | null;
+  oldestRunningAgeMs: number | null;
+  oldestRunningAgeHuman: string | null;
+  stuckRunning: Array<{
+    taskId: string;
+    projectId: string;
+    scope: 'full' | 'incremental';
+    attempts: number;
+    runningAgeMs: number | null;
+    runningAgeHuman: string | null;
+  }>;
   recentFailures: Array<{
     taskId: string;
     projectId: string;
+    scope: 'full' | 'incremental';
     lastError: string | null;
     finishedAt: number;
+    finishedAgeMs: number | null;
+    finishedAgeHuman: string | null;
   }>;
 }
 
@@ -99,59 +112,43 @@ function analyzeQueueHealth(): QueueHealth {
       canceled: 0,
       oldestQueuedAgeMs: null,
       oldestQueuedAgeHuman: null,
+      oldestRunningAgeMs: null,
+      oldestRunningAgeHuman: null,
+      stuckRunning: [],
       recentFailures: [],
     };
   }
 
-  const db = new Database(dbPath, { readonly: true });
-  try {
-    const statusCounts = db
-      .prepare('SELECT status, COUNT(*) as cnt FROM index_tasks GROUP BY status')
-      .all() as Array<{ status: string; cnt: number }>;
-
-    const counts: Record<string, number> = {};
-    for (const row of statusCounts) {
-      counts[row.status] = row.cnt;
-    }
-
-    const oldestQueued = db
-      .prepare(
-        'SELECT created_at FROM index_tasks WHERE status = ? ORDER BY created_at ASC LIMIT 1',
-      )
-      .get('queued') as { created_at: number } | undefined;
-
-    const oldestQueuedAgeMs = oldestQueued ? Date.now() - oldestQueued.created_at : null;
-
-    const recentFailures = db
-      .prepare(
-        'SELECT task_id, project_id, last_error, finished_at FROM index_tasks WHERE status = ? ORDER BY finished_at DESC LIMIT 5',
-      )
-      .all('failed') as Array<{
-      task_id: string;
-      project_id: string;
-      last_error: string | null;
-      finished_at: number;
-    }>;
-
-    return {
-      totalTasks: Object.values(counts).reduce((a, b) => a + b, 0),
-      queued: counts.queued || 0,
-      running: counts.running || 0,
-      done: counts.done || 0,
-      failed: counts.failed || 0,
-      canceled: counts.canceled || 0,
-      oldestQueuedAgeMs,
-      oldestQueuedAgeHuman: oldestQueuedAgeMs !== null ? formatAge(oldestQueuedAgeMs) : null,
-      recentFailures: recentFailures.map((r) => ({
-        taskId: r.task_id,
-        projectId: r.project_id,
-        lastError: r.last_error,
-        finishedAt: r.finished_at,
-      })),
-    };
-  } finally {
-    db.close();
-  }
+  const report = getTaskStatusReport();
+  return {
+    totalTasks: report.counts.total,
+    queued: report.counts.queued,
+    running: report.counts.running,
+    done: report.counts.done,
+    failed: report.counts.failed,
+    canceled: report.counts.canceled,
+    oldestQueuedAgeMs: report.oldestQueuedAgeMs,
+    oldestQueuedAgeHuman: report.oldestQueuedAgeHuman,
+    oldestRunningAgeMs: report.oldestRunningAgeMs,
+    oldestRunningAgeHuman: report.oldestRunningAgeHuman,
+    stuckRunning: report.stuckRunning.map((task) => ({
+      taskId: task.taskId,
+      projectId: task.projectId,
+      scope: task.scope,
+      attempts: task.attempts,
+      runningAgeMs: task.ageMs,
+      runningAgeHuman: task.ageHuman,
+    })),
+    recentFailures: report.recentFailures.map((task) => ({
+      taskId: task.taskId,
+      projectId: task.projectId,
+      scope: task.scope,
+      lastError: task.lastError,
+      finishedAt: task.finishedAt || 0,
+      finishedAgeMs: task.ageMs,
+      finishedAgeHuman: task.ageHuman,
+    })),
+  };
 }
 
 async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promise<SnapshotHealth> {
@@ -440,6 +437,21 @@ export async function analyzeIndexHealth(
     recommendations.push('检查守护进程是否正常运行');
   }
 
+  if (queue.stuckRunning.length > 0) {
+    const firstStuck = queue.stuckRunning[0];
+    issues.push(
+      `运行中任务卡住: ${firstStuck.projectId}/${firstStuck.taskId} 已运行 ${firstStuck.runningAgeHuman || 'unknown'}`,
+    );
+    const message = `检查卡住任务: contextatlas task:inspect ${firstStuck.taskId}`;
+    recommendations.push(message);
+    manual.push({
+      kind: 'manual',
+      actionId: null,
+      projectId: firstStuck.projectId,
+      message,
+    });
+  }
+
   if (queue.failed > 0) {
     issues.push(`${queue.failed} 个索引任务执行失败`);
     const message = '查看失败详情并修复: contextatlas health:check --json';
@@ -560,6 +572,8 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
     autoFixable: [],
     manual: [],
   };
+  const stuckRunning = report.queue.stuckRunning || [];
+  const recentFailures = report.queue.recentFailures || [];
 
   lines.push('Index Health Panel');
   lines.push(`Status: ${report.overall.status.toUpperCase()}`);
@@ -587,11 +601,35 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
   if (report.queue.oldestQueuedAgeHuman) {
     lines.push(`  Oldest Queued: ${report.queue.oldestQueuedAgeHuman}`);
   }
-  if (report.queue.recentFailures.length > 0) {
-    lines.push('  Recent Failures:');
-    for (const f of report.queue.recentFailures) {
-      lines.push(`    - ${f.projectId}/${f.taskId}: ${f.lastError || 'unknown'}`);
+  if (report.queue.oldestRunningAgeHuman) {
+    lines.push(`  Oldest Running: ${report.queue.oldestRunningAgeHuman}`);
+  }
+  if (stuckRunning.length > 0) {
+    lines.push('  Stuck Running:');
+    for (const task of stuckRunning) {
+      lines.push(
+        `    - ${task.projectId}/${task.taskId} ${task.scope} running=${task.runningAgeHuman || 'unknown'} attempts=${task.attempts}`,
+      );
     }
+  }
+  if (recentFailures.length > 0) {
+    lines.push('  Recent Failures:');
+    for (const f of recentFailures) {
+      lines.push(
+        `    - ${f.projectId}/${f.taskId} (${f.scope}, ${f.finishedAgeHuman || 'unknown'}): ${f.lastError || 'unknown'}`,
+      );
+    }
+  }
+  lines.push('');
+
+  lines.push('Blocked On:');
+  const blockers = buildBlockedOnLines(report);
+  if (blockers.length > 0) {
+    for (const blocker of blockers) {
+      lines.push(`  - ${blocker}`);
+    }
+  } else {
+    lines.push('  - No current blocker');
   }
   lines.push('');
 
@@ -694,6 +732,31 @@ function dedupeRepairEntries<T extends { message: string; projectId: string | nu
         (candidate) => candidate.message === entry.message && candidate.projectId === entry.projectId,
       ) === index,
   );
+}
+
+function buildBlockedOnLines(report: IndexHealthReport): string[] {
+  const blockers: string[] = [];
+  const stuckRunning = report.queue.stuckRunning || [];
+  const recentFailures = report.queue.recentFailures || [];
+
+  if (!report.daemon.isRunning && report.queue.queued > 0) {
+    blockers.push(`daemon 未运行，${report.queue.queued} 个任务仍在队列中`);
+  }
+  if (report.queue.oldestQueuedAgeHuman) {
+    blockers.push(`最老排队任务已等待 ${report.queue.oldestQueuedAgeHuman}`);
+  }
+  for (const task of stuckRunning) {
+    blockers.push(
+      `${task.projectId}/${task.taskId} 运行 ${task.runningAgeHuman || 'unknown'}，可用 contextatlas task:inspect ${task.taskId}`,
+    );
+  }
+  for (const failure of recentFailures.slice(0, 2)) {
+    blockers.push(
+      `最近失败 ${failure.projectId}/${failure.taskId}: ${failure.lastError || 'unknown'}`,
+    );
+  }
+
+  return blockers;
 }
 
 function buildSnapshotRecoveryHints(snap: SnapshotHealth): string[] {

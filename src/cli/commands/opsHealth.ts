@@ -191,4 +191,49 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
         exitWithError('执行索引更新计划失败', { error: error.message });
       }
     });
+
+  cli
+    .command('task:status', '查看索引任务队列状态、卡住任务和最近失败摘要')
+    .option('--project-id <id>', '按项目 ID 过滤')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: { projectId?: string; json?: boolean }) => {
+      try {
+        const { formatTaskStatusReport, getTaskStatusReport } = await import(
+          '../../indexing/queue.js'
+        );
+        const report = getTaskStatusReport({
+          projectId: options.projectId,
+        });
+        if (options.json) {
+          writeJson(report);
+          return;
+        }
+        writeText(formatTaskStatusReport(report));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('生成任务状态报告失败', { error: error.message });
+      }
+    });
+
+  cli
+    .command('task:inspect <taskId>', '查看单个索引任务详情')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (taskId: string, options: { json?: boolean }) => {
+      try {
+        const { formatTaskInspectReport, getTaskById } = await import('../../indexing/queue.js');
+        const task = getTaskById(taskId);
+        if (!task) {
+          exitWithError('找不到索引任务', { taskId });
+          return;
+        }
+        if (options.json) {
+          writeJson(task);
+          return;
+        }
+        writeText(formatTaskInspectReport(task));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('读取任务详情失败', { error: error.message, taskId });
+      }
+    });
 }

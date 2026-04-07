@@ -156,9 +156,318 @@ type IndexUsageInputLike = {
   error?: string;
 };
 
+export interface TaskStatusEntry {
+  taskId: string;
+  projectId: string;
+  repoPath: string;
+  scope: IndexTaskScope;
+  status: IndexTask['status'];
+  priority: number;
+  attempts: number;
+  reason: string | null;
+  requestedBy: string | null;
+  lastError: string | null;
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  ageMs: number | null;
+  ageHuman: string | null;
+  executionHint: IncrementalExecutionHint | null;
+}
+
+export interface TaskStatusReport {
+  projectId?: string;
+  counts: {
+    total: number;
+    queued: number;
+    running: number;
+    done: number;
+    failed: number;
+    canceled: number;
+  };
+  oldestQueuedAgeMs: number | null;
+  oldestQueuedAgeHuman: string | null;
+  oldestRunningAgeMs: number | null;
+  oldestRunningAgeHuman: string | null;
+  queued: TaskStatusEntry[];
+  running: TaskStatusEntry[];
+  stuckRunning: TaskStatusEntry[];
+  recentFailures: TaskStatusEntry[];
+}
+
 function requireUsageTracker(): { recordIndexUsage: (input: IndexUsageInputLike) => void } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('../usage/usageTracker.js');
+}
+
+function formatAge(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
+function formatTimestamp(timestamp: number | null): string {
+  return timestamp ? new Date(timestamp).toISOString() : 'n/a';
+}
+
+function toTaskStatusEntry(task: IndexTask, ageMs: number | null): TaskStatusEntry {
+  return {
+    taskId: task.taskId,
+    projectId: task.projectId,
+    repoPath: task.repoPath,
+    scope: task.scope,
+    status: task.status,
+    priority: task.priority,
+    attempts: task.attempts,
+    reason: task.reason,
+    requestedBy: task.requestedBy,
+    lastError: task.lastError,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+    ageMs,
+    ageHuman: ageMs !== null ? formatAge(ageMs) : null,
+    executionHint: task.executionHint,
+  };
+}
+
+function listTasksByStatus(
+  db: Database.Database,
+  status: IndexTask['status'],
+  options: {
+    projectId?: string;
+    limit?: number;
+    orderBy: string;
+  },
+): TaskStatusEntry[] {
+  const params: Array<string | number> = [];
+  const projectFilter = options.projectId ? ' AND project_id = ?' : '';
+  if (options.projectId) {
+    params.push(options.projectId);
+  }
+  params.push(options.limit ?? 5);
+
+  const rows = db.prepare(
+    `
+      SELECT *
+      FROM index_tasks
+      WHERE status = ?${projectFilter}
+      ORDER BY ${options.orderBy}
+      LIMIT ?
+    `,
+  ).all(status, ...params) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => {
+    const task = toTask(row);
+    const ageBase =
+      task.status === TASK_STATUS_RUNNING
+        ? task.startedAt
+        : task.status === TASK_STATUS_FAILED
+          ? task.finishedAt
+          : task.createdAt;
+    return toTaskStatusEntry(task, ageBase ? Math.max(0, Date.now() - ageBase) : null);
+  });
+}
+
+export function getTaskStatusReport(
+  options: {
+    projectId?: string;
+    staleRunningMs?: number;
+    limit?: number;
+  } = {},
+): TaskStatusReport {
+  const db = openQueueDb();
+  try {
+    const params: Array<string> = [];
+    const projectWhere = options.projectId ? 'WHERE project_id = ?' : '';
+    if (options.projectId) {
+      params.push(options.projectId);
+    }
+
+    const statusCounts = db
+      .prepare(`SELECT status, COUNT(*) as cnt FROM index_tasks ${projectWhere} GROUP BY status`)
+      .all(...params) as Array<{ status: string; cnt: number }>;
+
+    const counts: TaskStatusReport['counts'] = {
+      total: 0,
+      queued: 0,
+      running: 0,
+      done: 0,
+      failed: 0,
+      canceled: 0,
+    };
+
+    for (const row of statusCounts) {
+      counts[row.status as keyof TaskStatusReport['counts']] = row.cnt;
+      counts.total += row.cnt;
+    }
+
+    const oldestQueued = db
+      .prepare(
+        `
+          SELECT created_at
+          FROM index_tasks
+          WHERE status = 'queued'${options.projectId ? ' AND project_id = ?' : ''}
+          ORDER BY created_at ASC
+          LIMIT 1
+        `,
+      )
+      .get(...params) as { created_at: number } | undefined;
+
+    const oldestRunning = db
+      .prepare(
+        `
+          SELECT started_at
+          FROM index_tasks
+          WHERE status = 'running'
+            AND started_at IS NOT NULL${options.projectId ? ' AND project_id = ?' : ''}
+          ORDER BY started_at ASC
+          LIMIT 1
+        `,
+      )
+      .get(...params) as { started_at: number } | undefined;
+
+    const oldestQueuedAgeMs = oldestQueued ? Math.max(0, Date.now() - oldestQueued.created_at) : null;
+    const oldestRunningAgeMs = oldestRunning ? Math.max(0, Date.now() - oldestRunning.started_at) : null;
+    const queued = listTasksByStatus(db, TASK_STATUS_QUEUED, {
+      projectId: options.projectId,
+      limit: options.limit,
+      orderBy: 'priority DESC, created_at ASC',
+    });
+    const running = listTasksByStatus(db, TASK_STATUS_RUNNING, {
+      projectId: options.projectId,
+      limit: options.limit,
+      orderBy: 'started_at ASC',
+    });
+    const recentFailures = listTasksByStatus(db, TASK_STATUS_FAILED, {
+      projectId: options.projectId,
+      limit: options.limit,
+      orderBy: 'finished_at DESC',
+    });
+    const staleRunningMs = options.staleRunningMs ?? 30 * 60 * 1000;
+    const stuckRunning = running.filter(
+      (task) => task.ageMs !== null && task.ageMs >= staleRunningMs,
+    );
+
+    return {
+      projectId: options.projectId,
+      counts,
+      oldestQueuedAgeMs,
+      oldestQueuedAgeHuman: oldestQueuedAgeMs !== null ? formatAge(oldestQueuedAgeMs) : null,
+      oldestRunningAgeMs,
+      oldestRunningAgeHuman: oldestRunningAgeMs !== null ? formatAge(oldestRunningAgeMs) : null,
+      queued,
+      running,
+      stuckRunning,
+      recentFailures,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+export function formatTaskStatusReport(report: TaskStatusReport): string {
+  const lines: string[] = [];
+  lines.push('Task Status');
+  if (report.projectId) {
+    lines.push(`Project: ${report.projectId}`);
+  }
+  lines.push(
+    `Counts: queued=${report.counts.queued} running=${report.counts.running} failed=${report.counts.failed} done=${report.counts.done} canceled=${report.counts.canceled}`,
+  );
+  if (report.oldestQueuedAgeHuman) {
+    lines.push(`Oldest Queued: ${report.oldestQueuedAgeHuman}`);
+  }
+  if (report.oldestRunningAgeHuman) {
+    lines.push(`Oldest Running: ${report.oldestRunningAgeHuman}`);
+  }
+  lines.push('');
+
+  lines.push('Queued:');
+  if (report.queued.length === 0) {
+    lines.push('  - none');
+  } else {
+    for (const task of report.queued) {
+      lines.push(
+        `  - ${task.projectId}/${task.taskId} ${task.scope} age=${task.ageHuman || 'n/a'} inspect=contextatlas task:inspect ${task.taskId}`,
+      );
+    }
+  }
+  lines.push('');
+
+  lines.push('Running:');
+  if (report.running.length === 0) {
+    lines.push('  - none');
+  } else {
+    for (const task of report.running) {
+      lines.push(
+        `  - ${task.projectId}/${task.taskId} ${task.scope} running=${task.ageHuman || 'n/a'} attempts=${task.attempts}`,
+      );
+    }
+  }
+  lines.push('');
+
+  lines.push('Stuck Running:');
+  if (report.stuckRunning.length === 0) {
+    lines.push('  - none');
+  } else {
+    for (const task of report.stuckRunning) {
+      lines.push(
+        `  - ${task.projectId}/${task.taskId} running=${task.ageHuman || 'n/a'} inspect=contextatlas task:inspect ${task.taskId}`,
+      );
+    }
+  }
+  lines.push('');
+
+  lines.push('Recent Failures:');
+  if (report.recentFailures.length === 0) {
+    lines.push('  - none');
+  } else {
+    for (const task of report.recentFailures) {
+      lines.push(
+        `  - ${task.projectId}/${task.taskId} failed=${task.ageHuman || 'n/a'} error=${task.lastError || 'unknown'}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export function formatTaskInspectReport(task: IndexTask): string {
+  const lines: string[] = [];
+  lines.push('Task Inspect');
+  lines.push(`Task ID: ${task.taskId}`);
+  lines.push(`Project ID: ${task.projectId}`);
+  lines.push(`Repo Path: ${task.repoPath}`);
+  lines.push(`Scope: ${task.scope}`);
+  lines.push(`Status: ${task.status}`);
+  lines.push(`Priority: ${task.priority}`);
+  lines.push(`Attempts: ${task.attempts}`);
+  lines.push(`Created At: ${formatTimestamp(task.createdAt)}`);
+  lines.push(`Started At: ${formatTimestamp(task.startedAt)}`);
+  lines.push(`Finished At: ${formatTimestamp(task.finishedAt)}`);
+  lines.push(`Requested By: ${task.requestedBy || 'n/a'}`);
+  lines.push(`Reason: ${task.reason || 'n/a'}`);
+  lines.push(`Last Error: ${task.lastError || 'n/a'}`);
+
+  if (task.executionHint) {
+    lines.push('Execution Hint:');
+    lines.push(`  Generated At: ${formatTimestamp(task.executionHint.generatedAt)}`);
+    lines.push(`  TTL: ${task.executionHint.ttlMs}ms`);
+    lines.push(
+      `  Change Summary: added=${task.executionHint.changeSummary.added} modified=${task.executionHint.changeSummary.modified} deleted=${task.executionHint.changeSummary.deleted} repair=${task.executionHint.changeSummary.unchangedNeedingVectorRepair}`,
+    );
+    lines.push(`  Candidates: ${task.executionHint.candidates.length}`);
+    lines.push(`  Deleted Paths: ${task.executionHint.deletedPaths.length}`);
+    lines.push(`  Healing Paths: ${task.executionHint.healingPaths.length}`);
+  }
+
+  return lines.join('\n');
 }
 
 export function enqueueIndexTask(input: EnqueueIndexTaskInput): EnqueueIndexTaskResult {

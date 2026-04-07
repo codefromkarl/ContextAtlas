@@ -93,6 +93,8 @@ test('buildStartGuide shows indexing workflow when task is queued and no index e
     assert.match(guide, /Index Status: Indexing/);
     assert.match(guide, /Partial lexical answers are available/);
     assert.match(guide, /contextatlas daemon start/);
+    assert.match(guide, /contextatlas task:status --project-id/);
+    assert.match(guide, /contextatlas task:inspect/);
     assert.match(guide, /contextatlas search --repo-path/);
     assert.match(guide, /### Result Card Promise/);
     assert.match(guide, /完整模式会在索引完成后自动可用/);

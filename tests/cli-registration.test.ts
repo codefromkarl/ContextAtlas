@@ -64,6 +64,8 @@ test('registerCliCommands registers major command groups through a single entryp
   assert.ok(registered.includes('ops:summary'));
   assert.ok(registered.includes('index:plan [path]'));
   assert.ok(registered.includes('index:update [path]'));
+  assert.ok(registered.includes('task:status'));
+  assert.ok(registered.includes('task:inspect <taskId>'));
 });
 
 test('registerBootstrapCommands registers startup-oriented commands', () => {
@@ -217,6 +219,8 @@ test('registerOpsHealthCommands registers index planning and update commands', (
   assert.ok(registered.includes('health:full'));
   assert.ok(registered.includes('index:plan [path]'));
   assert.ok(registered.includes('index:update [path]'));
+  assert.ok(registered.includes('task:status'));
+  assert.ok(registered.includes('task:inspect <taskId>'));
 });
 
 test('registerMemoryKnowledgeCommands registers long-term and decision commands', () => {
@@ -279,6 +283,8 @@ test('registerOpsHealthCommands registers health-oriented ops commands', () => {
     'health:full',
     'index:plan [path]',
     'index:update [path]',
+    'task:status',
+    'task:inspect <taskId>',
   ]);
 });
 

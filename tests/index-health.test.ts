@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +8,9 @@ import { initDb } from '../src/db/index.ts';
 import {
   enqueueIndexTask,
   markTaskDone,
+  markTaskFailed,
   pickNextQueuedTask,
+  resolveQueueDbPath,
 } from '../src/indexing/queue.ts';
 import { analyzeIndexHealth, formatIndexHealthReport } from '../src/monitoring/indexHealth.ts';
 import { commitSnapshot, prepareWritableSnapshot } from '../src/storage/layout.ts';
@@ -216,4 +219,72 @@ test('formatIndexHealthReport exposes panel-style overview and recovery path', (
   assert.match(output, /Project Panels:/);
   assert.match(output, /Snapshot Version: snap-20260406/);
   assert.match(output, /Latest Mode: incremental/);
+});
+
+test('analyzeIndexHealth exposes stuck running tasks and blocked-on summary', async () => {
+  const baseDir = createTempBaseDir();
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  const projectId = 'proj-stuck-running';
+
+  const queued = enqueueIndexTask({
+    projectId,
+    repoPath: '/repos/proj-stuck-running',
+    scope: 'full',
+    reason: 'queued-test',
+    requestedBy: 'test',
+    priority: 1,
+  });
+  enqueueIndexTask({
+    projectId,
+    repoPath: '/repos/proj-stuck-running',
+    scope: 'incremental',
+    reason: 'running-test',
+    requestedBy: 'test',
+    priority: 10,
+  });
+
+  const runningTask = pickNextQueuedTask('worker-running');
+  assert.ok(runningTask);
+
+  const db = new Database(resolveQueueDbPath());
+  db.prepare('UPDATE index_tasks SET started_at = ? WHERE task_id = ?').run(
+    Date.now() - 31 * 60 * 1000,
+    runningTask!.taskId,
+  );
+  db.close();
+
+  const failedTask = pickNextQueuedTask('worker-failed');
+  assert.ok(failedTask);
+  markTaskFailed(failedTask!.taskId, 'vector timeout');
+
+  enqueueIndexTask({
+    projectId,
+    repoPath: '/repos/proj-stuck-running',
+    scope: 'full',
+    reason: 'queued-after-fail',
+    requestedBy: 'test',
+  });
+
+  const report = await analyzeIndexHealth({
+    baseDir,
+    projectIds: [projectId],
+  });
+
+  assert.equal(report.queue.queued, 1);
+  assert.ok(report.queue.oldestQueuedAgeHuman);
+  assert.ok(report.queue.oldestRunningAgeHuman);
+  assert.equal(report.queue.stuckRunning.length, 1);
+  assert.equal(report.queue.stuckRunning[0]?.taskId, runningTask!.taskId);
+  assert.equal(report.queue.recentFailures[0]?.taskId, failedTask!.taskId);
+  assert.ok(report.overall.issues.some((issue) => issue.includes('运行中任务卡住')));
+  assert.ok(
+    report.overall.recommendations.some((rec) => rec.includes(`contextatlas task:inspect ${runningTask!.taskId}`)),
+  );
+
+  const output = formatIndexHealthReport(report);
+  assert.match(output, /Blocked On:/);
+  assert.match(output, /Stuck Running:/);
+  assert.match(output, new RegExp(runningTask!.taskId));
+  assert.match(output, /最老排队任务已等待/);
+  assert.match(output, /daemon 未运行/);
 });

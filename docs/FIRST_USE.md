@@ -75,6 +75,14 @@ contextatlas daemon start
 contextatlas index:plan /path/to/repo --json
 ```
 
+如果索引已经入队但你想知道系统卡在哪，可以直接看：
+
+```bash
+contextatlas task:status --project-id <projectId>
+contextatlas task:inspect <taskId>
+contextatlas health:check --project-id <projectId>
+```
+
 ## 5. 发起第一次检索
 
 ```bash
@@ -122,6 +130,9 @@ contextatlas memory:record "Auth Module" --desc "用户认证模块" --dir "src/
 
 ## 常见下一步
 
+- 想排查“索引为什么还没好”：先用 `contextatlas task:status` / `contextatlas task:inspect <taskId>`
+- 想看当前项目的文本存储占比：用 `contextatlas storage:analyze --project-id <projectId>`
+- 想跑最小离线性能基准：用 `contextatlas perf:benchmark --size small --scenario noop --json`
 - 想看所有命令：见 [CLI 命令参考](./CLI.md)
 - 想接入 Claude Desktop / Cursor / Windsurf：见 [部署手册](./DEPLOYMENT.md)
 - 想了解 MCP 工具：见 [MCP 工具参考](./MCP.md)

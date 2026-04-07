@@ -363,6 +363,16 @@ contextatlas usage:index-report --days 7
 
 # 检查索引系统健康度
 contextatlas health:check
+contextatlas health:check --project-id <projectId>
+contextatlas health:full
+
+# 查看队列与单任务详情
+contextatlas task:status
+contextatlas task:status --project-id <projectId>
+contextatlas task:inspect <taskId>
+
+# 修复 chunk FTS 覆盖不足
+contextatlas fts:rebuild-chunks --project-id <projectId>
 
 # 团队级运维摘要
 contextatlas ops:summary
@@ -373,9 +383,17 @@ contextatlas ops:metrics --days 7 --stale-days 30
 # 更新策略与影响范围分析
 contextatlas index:plan /path/to/repo
 contextatlas index:plan /path/to/repo --json
+contextatlas index:update /path/to/repo
 
 # 评估告警
 contextatlas alert:eval
+
+# 分析文本存储冗余
+contextatlas storage:analyze --project-id <projectId>
+
+# 运行离线索引基准
+contextatlas perf:benchmark --size small --scenario noop --json
+contextatlas perf:benchmark --matrix
 ```
 
 ### 守护进程管理
@@ -387,8 +405,9 @@ contextatlas daemon start
 # 单次执行（适合 CI）
 contextatlas daemon once
 
-# 查看队列状态（通过 usage report）
-contextatlas usage:index-report
+# 查看队列状态
+contextatlas task:status
+contextatlas task:inspect <taskId>
 ```
 
 ### 数据目录
@@ -433,7 +452,18 @@ contextatlas memory:check-consistency
 # 查看日志
 cat ~/.contextatlas/logs/app.$(date +%Y-%m-%d).log
 
-# 强制重建索引
+# 看看当前卡在哪
+contextatlas health:check --project-id <projectId>
+contextatlas task:status --project-id <projectId>
+contextatlas task:inspect <taskId>
+
+# 判断是否应走增量还是全量
+contextatlas index:plan /path/to/repo --json
+
+# 自动按当前状态触发更新
+contextatlas index:update /path/to/repo
+
+# 必要时强制重建
 contextatlas index /path/to/repo --force
 ```
 
@@ -463,13 +493,50 @@ EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS=500
 
 **排查**：
 ```bash
-# 确认索引已建立
-contextatlas usage:index-report
+# 确认索引健康与当前状态
+contextatlas health:check --project-id <projectId>
 
 # 检查项目是否已索引
 ls ~/.contextatlas/
 
+# 看看是否仍在排队或执行中
+contextatlas task:status --project-id <projectId>
+
+# 分析是否该增量更新 / 全量重建
+contextatlas index:plan /path/to/repo --json
+
 # 重新索引
-contextatlas index /path/to/repo --force
+contextatlas index:update /path/to/repo
 contextatlas daemon once
+```
+
+### 存储占用偏高
+
+**症状**：索引目录增长过快，想判断哪些文本副本最占空间
+
+**排查**：
+```bash
+contextatlas storage:analyze --project-id <projectId>
+```
+
+它会量化：
+
+- `files.content`
+- `files_fts.content`
+- `chunks_fts.content`
+- LanceDB `display_code`
+- LanceDB `vector_text`
+
+用于判断当前是否值得继续做存储裁剪。
+
+### 发布前想确认性能没有明显退化
+
+**最小检查**：
+```bash
+contextatlas perf:benchmark --size small --scenario noop --json
+```
+
+**完整矩阵**：
+```bash
+contextatlas perf:benchmark --matrix
 ```

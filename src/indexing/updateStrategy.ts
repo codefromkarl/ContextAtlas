@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getEmbeddingConfig } from '../config.js';
 import {
+  type FileMeta,
   generateProjectId,
   getAllFileMeta,
   getAllPaths,
@@ -21,7 +22,7 @@ import { initFilter } from '../scanner/filter.js';
 import { INDEX_CONTENT_SCHEMA_VERSION } from '../scanner/processor.js';
 import { processFiles } from '../scanner/processor.js';
 
-const DEFAULT_INCREMENTAL_HINT_TTL_MS = 60_000;
+const DEFAULT_INCREMENTAL_HINT_TTL_MS = 10 * 60_000;
 
 export interface ImpactedMemorySummary {
   name: string;
@@ -86,6 +87,107 @@ export interface IndexUpdateExecutionResult {
   enqueued: boolean;
   taskId: string | null;
   reusedExisting: boolean;
+}
+
+type KnownFilePlanMeta = Pick<FileMeta, 'mtime' | 'hash' | 'size' | 'vectorIndexHash'>;
+
+export interface LightweightPlanCandidate {
+  relPath: string;
+  absPath: string;
+  mtime: number;
+  size: number;
+}
+
+export interface LightweightPlanDelta {
+  totalFiles: number;
+  candidateEntries: LightweightPlanCandidate[];
+  deletedPaths: string[];
+  healingEntries: LightweightPlanCandidate[];
+}
+
+export interface CollectLightweightPlanDeltaInput {
+  knownFiles: Map<string, KnownFilePlanMeta>;
+  indexedPaths: string[];
+  healingPaths: Set<string>;
+  filePaths?: string[];
+}
+
+export async function collectLightweightPlanDelta(
+  repoPath: string,
+  input: CollectLightweightPlanDeltaInput,
+): Promise<LightweightPlanDelta> {
+  const resolvedRepoPath = path.resolve(repoPath);
+  const effectiveFilePaths =
+    input.filePaths
+    ?? await (async () => {
+      await initFilter(resolvedRepoPath);
+      return crawl(resolvedRepoPath);
+    })();
+
+  const candidateEntries: LightweightPlanCandidate[] = [];
+  const relPathToAbs = new Map<string, string>();
+  const candidatePathSet = new Set<string>();
+
+  for (const filePath of effectiveFilePaths) {
+    const relPath = path.relative(resolvedRepoPath, filePath).replace(/\\/g, '/');
+    relPathToAbs.set(relPath, filePath);
+
+    const known = input.knownFiles.get(relPath);
+    try {
+      const stat = fs.statSync(filePath);
+      if (!known || known.mtime !== stat.mtimeMs || known.size !== stat.size) {
+        candidateEntries.push({
+          relPath,
+          absPath: filePath,
+          mtime: stat.mtimeMs,
+          size: stat.size,
+        });
+        candidatePathSet.add(relPath);
+      }
+    } catch {
+      candidateEntries.push({
+        relPath,
+        absPath: filePath,
+        mtime: 0,
+        size: 0,
+      });
+      candidatePathSet.add(relPath);
+    }
+  }
+
+  const scannedPaths = new Set(relPathToAbs.keys());
+  const deletedPaths = input.indexedPaths.filter(
+    (indexedPath) => !scannedPaths.has(indexedPath.replace(/\\/g, '/')),
+  );
+
+  const healingEntries: LightweightPlanCandidate[] = [];
+  for (const relPath of input.healingPaths) {
+    if (candidatePathSet.has(relPath)) {
+      continue;
+    }
+    const absPath = relPathToAbs.get(relPath);
+    if (!absPath) {
+      continue;
+    }
+    try {
+      const stat = fs.statSync(absPath);
+      healingEntries.push({
+        relPath,
+        absPath,
+        mtime: stat.mtimeMs,
+        size: stat.size,
+      });
+    } catch {
+      // 文件已漂移；执行阶段会回退到常规扫描
+    }
+  }
+
+  return {
+    totalFiles: effectiveFilePaths.length,
+    candidateEntries,
+    deletedPaths,
+    healingEntries,
+  };
 }
 
 export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpdatePlan> {
@@ -158,24 +260,36 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
     const storedContentSchemaVersion = getStoredIndexContentSchemaVersion(db);
     const indexPaths = resolveIndexPaths(projectId, { snapshotId });
     const vectorStorePresent = fs.existsSync(indexPaths.vectorPath);
-    const fileResults = await processFiles(resolvedRepoPath, filePaths, knownFiles);
-    const scannedPaths = new Set(filePaths.map((p) => path.relative(resolvedRepoPath, p).replace(/\\/g, '/')));
     const indexedPaths = getAllPaths(db);
-    const deleted = indexedPaths.filter((indexedPath) => !scannedPaths.has(indexedPath.replace(/\\/g, '/')));
     const healing = new Set(getFilesNeedingVectorIndex(db));
+    const delta = await collectLightweightPlanDelta(resolvedRepoPath, {
+      knownFiles,
+      indexedPaths,
+      healingPaths: healing,
+      filePaths,
+    });
+    const candidateResults = delta.candidateEntries.length > 0
+      ? await processFiles(
+          resolvedRepoPath,
+          delta.candidateEntries.map((entry) => entry.absPath),
+          knownFiles,
+        )
+      : [];
     const catalogStatus = await resolveMemoryCatalogStatus(resolvedRepoPath);
 
+    const added = candidateResults.filter((result) => result.status === 'added').length;
+    const modified = candidateResults.filter((result) => result.status === 'modified').length;
+    const skipped = candidateResults.filter((result) => result.status === 'skipped').length;
+    const errors = candidateResults.filter((result) => result.status === 'error').length;
     const changeSummary = {
-      added: fileResults.filter((result) => result.status === 'added').length,
-      modified: fileResults.filter((result) => result.status === 'modified').length,
-      deleted: deleted.length,
-      unchangedNeedingVectorRepair: fileResults.filter(
-        (result) => result.status === 'unchanged' && healing.has(result.relPath),
-      ).length,
-      unchanged: fileResults.filter((result) => result.status === 'unchanged').length,
-      skipped: fileResults.filter((result) => result.status === 'skipped').length,
-      errors: fileResults.filter((result) => result.status === 'error').length,
-      totalFiles: filePaths.length,
+      added,
+      modified,
+      deleted: delta.deletedPaths.length,
+      unchangedNeedingVectorRepair: delta.healingEntries.length,
+      unchanged: Math.max(0, delta.totalFiles - added - modified - skipped - errors),
+      skipped,
+      errors,
+      totalFiles: delta.totalFiles,
     };
 
     const schemaStatus: IndexPlanSchemaStatus = {
@@ -283,10 +397,10 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
     }
 
     const impactedFilePaths = [
-      ...fileResults
+      ...candidateResults
         .filter((result) => result.status === 'added' || result.status === 'modified')
         .map((result) => result.relPath),
-      ...deleted,
+      ...delta.deletedPaths,
     ];
 
     const impactedMemories = await resolveImpactedMemories(resolvedRepoPath, mode, impactedFilePaths, reasons);
@@ -314,7 +428,12 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
       schemaStatus,
       executionHint:
         mode === 'incremental'
-          ? buildIncrementalExecutionHint(fileResults, deleted, healing, changeSummary)
+          ? buildIncrementalExecutionHint(
+              candidateResults,
+              delta.deletedPaths,
+              delta.healingEntries,
+              changeSummary,
+            )
           : null,
     };
   } finally {
@@ -358,7 +477,7 @@ export async function executeIndexUpdatePlan(
 function buildIncrementalExecutionHint(
   fileResults: Awaited<ReturnType<typeof processFiles>>,
   deletedPaths: string[],
-  healingPaths: Set<string>,
+  healingEntries: LightweightPlanCandidate[],
   changeSummary: IndexUpdatePlan['changeSummary'],
 ): IncrementalExecutionHint {
   return {
@@ -373,13 +492,11 @@ function buildIncrementalExecutionHint(
         size: result.size,
       })),
     deletedPaths,
-    healingPaths: fileResults
-      .filter((result) => result.status === 'unchanged' && healingPaths.has(result.relPath))
-      .map((result) => ({
-        relPath: result.relPath,
-        mtime: result.mtime,
-        size: result.size,
-      })),
+    healingPaths: healingEntries.map((entry) => ({
+      relPath: entry.relPath,
+      mtime: entry.mtime,
+      size: entry.size,
+    })),
   };
 }
 

@@ -106,6 +106,8 @@ export interface SnapshotScanOptions extends Omit<ScanOptions, 'snapshotId'> {
   validateBeforeSwap?: boolean;
   /** 预扫描生成的增量执行提示 */
   incrementalHint?: IncrementalExecutionHint | null;
+  /** 预先确认无需索引时直接返回的统计结果 */
+  noopStats?: ScanStats | null;
 }
 
 export function summarizeProcessResults(results: ProcessResult[]): ProcessResultsSummary {
@@ -651,6 +653,11 @@ export async function scanWithSnapshotSwap(
   rootPath: string,
   options: SnapshotScanOptions = {},
 ): Promise<ScanStats> {
+  if (options.noopStats) {
+    options.onProgress?.(100, 100, '索引已是最新');
+    return options.noopStats;
+  }
+
   const projectId = generateProjectId(rootPath);
   const staging = prepareWritableSnapshot(projectId);
   const scanOptions = {

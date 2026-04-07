@@ -4,6 +4,19 @@ import { type ScanStats, scanWithSnapshotSwap } from '../../scanner/index.js';
 import { exitWithError, writeText } from '../helpers.js';
 import { logger } from '../../utils/logger.js';
 import type { CommandRegistrar } from '../types.js';
+import type { IndexUpdatePlan } from '../../indexing/updateStrategy.js';
+
+function buildNoopScanStats(plan: IndexUpdatePlan): ScanStats {
+  return {
+    totalFiles: plan.changeSummary.totalFiles,
+    added: 0,
+    modified: 0,
+    unchanged: plan.changeSummary.unchanged,
+    deleted: 0,
+    skipped: plan.changeSummary.skipped,
+    errors: plan.changeSummary.errors,
+  };
+}
 
 export function registerIndexingCommands(cli: CommandRegistrar): void {
   cli
@@ -27,19 +40,42 @@ export function registerIndexingCommands(cli: CommandRegistrar): void {
         const stats: ScanStats = await withLock(
           projectId,
           'index',
-          async () =>
-            scanWithSnapshotSwap(rootPath, {
-              force: options.force,
-              onProgress: (current, total, message) => {
-                if (total !== undefined) {
-                  const percent = Math.floor((current / total) * 100);
-                  if (percent >= lastLoggedPercent + 30 && percent < 100) {
-                    logger.info(`索引进度: ${percent}% - ${message || ''}`);
-                    lastLoggedPercent = Math.floor(percent / 30) * 30;
-                  }
+          async () => {
+            const onProgress = (current: number, total?: number, message?: string) => {
+              if (total !== undefined) {
+                const percent = Math.floor((current / total) * 100);
+                if (percent >= lastLoggedPercent + 30 && percent < 100) {
+                  logger.info(`索引进度: ${percent}% - ${message || ''}`);
+                  lastLoggedPercent = Math.floor(percent / 30) * 30;
                 }
-              },
-            }),
+              }
+            };
+
+            if (options.force) {
+              return scanWithSnapshotSwap(rootPath, {
+                force: true,
+                onProgress,
+              });
+            }
+
+            const { analyzeIndexUpdatePlan } = await import('../../indexing/updateStrategy.js');
+            const plan = await analyzeIndexUpdatePlan(rootPath);
+            logger.info(`索引计划: ${plan.mode}`);
+
+            if (plan.mode === 'none') {
+              logger.info('当前索引已是最新，跳过快照创建');
+              return scanWithSnapshotSwap(rootPath, {
+                onProgress,
+                noopStats: buildNoopScanStats(plan),
+              });
+            }
+
+            return scanWithSnapshotSwap(rootPath, {
+              force: plan.mode === 'full',
+              incrementalHint: plan.mode === 'incremental' ? plan.executionHint : null,
+              onProgress,
+            });
+          },
           10 * 60 * 1000,
         );
 

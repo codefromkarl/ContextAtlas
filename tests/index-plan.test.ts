@@ -6,12 +6,16 @@ import test from 'node:test';
 import { getEmbeddingConfig } from '../src/config.ts';
 import {
   generateProjectId,
+  getAllFileMeta,
+  getAllPaths,
+  getFilesNeedingVectorIndex,
   initDb,
   setStoredEmbeddingDimensions,
   setStoredIndexContentSchemaVersion,
 } from '../src/db/index.ts';
 import {
   analyzeIndexUpdatePlan,
+  collectLightweightPlanDelta,
   executeIndexUpdatePlan,
   formatIndexUpdatePlanReport,
 } from '../src/indexing/updateStrategy.ts';
@@ -57,6 +61,50 @@ test('analyzeIndexUpdatePlan recommends full rebuild when index is missing', asy
     assert.equal(plan.reasons[0]?.code, 'missing-index');
     assert.equal(plan.changeSummary.added, 1);
     assert.ok(plan.commands.includes(`contextatlas index ${repoRoot}`));
+  });
+});
+
+test('collectLightweightPlanDelta 仅返回疑似变更与自愈文件，不扫描稳定文件', async () => {
+  await withTempRepo(async (repoRoot) => {
+    fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+    const stablePath = path.join(repoRoot, 'src', 'stable.ts');
+    const mtimeOnlyPath = path.join(repoRoot, 'src', 'mtime.ts');
+    const deletedPath = path.join(repoRoot, 'src', 'deleted.ts');
+    const addedPath = path.join(repoRoot, 'src', 'added.ts');
+
+    fs.writeFileSync(stablePath, 'export const stable = 1;\n');
+    fs.writeFileSync(mtimeOnlyPath, 'export const mtimeOnly = 1;\n');
+    fs.writeFileSync(deletedPath, 'export const deleted = 1;\n');
+
+    await scan(repoRoot, { vectorIndex: false });
+
+    const projectId = generateProjectId(repoRoot);
+    const db = initDb(projectId);
+    db.exec('UPDATE files SET vector_index_hash = hash');
+    db.prepare('UPDATE files SET vector_index_hash = NULL WHERE path = ?').run('src/stable.ts');
+    db.close();
+
+    const originalMtime = fs.statSync(mtimeOnlyPath).mtime;
+    const nextMtime = new Date(originalMtime.getTime() + 5_000);
+    fs.utimesSync(mtimeOnlyPath, nextMtime, nextMtime);
+    fs.rmSync(deletedPath);
+    fs.writeFileSync(addedPath, 'export const added = 1;\n');
+
+    const verifyDb = initDb(projectId);
+    const delta = await collectLightweightPlanDelta(repoRoot, {
+      knownFiles: getAllFileMeta(verifyDb),
+      indexedPaths: getAllPaths(verifyDb),
+      healingPaths: new Set(getFilesNeedingVectorIndex(verifyDb)),
+    });
+    verifyDb.close();
+
+    assert.deepEqual(
+      delta.candidateEntries.map((entry) => entry.relPath).sort(),
+      ['src/added.ts', 'src/mtime.ts'],
+    );
+    assert.deepEqual(delta.deletedPaths, ['src/deleted.ts']);
+    assert.deepEqual(delta.healingEntries.map((entry) => entry.relPath), ['src/stable.ts']);
+    assert.equal(delta.totalFiles, 3);
   });
 });
 
@@ -409,6 +457,7 @@ test('executeIndexUpdatePlan enqueues incremental task when repo files changed',
     assert.equal(task?.scope, 'incremental');
     assert.equal(task?.requestedBy, 'test');
     assert.ok(task?.executionHint);
+    assert.equal(task?.executionHint?.ttlMs, 10 * 60 * 1000);
     assert.equal(task?.executionHint?.changeSummary.modified, 1);
     assert.deepEqual(
       task?.executionHint?.candidates.map((item) => item.relPath),

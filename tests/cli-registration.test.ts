@@ -266,6 +266,10 @@ test('registerMemoryKnowledgeCommands registers long-term and decision commands'
   assert.deepEqual(registered, [
     'memory:prune-long-term',
     'memory:record-long-term',
+    'memory:diary-write',
+    'memory:diary-read',
+    'memory:diary-find',
+    'memory:invalidate-long-term',
     'feedback:record',
     'decision:record <id>',
     'decision:list',

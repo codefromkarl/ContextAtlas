@@ -26,7 +26,9 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
             ? (options.types
                 .split(',')
                 .map((item) => item.trim())
-                .filter(Boolean) as Array<'user' | 'feedback' | 'project-state' | 'reference'>)
+                .filter(Boolean) as Array<
+                  'user' | 'feedback' | 'project-state' | 'reference' | 'journal' | 'evidence' | 'temporal-fact'
+                >)
             : undefined,
         scope:
           options.scope === 'project' || options.scope === 'global-user'
@@ -48,9 +50,9 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     });
 
   cli
-    .command('memory:record-long-term', '显式记录长期记忆（reference / project-state / feedback / user）')
+    .command('memory:record-long-term', '显式记录长期记忆（reference / project-state / feedback / user / journal / evidence / temporal-fact）')
     .option('--repo <path>', '目标仓库路径（默认当前目录）')
-    .option('--type <type>', '长期记忆类型: user | feedback | project-state | reference')
+    .option('--type <type>', '长期记忆类型: user | feedback | project-state | reference | journal | evidence | temporal-fact')
     .option('--title <title>', '标题')
     .option('--summary <summary>', '核心摘要')
     .option('--why <why>', '为什么要记住')
@@ -65,6 +67,7 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     .option('--valid-from <date>', '生效时间 ISO 日期')
     .option('--valid-until <date>', '失效时间 ISO 日期')
     .option('--last-verified-at <date>', '上次核验时间 ISO 日期')
+    .option('--fact-key <key>', '时态事实或证据条目的稳定键')
     .option('--json', '以 JSON 输出结果')
     .action(async (options: Record<string, string | boolean | undefined>) => {
       if (!options.type || !options.title || !options.summary) {
@@ -75,7 +78,14 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       const { handleRecordLongTermMemory } = await import('../../mcp/tools/longTermMemory.js');
       const response = await handleRecordLongTermMemory(
         {
-          type: options.type as 'user' | 'feedback' | 'project-state' | 'reference',
+          type: options.type as
+            | 'user'
+            | 'feedback'
+            | 'project-state'
+            | 'reference'
+            | 'journal'
+            | 'evidence'
+            | 'temporal-fact',
           title: String(options.title),
           summary: String(options.summary),
           why: typeof options.why === 'string' ? options.why : undefined,
@@ -102,6 +112,149 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
             typeof options['last-verified-at'] === 'string'
               ? options['last-verified-at']
               : undefined,
+          factKey: typeof options['fact-key'] === 'string' ? options['fact-key'] : undefined,
+          format: options.json ? 'json' : 'text',
+        },
+        repoRoot,
+      );
+      writeText(joinToolText(response));
+    });
+
+  cli
+    .command('memory:diary-write', '记录 agent diary 条目')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--agent <name>', 'agent 名称')
+    .option('--entry <text>', '日志内容')
+    .option('--topic <topic>', '主题', { default: 'general' })
+    .option('--scope <scope>', '作用域: project | global-user', { default: 'project' })
+    .option('--tags <tags>', '标签，逗号分隔')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      if (!options.agent || !options.entry) {
+        exitWithError('缺少 --agent / --entry');
+      }
+
+      const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
+      const { handleRecordAgentDiary } = await import('../../mcp/tools/agentDiary.js');
+      const response = await handleRecordAgentDiary(
+        {
+          agent_name: String(options.agent),
+          entry: String(options.entry),
+          topic: typeof options.topic === 'string' ? options.topic : 'general',
+          scope:
+            options.scope === 'project' || options.scope === 'global-user'
+              ? options.scope
+              : 'project',
+          tags: typeof options.tags === 'string' ? splitCommaSeparated(options.tags) : [],
+          format: options.json ? 'json' : 'text',
+        },
+        repoRoot,
+      );
+      writeText(joinToolText(response));
+    });
+
+  cli
+    .command('memory:diary-read', '读取 agent diary 条目')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--agent <name>', 'agent 名称')
+    .option('--topic <topic>', '主题过滤')
+    .option('--last-n <count>', '读取最近多少条', { default: '10' })
+    .option('--scope <scope>', '作用域: project | global-user', { default: 'project' })
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      if (!options.agent) {
+        exitWithError('缺少 --agent');
+      }
+
+      const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
+      const { handleReadAgentDiary } = await import('../../mcp/tools/agentDiary.js');
+      const response = await handleReadAgentDiary(
+        {
+          agent_name: String(options.agent),
+          topic: typeof options.topic === 'string' ? options.topic : undefined,
+          last_n: typeof options['last-n'] === 'string' ? Number(options['last-n']) || 10 : 10,
+          scope:
+            options.scope === 'project' || options.scope === 'global-user'
+              ? options.scope
+              : 'project',
+          format: options.json ? 'json' : 'text',
+        },
+        repoRoot,
+      );
+      writeText(joinToolText(response));
+    });
+
+  cli
+    .command('memory:diary-find', '搜索 agent diary 条目')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--query <query>', '搜索词')
+    .option('--agent <name>', 'agent 名称')
+    .option('--topic <topic>', '主题过滤')
+    .option('--limit <count>', '最大返回条数', { default: '10' })
+    .option('--scope <scope>', '作用域: project | global-user', { default: 'project' })
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      if (!options.query) {
+        exitWithError('缺少 --query');
+      }
+
+      const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
+      const { handleFindAgentDiary } = await import('../../mcp/tools/agentDiary.js');
+      const response = await handleFindAgentDiary(
+        {
+          query: String(options.query),
+          agent_name: typeof options.agent === 'string' ? options.agent : undefined,
+          topic: typeof options.topic === 'string' ? options.topic : undefined,
+          limit: typeof options.limit === 'string' ? Number(options.limit) || 10 : 10,
+          scope:
+            options.scope === 'project' || options.scope === 'global-user'
+              ? options.scope
+              : 'project',
+          format: options.json ? 'json' : 'text',
+        },
+        repoRoot,
+      );
+      writeText(joinToolText(response));
+    });
+
+  cli
+    .command('memory:invalidate-long-term', '将长期记忆条目标记为失效')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--type <type>', '长期记忆类型')
+    .option('--id <id>', '条目 ID')
+    .option('--fact-key <key>', '时态事实稳定键')
+    .option('--scope <scope>', '作用域: project | global-user', { default: 'project' })
+    .option('--ended <date>', '失效时间 ISO 日期')
+    .option('--reason <text>', '失效原因')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      if (!options.type || (!options.id && !options['fact-key'])) {
+        exitWithError('缺少 --type，且必须提供 --id 或 --fact-key');
+      }
+
+      const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
+      const { handleManageLongTermMemory } = await import('../../mcp/tools/longTermMemory.js');
+      const response = await handleManageLongTermMemory(
+        {
+          action: 'invalidate',
+          types: [
+            options.type as
+              | 'user'
+              | 'feedback'
+              | 'project-state'
+              | 'reference'
+              | 'journal'
+              | 'evidence'
+              | 'temporal-fact',
+          ],
+          id: typeof options.id === 'string' ? options.id : undefined,
+          factKey: typeof options['fact-key'] === 'string' ? options['fact-key'] : undefined,
+          scope:
+            options.scope === 'project' || options.scope === 'global-user'
+              ? options.scope
+              : 'project',
+          ended: typeof options.ended === 'string' ? options.ended : undefined,
+          reason: typeof options.reason === 'string' ? options.reason : undefined,
           format: options.json ? 'json' : 'text',
         },
         repoRoot,
@@ -165,26 +318,24 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     .option('--rationale <rationale>', '决策理由')
     .option('--consequences <consequences>', '后果（逗号分隔）')
     .action(async (id: string, options: Record<string, string | undefined>) => {
-      const { MemoryStore } = await import('../../memory/MemoryStore.js');
-      const store = new MemoryStore(process.cwd());
+      const { handleRecordDecision } = await import('../../mcp/tools/projectMemory.js');
+      const response = await handleRecordDecision(
+        {
+          id,
+          title: options.title || '',
+          context: options.context || '',
+          decision: options.decision || '',
+          alternatives: [],
+          rationale: options.rationale || '',
+          consequences: options.consequences
+            ? splitCommaSeparated(options.consequences)
+            : [],
+          reviewer: options.reviewer || undefined,
+        },
+        process.cwd(),
+      );
 
-      const decision = {
-        id,
-        date: new Date().toISOString().split('T')[0],
-        reviewer: options.reviewer || undefined,
-        title: options.title || '',
-        context: options.context || '',
-        decision: options.decision || '',
-        alternatives: [],
-        rationale: options.rationale || '',
-        consequences: options.consequences
-          ? splitCommaSeparated(options.consequences)
-          : [],
-        status: 'accepted' as const,
-      };
-
-      const filePath = await store.saveDecision(decision);
-      logger.info(`决策记录已保存到：${filePath}`);
+      writeText(joinToolText(response));
     });
 
   cli
@@ -233,6 +384,7 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     .option('--summary <summary>', '检查点摘要')
     .option('--active-block-ids <ids>', '激活的上下文块 ID，逗号分隔')
     .option('--explored-refs <refs>', '已探索引用，逗号分隔')
+    .option('--supporting-refs <refs>', '支持性证据引用，逗号分隔')
     .option('--key-findings <items>', '关键发现，逗号分隔')
     .option('--unresolved-questions <items>', '未解决问题，逗号分隔')
     .option('--next-steps <items>', '下一步，逗号分隔')
@@ -263,6 +415,7 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
         summary: String(options.summary),
         activeBlockIds: splitCommaSeparated(options['active-block-ids']),
         exploredRefs: splitCommaSeparated(options['explored-refs']),
+        supportingRefs: splitCommaSeparated(options['supporting-refs']),
         keyFindings: splitCommaSeparated(options['key-findings']),
         unresolvedQuestions: splitCommaSeparated(options['unresolved-questions']),
         nextSteps: splitCommaSeparated(options['next-steps']),

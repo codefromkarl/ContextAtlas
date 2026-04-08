@@ -27,10 +27,10 @@
 
 ### Phase 2 - 知识模型扩展
 
-- [ ] 将 `temporal-fact` / `journal` / `evidence` 作为正式长期记忆类型纳入 CLI/MCP 主入口
-- [ ] 提供 `invalidate` / `factKey` / `validFrom` / `validUntil` 等时态事实治理能力
-- [ ] 注册并暴露 `record_agent_diary` / `read_agent_diary` / `find_agent_diary`
-- [ ] 补充存储层与工具层测试
+- [x] 将 `temporal-fact` / `journal` / `evidence` 作为正式长期记忆类型纳入 CLI/MCP 主入口
+- [x] 提供 `invalidate` / `factKey` / `validFrom` / `validUntil` 等时态事实治理能力
+- [x] 注册并暴露 `record_agent_diary` / `read_agent_diary` / `find_agent_diary`
+- [x] 补充存储层与工具层测试
 
 ### Phase 3 - 证据回链与时态主路径
 
@@ -64,7 +64,7 @@
 
 - Phase 0: done
 - Phase 1: done
-- Phase 2: pending
+- Phase 2: done
 - Phase 3: pending
 - Phase 4: pending
 - Phase 5: pending

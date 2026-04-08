@@ -123,6 +123,7 @@ Use this after research, debugging, or implementation milestones when you want t
         summary: { type: 'string', description: 'Compact checkpoint summary' },
         activeBlockIds: { type: 'array', items: { type: 'string' }, description: 'Pinned context block ids' },
         exploredRefs: { type: 'array', items: { type: 'string' }, description: 'Evidence references explored so far' },
+        supportingRefs: { type: 'array', items: { type: 'string' }, description: 'Supporting evidence references to carry into handoff/resume' },
         keyFindings: { type: 'array', items: { type: 'string' }, description: 'Key findings' },
         unresolvedQuestions: { type: 'array', items: { type: 'string' }, description: 'Open questions' },
         nextSteps: { type: 'array', items: { type: 'string' }, description: 'Recommended next steps' },
@@ -473,28 +474,72 @@ Required fields:
     },
   },
   {
+    name: 'record_long_term_memory',
+    description: `
+Record explicit long-term memory, including journal, evidence, and temporal facts.
+
+Use this to save durable non-code knowledge with scope and optional validity windows.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['user', 'feedback', 'project-state', 'reference', 'journal', 'evidence', 'temporal-fact'],
+          description: 'Long-term memory type',
+        },
+        title: { type: 'string', description: 'Memory title' },
+        summary: { type: 'string', description: 'Core summary' },
+        why: { type: 'string', description: 'Why this memory matters' },
+        howToApply: { type: 'string', description: 'How to apply this memory later' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags' },
+        scope: {
+          type: 'string',
+          enum: ['project', 'global-user'],
+          description: 'Memory scope',
+        },
+        source: {
+          type: 'string',
+          enum: ['user-explicit', 'agent-inferred', 'tool-result'],
+          description: 'Memory source',
+        },
+        confidence: { type: 'number', description: 'Confidence score' },
+        links: { type: 'array', items: { type: 'string' }, description: 'External links' },
+        provenance: { type: 'array', items: { type: 'string' }, description: 'Provenance refs' },
+        validFrom: { type: 'string', description: 'Effective date in ISO format' },
+        validUntil: { type: 'string', description: 'Expiry/deadline in ISO format' },
+        lastVerifiedAt: { type: 'string', description: 'Last verification date in ISO format' },
+        factKey: { type: 'string', description: 'Stable identity key for temporal facts or evidence entries' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['type', 'title', 'summary'],
+    },
+  },
+  {
     name: 'manage_long_term_memory',
     description: `
-Manage long-term memories (find, list, prune, delete).
+Manage long-term memories (find, list, prune, delete, invalidate).
 
 Actions:
 - find: Search by keyword query
 - list: List all memories with optional type/scope filters
 - prune: Remove expired/stale memories (dryRun=true by default)
 - delete: Remove a specific memory by id
+- invalidate: Mark an active memory as no longer valid
 
 Examples:
 - manage_long_term_memory({ action: "find", query: "user preferences" })
 - manage_long_term_memory({ action: "list", types: ["user"] })
 - manage_long_term_memory({ action: "prune", dryRun: true })
 - manage_long_term_memory({ action: "delete", id: "mem_123", types: ["reference"] })
+- manage_long_term_memory({ action: "invalidate", types: ["temporal-fact"], factKey: "migration:user-module", ended: "2026-04-08" })
 `,
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['find', 'list', 'prune', 'delete'],
+          enum: ['find', 'list', 'prune', 'delete', 'invalidate'],
           description: 'Action to perform',
         },
         query: {
@@ -503,7 +548,10 @@ Examples:
         },
         types: {
           type: 'array',
-          items: { type: 'string', enum: ['user', 'feedback', 'project-state', 'reference'] },
+          items: {
+            type: 'string',
+            enum: ['user', 'feedback', 'project-state', 'reference', 'journal', 'evidence', 'temporal-fact'],
+          },
           description: '[find/list/prune] Filter by memory types',
         },
         scope: {
@@ -545,11 +593,71 @@ Examples:
           type: 'string',
           description: '[delete] Memory item id',
         },
+        factKey: {
+          type: 'string',
+          description: '[invalidate] Stable fact key',
+        },
+        ended: {
+          type: 'string',
+          description: '[invalidate] End date in ISO format',
+        },
+        reason: {
+          type: 'string',
+          description: '[invalidate] Optional invalidation reason',
+        },
         format: {
           ...responseFormatProperty,
         },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: 'record_agent_diary',
+    description: 'Append one agent diary entry as journal memory.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: { type: 'string', description: 'Agent name' },
+        entry: { type: 'string', description: 'Diary entry content' },
+        topic: { type: 'string', description: 'Diary topic' },
+        scope: { type: 'string', enum: ['project', 'global-user'], description: 'Diary scope' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Diary tags' },
+        provenance: { type: 'array', items: { type: 'string' }, description: 'Optional provenance refs' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['agent_name', 'entry'],
+    },
+  },
+  {
+    name: 'read_agent_diary',
+    description: 'Read recent diary entries for one agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_name: { type: 'string', description: 'Agent name' },
+        last_n: { type: 'number', description: 'How many recent entries to read', default: 10 },
+        topic: { type: 'string', description: 'Optional topic filter' },
+        scope: { type: 'string', enum: ['project', 'global-user'], description: 'Diary scope' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['agent_name'],
+    },
+  },
+  {
+    name: 'find_agent_diary',
+    description: 'Search diary entries by keyword, with optional agent/topic filters.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        agent_name: { type: 'string', description: 'Optional agent name filter' },
+        topic: { type: 'string', description: 'Optional topic filter' },
+        scope: { type: 'string', enum: ['project', 'global-user'], description: 'Diary scope' },
+        limit: { type: 'number', description: 'Maximum results', default: 10 },
+        format: { ...responseFormatProperty },
+      },
+      required: ['query'],
     },
   },
   {

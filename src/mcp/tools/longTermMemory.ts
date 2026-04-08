@@ -4,7 +4,15 @@ import type { ResolvedLongTermMemoryItem } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
 import { responseFormatSchema } from './responseFormat.js';
 
-const longTermMemoryTypeSchema = z.enum(['user', 'feedback', 'project-state', 'reference']);
+const longTermMemoryTypeSchema = z.enum([
+  'user',
+  'feedback',
+  'project-state',
+  'reference',
+  'journal',
+  'evidence',
+  'temporal-fact',
+]);
 const longTermMemoryScopeSchema = z.enum(['project', 'global-user']);
 
 export const recordLongTermMemorySchema = z.object({
@@ -27,14 +35,15 @@ export const recordLongTermMemorySchema = z.object({
   validFrom: z.string().optional().describe('Effective date in ISO format'),
   validUntil: z.string().optional().describe('Expiry/deadline in ISO format'),
   lastVerifiedAt: z.string().optional().describe('Last verification date in ISO format'),
+  factKey: z.string().optional().describe('Stable identity key for temporal facts or evidence entries'),
   format: responseFormatSchema,
 });
 
 export const manageLongTermMemorySchema = z.object({
   action: z
-    .enum(['find', 'list', 'prune', 'delete'])
+    .enum(['find', 'list', 'prune', 'delete', 'invalidate'])
     .describe(
-      'Action: find=search by keyword, list=all memories, prune=remove expired/stale, delete=remove one by id',
+      'Action: find=search by keyword, list=all memories, prune=remove expired/stale, delete=remove one by id, invalidate=mark an active memory as invalid',
     ),
   query: z.string().optional().describe('[find] Keyword query'),
   types: z
@@ -65,6 +74,9 @@ export const manageLongTermMemorySchema = z.object({
     .default(true)
     .describe('[prune] Preview pruning without deleting data'),
   id: z.string().optional().describe('[delete] Memory item id to delete'),
+  factKey: z.string().optional().describe('[invalidate] Stable fact key to invalidate'),
+  ended: z.string().optional().describe('[invalidate] End date in ISO format'),
+  reason: z.string().optional().describe('[invalidate] Optional invalidation reason'),
   format: responseFormatSchema,
 });
 
@@ -100,6 +112,7 @@ export async function handleRecordLongTermMemory(
     validFrom: args.validFrom,
     validUntil: args.validUntil,
     lastVerifiedAt: args.lastVerifiedAt,
+    factKey: args.factKey,
   });
 
   if (args.format === 'json') {
@@ -138,6 +151,8 @@ export async function handleManageLongTermMemory(
       return handlePrune(store, args);
     case 'delete':
       return handleDelete(store, args);
+    case 'invalidate':
+      return handleInvalidate(store, args);
   }
 }
 
@@ -362,6 +377,68 @@ async function handleDelete(
   };
 }
 
+async function handleInvalidate(
+  store: MemoryStore,
+  args: ManageLongTermMemoryInput,
+): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+  const type = args.types?.[0];
+  if (!type || (!args.id && !args.factKey)) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'Error: invalidate action requires `types` (at least one type) and either `id` or `factKey`.',
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const result = await store.invalidateLongTermMemoryItem(type, args.scope ?? 'project', {
+    id: args.id,
+    factKey: args.factKey,
+    ended: args.ended,
+    reason: args.reason,
+  });
+
+  if (args.format === 'json') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              tool: 'manage_long_term_memory',
+              action: 'invalidate',
+              invalidated_count: result.invalidatedCount,
+              memory: result.memory,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: result.invalidatedCount === 0,
+    };
+  }
+
+  if (result.invalidatedCount === 0 || !result.memory) {
+    return {
+      content: [{ type: 'text', text: 'No active long-term memory matched the given id/factKey.' }],
+      isError: true,
+    };
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Invalidated ${result.invalidatedCount} long-term memory item(s): ${result.memory.id}`,
+      },
+    ],
+  };
+}
+
 function formatLongTermMemory(memory: ResolvedLongTermMemoryItem, matchFields?: string[]): string {
   const matchInfo =
     matchFields && matchFields.length > 0
@@ -372,6 +449,7 @@ function formatLongTermMemory(memory: ResolvedLongTermMemoryItem, matchFields?: 
   const howToApply = memory.howToApply ? `\n- **How To Apply**: ${memory.howToApply}` : '';
   const links =
     memory.links && memory.links.length > 0 ? `\n- **Links**: ${memory.links.join(', ')}` : '';
+  const factKey = memory.factKey ? `\n- **Fact Key**: ${memory.factKey}` : '';
   const validity = memory.validUntil ? `\n- **Valid Until**: ${memory.validUntil}` : '';
   const verified = memory.lastVerifiedAt ? `\n- **Last Verified**: ${memory.lastVerifiedAt}` : '';
 
@@ -382,7 +460,7 @@ function formatLongTermMemory(memory: ResolvedLongTermMemoryItem, matchFields?: 
 - **Scope**: ${memory.scope}
 - **Status**: ${memory.status}
 - **Summary**: ${memory.summary}${why}${howToApply}
-- **Tags**: ${memory.tags.join(', ') || 'N/A'}${links}
+- **Tags**: ${memory.tags.join(', ') || 'N/A'}${links}${factKey}
 - **Confidence**: ${(memory.confidence * 100).toFixed(0)}%
 - **Updated**: ${new Date(memory.updatedAt).toLocaleString()}${validity}${verified}`;
 }

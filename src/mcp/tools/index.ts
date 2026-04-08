@@ -24,6 +24,14 @@ export {
   recordLongTermMemorySchema,
 } from './longTermMemory.js';
 export {
+  findAgentDiarySchema,
+  handleFindAgentDiary,
+  handleReadAgentDiary,
+  handleRecordAgentDiary,
+  readAgentDiarySchema,
+  recordAgentDiarySchema,
+} from './agentDiary.js';
+export {
   handleRecordResultFeedback,
   recordResultFeedbackSchema,
 } from './feedbackLoop.js';

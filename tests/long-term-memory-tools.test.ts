@@ -613,6 +613,173 @@ test('record_long_term_memory merges duplicate entries and preserves provenance'
   });
 });
 
+test('record_long_term_memory supports journal and evidence types', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const journal = await handleRecordLongTermMemory(
+      {
+        type: 'journal',
+        title: 'Worker journal',
+        summary: 'Investigated search pipeline regression and queued follow-up.',
+        tags: ['worker', 'search'],
+        scope: 'project',
+        source: 'agent-inferred',
+        confidence: 0.72,
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const journalPayload = JSON.parse(journal.content[0].text);
+    assert.equal(journalPayload.memory.type, 'journal');
+
+    const evidence = await handleRecordLongTermMemory(
+      {
+        type: 'evidence',
+        title: 'Incident report',
+        summary: 'Linked external incident report for retrieval outage.',
+        links: ['https://example.com/incidents/123'],
+        provenance: ['incident:123'],
+        scope: 'project',
+        source: 'tool-result',
+        confidence: 0.9,
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const evidencePayload = JSON.parse(evidence.content[0].text);
+    assert.equal(evidencePayload.memory.type, 'evidence');
+
+    const listResponse = await handleManageLongTermMemory(
+      {
+        action: 'list',
+        types: ['journal', 'evidence'],
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const listPayload = JSON.parse(listResponse.content[0].text);
+    assert.equal(listPayload.result_count, 2);
+    assert.ok(listPayload.results.some((memory: { type: string }) => memory.type === 'journal'));
+    assert.ok(listPayload.results.some((memory: { type: string }) => memory.type === 'evidence'));
+  });
+});
+
+test('manage_long_term_memory can invalidate an active temporal fact by factKey', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const recorded = await handleRecordLongTermMemory(
+      {
+        type: 'temporal-fact',
+        title: 'User module migration status',
+        summary: 'User module migration is blocked on data backfill.',
+        tags: ['migration'],
+        scope: 'project',
+        source: 'user-explicit',
+        confidence: 1,
+        validFrom: '2026-04-08',
+        format: 'json',
+        factKey: 'migration:user-module',
+      },
+      projectRoot,
+    );
+    const recordedPayload = JSON.parse(recorded.content[0].text);
+    assert.equal(recordedPayload.memory.type, 'temporal-fact');
+    assert.equal(recordedPayload.memory.status, undefined);
+    assert.equal(recordedPayload.memory.factKey, 'migration:user-module');
+
+    const invalidated = await handleManageLongTermMemory(
+      {
+        action: 'invalidate',
+        types: ['temporal-fact'],
+        scope: 'project',
+        factKey: 'migration:user-module',
+        ended: '2020-01-01',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const invalidatedPayload = JSON.parse(invalidated.content[0].text);
+    assert.equal(invalidatedPayload.tool, 'manage_long_term_memory');
+    assert.equal(invalidatedPayload.action, 'invalidate');
+    assert.equal(invalidatedPayload.invalidated_count, 1);
+    assert.equal(invalidatedPayload.memory.factKey, 'migration:user-module');
+    assert.equal(invalidatedPayload.memory.validUntil, '2020-01-01');
+
+    const listResponse = await handleManageLongTermMemory(
+      {
+        action: 'list',
+        types: ['temporal-fact'],
+        includeExpired: true,
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const listPayload = JSON.parse(listResponse.content[0].text);
+    assert.equal(listPayload.result_count, 1);
+    assert.equal(listPayload.results[0].status, 'expired');
+    assert.ok(
+      listPayload.results[0].provenance.some((item: string) =>
+        item.startsWith('invalidated-at:2020-01-01'),
+      ),
+    );
+  });
+});
+
+test('agent diary tools can record, read, and find journal entries', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const { handleFindAgentDiary, handleReadAgentDiary, handleRecordAgentDiary } = await import(
+      '../src/mcp/tools/agentDiary.ts'
+    );
+
+    const recordResponse = await handleRecordAgentDiary(
+      {
+        agent_name: 'worker-alpha',
+        entry: 'Investigated retrieval slowdown and switched embeddings back to direct SiliconFlow.',
+        topic: 'retrieval',
+        scope: 'project',
+        tags: ['ops', 'retrieval'],
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const recordPayload = JSON.parse(recordResponse.content[0].text);
+    assert.equal(recordPayload.tool, 'record_agent_diary');
+    assert.equal(recordPayload.memory.type, 'journal');
+
+    const readResponse = await handleReadAgentDiary(
+      {
+        agent_name: 'worker-alpha',
+        last_n: 5,
+        scope: 'project',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const readPayload = JSON.parse(readResponse.content[0].text);
+    assert.equal(readPayload.tool, 'read_agent_diary');
+    assert.equal(readPayload.result_count, 1);
+    assert.equal(readPayload.results[0].title, 'worker-alpha · retrieval');
+
+    const findResponse = await handleFindAgentDiary(
+      {
+        query: 'SiliconFlow',
+        agent_name: 'worker-alpha',
+        scope: 'project',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const findPayload = JSON.parse(findResponse.content[0].text);
+    assert.equal(findPayload.tool, 'find_agent_diary');
+    assert.equal(findPayload.result_count, 1);
+    assert.equal(findPayload.results[0].type, 'journal');
+  });
+});
+
 test('record_result_feedback merges duplicate feedback and returns write_action', async () => {
   await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));

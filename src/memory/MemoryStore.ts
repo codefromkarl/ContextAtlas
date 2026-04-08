@@ -442,6 +442,19 @@ export class MemoryStore {
     return this.getLongTermMemoryService().delete(type, scope, id);
   }
 
+  async invalidateLongTermMemoryItem(
+    type: LongTermMemoryType,
+    scope: LongTermMemoryScope,
+    input: {
+      id?: string;
+      factKey?: string;
+      ended?: string;
+      reason?: string;
+    },
+  ): Promise<{ invalidatedCount: number; memory: LongTermMemoryItem | null }> {
+    return this.getLongTermMemoryService().invalidate(type, scope, input);
+  }
+
   async pruneLongTermMemories(options?: {
     types?: LongTermMemoryType[];
     scope?: LongTermMemoryScope;

@@ -4,12 +4,15 @@ import {
   codebaseRetrievalSchema,
   createCheckpointSchema,
   deleteMemorySchema,
+  findAgentDiarySchema,
+  findMemorySchema,
   handleAssembleContext,
   handleCreateCheckpoint,
+  handleFindAgentDiary,
   handleListCheckpoints,
   handleLoadCheckpoint,
   handlePrepareHandoff,
-  findMemorySchema,
+  handleReadAgentDiary,
   getDependencyChainSchema,
   getProjectProfileSchema,
   handleCodebaseRetrieval,
@@ -24,6 +27,7 @@ import {
   handleManageLongTermMemory,
   handleManageProjects,
   handleQuerySharedMemories,
+  handleRecordAgentDiary,
   handleRecordDecision,
   handleRecordLongTermMemory,
   handleRecordMemory,
@@ -39,7 +43,9 @@ import {
   manageLongTermMemorySchema,
   manageProjectsSchema,
   querySharedMemoriesSchema,
+  readAgentDiarySchema,
   recordDecisionSchema,
+  recordAgentDiarySchema,
   recordLongTermMemorySchema,
   recordMemorySchema,
   recordResultFeedbackSchema,
@@ -85,6 +91,12 @@ export function createToolDispatcher(cwd: string) {
         return handleRecordDecision(recordDecisionSchema.parse(args), cwd);
       case 'record_long_term_memory':
         return handleRecordLongTermMemory(recordLongTermMemorySchema.parse(args), cwd);
+      case 'record_agent_diary':
+        return handleRecordAgentDiary(recordAgentDiarySchema.parse(args), cwd);
+      case 'read_agent_diary':
+        return handleReadAgentDiary(readAgentDiarySchema.parse(args), cwd);
+      case 'find_agent_diary':
+        return handleFindAgentDiary(findAgentDiarySchema.parse(args), cwd);
       case 'record_result_feedback':
         return handleRecordResultFeedback(recordResultFeedbackSchema.parse(args), cwd);
       case 'manage_long_term_memory':

@@ -62,6 +62,8 @@ export interface FeatureMemory {
   memoryType?: 'local' | 'shared' | 'framework' | 'pattern';
   /** 共享记忆引用 */
   sharedReferences?: SharedReference[];
+  /** 原始证据引用 */
+  evidenceRefs?: string[];
 }
 
 /**
@@ -104,6 +106,8 @@ export interface DecisionRecord {
   rationale: string;
   /** 后果/影响 */
   consequences: string[];
+  /** 原始证据引用 */
+  evidenceRefs?: string[];
   /** 状态 */
   status: 'accepted' | 'rejected' | 'superseded';
 }
@@ -177,7 +181,7 @@ export type ContextBlockType =
   | 'feedback-signals';
 
 export interface ContextBlockProvenance {
-  source: 'code' | 'feature-memory' | 'decision-record' | 'long-term-memory' | 'feedback';
+  source: 'code' | 'feature-memory' | 'decision-record' | 'long-term-memory' | 'feedback' | 'evidence';
   ref: string;
 }
 
@@ -231,6 +235,7 @@ export interface TaskCheckpoint {
   summary: string;
   activeBlockIds: string[];
   exploredRefs: string[];
+  supportingRefs?: string[];
   keyFindings: string[];
   unresolvedQuestions: string[];
   nextSteps: string[];
@@ -257,6 +262,7 @@ export interface CheckpointHandoff {
   summary: string;
   activeBlockIds: string[];
   exploredRefs: string[];
+  supportingRefs?: string[];
   keyFindings: string[];
   unresolvedQuestions: string[];
   nextSteps: string[];
@@ -302,6 +308,7 @@ export interface CheckpointResumeBundle extends CheckpointBundleBase {
   resumeFromCheckpointId: string;
   activeBlockIds: string[];
   exploredRefs: string[];
+  supportingRefs?: string[];
   keyFindings: string[];
   unresolvedQuestions: string[];
 }
@@ -433,7 +440,14 @@ export type LongTermMemoryScope = 'project' | 'global-user';
 /**
  * 长期记忆类型
  */
-export type LongTermMemoryType = 'user' | 'feedback' | 'project-state' | 'reference';
+export type LongTermMemoryType =
+  | 'user'
+  | 'feedback'
+  | 'project-state'
+  | 'reference'
+  | 'journal'
+  | 'evidence'
+  | 'temporal-fact';
 export type LongTermMemoryStatus = 'active' | 'stale' | 'expired' | 'superseded';
 
 /**
@@ -472,6 +486,12 @@ export interface LongTermMemoryItem {
   confidence: number;
   /** 外部链接 */
   links?: string[];
+  /** 时态事实或可定位条目的稳定键 */
+  factKey?: string;
+  /** 此条目主动失效的其他条目 */
+  invalidates?: string[];
+  /** 导致此条目失效的其他条目 */
+  invalidatedBy?: string;
   /** 生效时间 */
   validFrom?: string;
   /** 失效时间 / 截止时间 */

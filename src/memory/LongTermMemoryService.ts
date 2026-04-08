@@ -64,8 +64,11 @@ export class LongTermMemoryService {
         provenance: this.mergeStringList(previous.provenance, item.provenance),
         tags: this.mergeStringList(previous.tags, item.tags),
         links: this.mergeStringList(previous.links, item.links),
+        invalidates: this.mergeStringList(previous.invalidates, item.invalidates),
         confidence: Math.max(previous.confidence || 0, item.confidence || 0),
         source: this.mergeLongTermMemorySource(previous.source, item.source),
+        factKey: item.factKey || previous.factKey,
+        invalidatedBy: item.invalidatedBy || previous.invalidatedBy,
         createdAt: previous?.createdAt || item.createdAt,
         updatedAt: now,
       };
@@ -84,9 +87,12 @@ export class LongTermMemoryService {
         tags: this.mergeStringList(previous.tags, item.tags),
         links: this.mergeStringList(previous.links, item.links),
         provenance: this.mergeStringList(previous.provenance, item.provenance),
+        invalidates: this.mergeStringList(previous.invalidates, item.invalidates),
         durability: this.mergeDurability(previous.durability, item.durability),
         confidence: Math.max(previous.confidence || 0, item.confidence || 0),
         source: this.mergeLongTermMemorySource(previous.source, item.source),
+        factKey: item.factKey || previous.factKey,
+        invalidatedBy: item.invalidatedBy || previous.invalidatedBy,
         lastVerifiedAt: item.lastVerifiedAt || previous.lastVerifiedAt,
         validFrom: item.validFrom || previous.validFrom,
         validUntil: item.validUntil || previous.validUntil,
@@ -131,7 +137,15 @@ export class LongTermMemoryService {
   }): Promise<ResolvedLongTermMemoryItem[]> {
     const requestedTypes = options?.types?.length
       ? options.types
-      : (['user', 'feedback', 'project-state', 'reference'] as LongTermMemoryType[]);
+      : ([
+          'user',
+          'feedback',
+          'project-state',
+          'reference',
+          'journal',
+          'evidence',
+          'temporal-fact',
+        ] as LongTermMemoryType[]);
     const requestedScopes = options?.scope
       ? [options.scope]
       : (['project', 'global-user'] as LongTermMemoryScope[]);
@@ -217,7 +231,15 @@ export class LongTermMemoryService {
   }> {
     const requestedTypes = options?.types?.length
       ? options.types
-      : (['user', 'feedback', 'project-state', 'reference'] as LongTermMemoryType[]);
+      : ([
+          'user',
+          'feedback',
+          'project-state',
+          'reference',
+          'journal',
+          'evidence',
+          'temporal-fact',
+        ] as LongTermMemoryType[]);
     const requestedScopes = options?.scope
       ? [options.scope]
       : (['project', 'global-user'] as LongTermMemoryScope[]);
@@ -258,6 +280,51 @@ export class LongTermMemoryService {
         (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       ),
     };
+  }
+
+  async invalidate(
+    type: LongTermMemoryType,
+    scope: LongTermMemoryScope,
+    input: {
+      id?: string;
+      factKey?: string;
+      ended?: string;
+      reason?: string;
+    },
+  ): Promise<{ invalidatedCount: number; memory: LongTermMemoryItem | null }> {
+    const ended = input.ended || new Date().toISOString().split('T')[0];
+    const now = new Date().toISOString();
+    const items = await this.read(type, scope);
+    let invalidatedCount = 0;
+    let updatedMemory: LongTermMemoryItem | null = null;
+
+    const nextItems = items.map((item) => {
+      const matchesById = input.id ? item.id === input.id : false;
+      const matchesByFactKey = input.factKey ? item.factKey === input.factKey : false;
+      if ((!matchesById && !matchesByFactKey) || item.validUntil) {
+        return item;
+      }
+
+      invalidatedCount += 1;
+      const updated: LongTermMemoryItem = {
+        ...item,
+        validUntil: ended,
+        updatedAt: now,
+        provenance: this.mergeStringList(item.provenance, [
+          `invalidated-at:${ended}`,
+          ...(input.reason ? [`invalidated-reason:${input.reason}`] : []),
+        ]),
+      };
+      updatedMemory = updated;
+      return updated;
+    });
+
+    if (invalidatedCount === 0) {
+      return { invalidatedCount: 0, memory: null };
+    }
+
+    await this.save(type, scope, nextItems);
+    return { invalidatedCount, memory: updatedMemory };
   }
 
   private async save(
@@ -316,6 +383,9 @@ export class LongTermMemoryService {
           confidence:
             typeof item.confidence === 'number' ? item.confidence : Number(item.confidence ?? 0.5),
           links: Array.isArray(item.links) ? item.links.map(String) : [],
+          factKey: item.factKey ? String(item.factKey) : undefined,
+          invalidates: Array.isArray(item.invalidates) ? item.invalidates.map(String) : [],
+          invalidatedBy: item.invalidatedBy ? String(item.invalidatedBy) : undefined,
           durability:
             item.durability === 'ephemeral' || item.durability === 'stable'
               ? item.durability
@@ -332,6 +402,12 @@ export class LongTermMemoryService {
   }
 
   private isSameLongTermMemory(a: LongTermMemoryItem, b: LongTermMemoryItem): boolean {
+    if (a.factKey && b.factKey) {
+      return a.type === b.type
+        && a.scope === b.scope
+        && this.normalizeMemoryText(a.factKey) === this.normalizeMemoryText(b.factKey);
+    }
+
     return a.type === b.type
       && a.scope === b.scope
       && this.normalizeMemoryText(a.title) === this.normalizeMemoryText(b.title)
@@ -408,6 +484,11 @@ export class LongTermMemoryService {
     if (memory.type.toLowerCase().includes(queryLower)) {
       score += 2;
       matchFields.push('type');
+    }
+
+    if (memory.factKey?.toLowerCase().includes(queryLower)) {
+      score += 10;
+      matchFields.push('factKey');
     }
 
     return { score, matchFields };

@@ -3,8 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
-import { MemoryStore } from '../src/memory/MemoryStore.ts';
 
 async function withTempProjects(
   run: (input: { baseDir: string; repoA: string; repoB: string }) => Promise<void>,
@@ -14,6 +12,8 @@ async function withTempProjects(
   const repoB = path.join(baseDir, 'repo-b');
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  const { MemoryHubDatabase } = await import('../src/memory/MemoryHubDatabase.ts');
+  const { MemoryStore } = await import('../src/memory/MemoryStore.ts');
   MemoryStore.setSharedHubForTests(new MemoryHubDatabase(path.join(baseDir, 'memory-hub.db')));
   fs.mkdirSync(repoA, { recursive: true });
   fs.mkdirSync(repoB, { recursive: true });
@@ -32,6 +32,7 @@ async function withTempProjects(
 }
 
 async function seedProject(repoRoot: string, summary: string): Promise<void> {
+  const { MemoryStore } = await import('../src/memory/MemoryStore.ts');
   fs.mkdirSync(path.join(repoRoot, 'src', 'search'), { recursive: true });
   fs.writeFileSync(
     path.join(repoRoot, 'src', 'search', 'SearchService.ts'),

@@ -138,6 +138,85 @@ test('ops:metrics CLI 输出稳定指标 JSON', () => {
   }
 });
 
+test('ops:metrics CLI 在未显式传 log-dir 时默认读取 baseDir/logs', () => {
+  const baseDir = makeBaseDir();
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+
+  try {
+    recordToolUsage({
+      timestamp: '2026-04-05T09:00:00.000Z',
+      source: 'mcp',
+      toolName: 'codebase-retrieval',
+      projectId: 'proj-metrics-default-log',
+      repoPath: '/repos/proj-metrics-default-log',
+      requestId: 'req-default-log',
+      status: 'success',
+      durationMs: 120,
+      queryLength: 20,
+      indexState: 'ready',
+      indexAction: 'none',
+    });
+
+    const logsDir = path.join(baseDir, 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(logsDir, 'app.2026-04-05.log'),
+      `2026-04-05 09:00:00 [INFO] MCP codebase-retrieval 完成 ${JSON.stringify({
+        requestId: 'req-default-log',
+        projectId: 'proj-metrics-default-log',
+        totalMs: 321,
+        seedCount: 1,
+        expandedCount: 0,
+        totalChars: 1200,
+        timingMs: {
+          init: 10,
+          retrieve: 100,
+          rerank: 50,
+          expand: 20,
+          pack: 10,
+        },
+        retrievalStats: {
+          lexicalStrategy: 'chunks_fts',
+          lexicalCount: 2,
+        },
+        resultStats: {
+          totalChars: 1200,
+          budgetExhausted: false,
+        },
+        rerankUsage: {
+          inputTokens: 123,
+        },
+      })}\n`,
+    );
+
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'ops:metrics', '--json'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.summary.querySuccessRate, 1);
+    assert.equal(payload.summary.retrievalLatencyMs, 321);
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
 test('analyzeOpsMetrics builds module quality distribution from review status and feedback signals', async () => {
   const baseDir = makeBaseDir();
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;

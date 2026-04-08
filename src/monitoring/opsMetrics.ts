@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { analyzeMemoryHealth, type MemoryHealthReport } from './memoryHealth.js';
 import {
   analyzeRetrievalLogDirectory,
@@ -6,6 +5,7 @@ import {
 } from './retrievalMonitor.js';
 import { MemoryHubDatabase } from '../memory/MemoryHubDatabase.js';
 import { MemoryStore } from '../memory/MemoryStore.js';
+import { resolveBaseDir } from '../runtimePaths.js';
 import {
   listIndexUsage,
   listToolUsage,
@@ -310,6 +310,7 @@ export function buildOpsMetricsReport(input: {
 export async function analyzeOpsMetrics(
   options: AnalyzeOpsMetricsOptions = {},
 ): Promise<OpsMetricsReport> {
+  const effectiveLogDir = options.logDir || `${resolveBaseDir()}/logs`;
   const toolRows = filterByWindow(listToolUsage(), options.days);
   const indexRows = filterByWindow(listIndexUsage(), options.days);
   const retrievalRows = toolRows.filter((row) => row.toolName === 'codebase-retrieval');
@@ -327,11 +328,11 @@ export async function analyzeOpsMetrics(
   const memoryHealth = await memoryHealthFactory({ staleDays: options.staleDays });
 
   let retrievalReport = options.retrievalFallbackReport || buildZeroRetrievalReport();
-  if (options.logDir) {
+  if (effectiveLogDir) {
     try {
       retrievalReport = retrievalFactory({
         days: options.days,
-        logDir: options.logDir,
+        logDir: effectiveLogDir,
       });
     } catch {
       retrievalReport = options.retrievalFallbackReport || buildZeroRetrievalReport();
@@ -354,11 +355,11 @@ export async function analyzeOpsMetrics(
     const profileMetrics = projectStaleRates.get(projectId);
 
     let repoRetrieval = buildZeroRetrievalReport();
-    if (options.logDir) {
+    if (effectiveLogDir) {
       try {
         repoRetrieval = retrievalFactory({
           days: options.days,
-          logDir: options.logDir,
+          logDir: effectiveLogDir,
           projectId,
         });
       } catch {
@@ -392,7 +393,7 @@ export async function analyzeOpsMetrics(
     filters: {
       days: options.days,
       staleDays: options.staleDays,
-      logDir: options.logDir,
+      logDir: effectiveLogDir,
     },
     querySuccessRate: round(rate(retrievalRows, (row) => row.status === 'success')),
     emptyResultRate: round(retrievalReport.summary.rates.noSeedRate || 0),

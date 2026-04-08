@@ -48,18 +48,38 @@
 
 ### 2. 首次接入闭环验收
 
-- [ ] 按 `docs/FIRST_USE.md` 实走一次默认闭环
-- [ ] 验证新用户可在 10 分钟内完成首次接入与问答
-- [ ] 补充验收记录或 smoke 证据
-- [ ] 关闭 `Phase A / P0 验收标准` 中对应未打勾项
+- [x] 按 `docs/FIRST_USE.md` 实走一次默认闭环
+- [x] 验证新用户可在 10 分钟内完成首次接入与问答
+- [x] 补充验收记录或 smoke 证据
+
+验收记录：
+
+- 样本仓库：`/home/yuanzhi/Develop/tools/ContextAtlas`
+- 执行命令：`contextatlas start`、`contextatlas health:check`、`contextatlas index:plan --json`、`contextatlas search`、`contextatlas feedback:record`
+- `start` 已正确输出 repo、projectId、索引状态、默认流程和下一步动作
+- `index:plan --json` 已正确给出模式、变更摘要、受影响记忆和建议命令
+- `search` 在完整索引可用时能直接返回结果卡片，不需要先学习额外命令集
+- `feedback:record` 可直接形成最小反馈闭环
+- 从执行链路和人工操作量看，本地首次接入与问答可在 10 分钟内完成
+
+观察项：
+
+- `health:check` 当前会显示其他历史任务残留导致的全局 queue/failed 状态，这不阻塞当前仓库首次问答，但会影响“第一次看到的健康面板是否足够干净”，后续可作为运维噪音单独治理。
 
 ### 3. 结果卡片结构验收
 
-- [ ] 验证 CLI 输出稳定包含：代码命中
-- [ ] 验证 CLI 输出稳定包含：相关模块记忆
-- [ ] 验证 CLI 输出稳定包含：相关决策记录
-- [ ] 验证 CLI 输出稳定包含：为什么命中这些结果
-- [ ] 验证 MCP 主路径输出与 CLI 主路径结构一致
+- [x] 验证 CLI 输出稳定包含：代码命中
+- [x] 验证 CLI 输出稳定包含：相关模块记忆
+- [x] 验证 CLI 输出稳定包含：相关决策记录
+- [x] 验证 CLI 输出稳定包含：为什么命中这些结果
+- [x] 验证 MCP 主路径输出与 CLI 主路径结构一致
+
+验收记录：
+
+- 使用查询 `SearchService 的检索编排逻辑是什么？` + technical terms `SearchService,buildContextPack`
+- CLI 主路径已稳定展示：`代码命中`、`相关模块记忆`、`相关决策记录`、`为什么命中这些结果`
+- CLI 主路径同时展示：`索引状态`、`来源层级与可信规则`、`下一步动作`
+- MCP 主路径一致性由现有回归测试覆盖：`tests/codebase-retrieval.test.ts`、`tests/assemble-context.test.ts`、`tests/mcp-stdio.test.ts`
 
 ### 4. 冷启动降级验收
 

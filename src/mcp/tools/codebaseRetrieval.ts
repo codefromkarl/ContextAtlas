@@ -452,28 +452,29 @@ export async function handleCodebaseRetrieval(
   // 3. 已有索引时走完整模式
   if (policy.autoIndex) {
     try {
-      const { enqueueIndexTask } = await import('../../indexing/queue.js');
-      const scope = resolveAutoIndexScope(wasIndexed);
-      const enqueueResult = enqueueIndexTask({
-        projectId,
-        repoPath: repo_path,
-        scope,
-        reason: 'mcp-codebase-retrieval',
-        requestedBy: 'mcp',
-      });
-
-      logger.info(
-        {
-          requestId,
-          projectId: projectId.slice(0, 10),
-          taskId: enqueueResult.task.taskId,
-          scope,
-          reusedExisting: enqueueResult.reusedExisting,
-          status: enqueueResult.task.status,
-        },
-        'MCP 查询已提交索引任务到队列',
-      );
-
+      const { executeIndexUpdatePlan } = await import('../../indexing/updateStrategy.js');
+      const enqueueResult = await executeIndexUpdatePlan(repo_path, { requestedBy: 'mcp' });
+      if (enqueueResult.enqueued) {
+        logger.info(
+          {
+            requestId,
+            projectId: projectId.slice(0, 10),
+            taskId: enqueueResult.taskId,
+            scope: enqueueResult.plan.mode,
+            reusedExisting: enqueueResult.reusedExisting,
+          },
+          'MCP 查询已提交索引任务到队列',
+        );
+      } else {
+        logger.info(
+          {
+            requestId,
+            projectId: projectId.slice(0, 10),
+            planMode: enqueueResult.plan.mode,
+          },
+          'MCP 查询检测到当前索引无需更新，跳过自动入队',
+        );
+      }
     } catch (err) {
       const error = err as Error;
       logger.warn(

@@ -20,6 +20,7 @@ import type { AssemblyProfileName } from '../../memory/MemoryRouter.js';
 import { handleCodebaseRetrieval } from './codebaseRetrieval.js';
 import { handleLoadCheckpoint } from './checkpoints.js';
 import { handleLoadModuleMemory } from './loadModuleMemory.js';
+import { buildWakeupLayers, formatWakeupLayersText, type WakeupLayersBundle } from './wakeupLayers.js';
 import { responseFormatSchema } from './responseFormat.js';
 
 type AssembleContextPhase = TaskCheckpoint['phase'];
@@ -178,6 +179,7 @@ interface AssembledContextJsonPayload {
     };
   };
   references: ContextBlockReference[];
+  wakeupLayers: WakeupLayersBundle;
   source: {
     checkpoint: null | {
       tool: 'load_checkpoint';
@@ -236,8 +238,50 @@ export async function handleAssembleContext(
         source: item.source,
         ref: item.ref,
       })),
-    ),
+      ),
   );
+  const wakeupLayers = buildWakeupLayers({
+    assemblyProfile: {
+      requestedPhase: args.phase,
+      resolvedProfile: resolvedProfile.name,
+      source: resolvedProfile.source,
+    },
+    routing: {
+      checkpoint: {
+        checkpointId: checkpointPayload?.checkpoint.id,
+        phase: checkpointPayload?.checkpoint.phase,
+        loaded: Boolean(checkpointPayload),
+      },
+      moduleMemory: modulePayload?.routing ?? null,
+      codebaseRetrieval: codePayload
+        ? {
+            informationRequest: codebaseRequest.information_request,
+            technicalTerms: codebaseRequest.technical_terms,
+            responseMode: 'expanded',
+            summary: codePayload.summary,
+            nextInspectionSuggestions: codePayload.nextInspectionSuggestions,
+          }
+        : null,
+    },
+    checkpoint: checkpointPayload?.checkpoint
+      ? {
+          id: checkpointPayload.checkpoint.id,
+          title: checkpointPayload.checkpoint.title,
+          goal: checkpointPayload.checkpoint.goal,
+          phase: checkpointPayload.checkpoint.phase,
+        }
+      : null,
+    moduleMemories: modulePayload?.memories ?? [],
+    contextBlocks: selectedBlocks,
+    references,
+    summary: {
+      checkpointBlocks: checkpointBlocks.length,
+      moduleMemoryBlocks: moduleMemoryBlocks.length,
+      codeBlocks: codeBlocks.length,
+      totalBlocks: selectedBlocks.length,
+      references: references.length,
+    },
+  });
 
   const payload: AssembledContextJsonPayload = {
     tool: 'assemble_context',
@@ -306,6 +350,7 @@ export async function handleAssembleContext(
       },
     },
     references,
+    wakeupLayers,
     source: {
       checkpoint: checkpointPayload
         ? {
@@ -630,6 +675,7 @@ function formatAssembleContextText(payload: AssembledContextJsonPayload): string
     payload.selectedContext.contextBlocks.length > 0
       ? payload.selectedContext.contextBlocks.slice(0, 12).map((block) => formatContextBlockText(block)).join('\n\n---\n\n')
       : '- None';
+  const wakeupLayerSummary = formatWakeupLayersText(payload.wakeupLayers);
   const referenceSummary =
     payload.references.length > 0
       ? payload.references
@@ -657,6 +703,8 @@ function formatAssembleContextText(payload: AssembledContextJsonPayload): string
     `- **Checkpoint**: ${payload.selectedContext.checkpoint ? payload.selectedContext.checkpoint.checkpoint.id : 'None'}`,
     `- **Module Memories**: ${payload.selectedContext.moduleMemories.length}`,
     `- **Code Evidence Blocks**: ${payload.selectedContext.codebaseRetrieval?.contextBlocks.length ?? 0}`,
+    '',
+    wakeupLayerSummary,
     '',
     '### Loaded Module Memories',
     moduleSummary,

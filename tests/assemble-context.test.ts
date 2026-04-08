@@ -249,6 +249,18 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
           };
         };
         references: Array<{ blockId: string; source: string; ref: string }>;
+        wakeupLayers: {
+          version: number;
+          layers: Array<{
+            name: string;
+            title: string;
+            summary: string;
+            blockCount: number;
+            blockIds: string[];
+            highlights: string[];
+          }>;
+          summary: { totalBlocks: number; totalReferences: number };
+        };
         source: {
           checkpoint: { tool: string; checkpointId: string } | null;
           moduleMemory: { tool: string; resultCount: number } | null;
@@ -276,6 +288,11 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
       assert.ok(payload.selectedContext.contextBlocks.some((block) => block.type === 'code-evidence'));
       assert.equal(payload.selectedContext.summary.totalBlocks, payload.selectedContext.contextBlocks.length);
       assert.equal(payload.budget.selectedContextBlocks, payload.selectedContext.contextBlocks.length);
+      assert.equal(payload.wakeupLayers.version, 1);
+      assert.deepEqual(
+        payload.wakeupLayers.layers.map((layer: { name: string }) => layer.name),
+        ['L0', 'L1', 'L2', 'L3'],
+      );
       assert.equal(payload.source.checkpoint?.tool, 'load_checkpoint');
       assert.equal(payload.source.moduleMemory?.tool, 'load_module_memory');
       assert.equal(payload.source.codebaseRetrieval?.tool, 'codebase-retrieval');
@@ -395,6 +412,11 @@ test('assemble_context maps research phase to the overview assembly profile in t
       assert.match(response.content[0].text, /- \*\*Assembly Profile\*\*: overview/);
       assert.match(response.content[0].text, /- \*\*Assembly Source\*\*: phase/);
       assert.match(response.content[0].text, /- \*\*Checkpoint\*\*: None/);
+      assert.match(response.content[0].text, /### Wakeup Layers/);
+      assert.match(response.content[0].text, /- \*\*L0\*\*/);
+      assert.match(response.content[0].text, /- \*\*L1\*\*/);
+      assert.match(response.content[0].text, /- \*\*L2\*\*/);
+      assert.match(response.content[0].text, /- \*\*L3\*\*/);
       assert.match(response.content[0].text, /### Selected Context Blocks/);
       assert.match(response.content[0].text, /- \*\*Content\*\*:/);
       assert.match(response.content[0].text, /Responsibility: orchestrates retrieval and packing/);

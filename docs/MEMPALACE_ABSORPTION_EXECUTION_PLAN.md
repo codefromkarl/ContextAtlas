@@ -20,10 +20,10 @@
 
 ### Phase 1 - 分层唤醒协议
 
-- [ ] 将 `wakeupLayers` 从输出摘要升级为正式唤醒协议
-- [ ] 为 `assemble_context` 增加可控层级输入
-- [ ] 将 L0 明确为项目硬约束 + 路由决策，而不只是 intent/routing 文案
-- [ ] 补充协议级测试与文档
+- [x] 将 `wakeupLayers` 从输出摘要升级为正式唤醒协议
+- [x] 为 `assemble_context` 增加可控层级输入
+- [x] 将 L0 明确为项目硬约束 + 路由决策，而不只是 intent/routing 文案
+- [x] 补充协议级测试与文档
 
 ### Phase 2 - 知识模型扩展
 
@@ -63,7 +63,7 @@
 ## 提交记录
 
 - Phase 0: done
-- Phase 1: pending
+- Phase 1: done
 - Phase 2: pending
 - Phase 3: pending
 - Phase 4: pending

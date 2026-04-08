@@ -25,7 +25,11 @@
 
 - [x] 抽统一 CLI 错误退出 helper，收口 `logger.error(...); process.exit(1)`
 - [x] 抽统一 CLI JSON/text 响应 helper 到更多命令模块
-- [ ] 评估是否继续收大模块：`src/mcp/tools/codebaseRetrieval.ts`、`src/search/SearchService.ts`
+- [x] 评估是否继续收大模块：`src/mcp/tools/codebaseRetrieval.ts`、`src/search/SearchService.ts`
+
+验收记录：
+
+- [模块收口评估（2026-04-08）](./ITERATION_1_MODULE_CLOSURE_EVALUATION_2026_04_08.md)
 
 ---
 
@@ -67,8 +71,12 @@
 
 - [x] 新用户 10 分钟内完成首次接入与问答
 - [x] 首次结果结构固定，不再只是长文本堆叠
-- [ ] 索引未完成时可返回有限结果，不会直接卡死
-- [ ] 仓库名、CLI 名、README、包名、发布信息统一
+- [x] 索引未完成时可返回有限结果，不会直接卡死
+- [x] 仓库名、CLI 名、README、包名、发布信息统一
+
+验收记录：
+
+- [Iteration 1 验收报告（2026-04-08）](./ITERATION_1_ACCEPTANCE_REPORT_2026_04_08.md)
 
 ---
 

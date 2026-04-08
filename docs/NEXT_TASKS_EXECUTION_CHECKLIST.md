@@ -30,6 +30,7 @@
 
 - [x] 评估是否继续拆分或收口 `src/mcp/tools/codebaseRetrieval.ts`
 - [x] 评估是否继续拆分或收口 `src/search/SearchService.ts`
+- [x] 如果决定继续拆分：给出边界、迁移顺序、测试补位方案
 - [x] 如果决定暂不拆分：记录理由并关闭该待办
 
 当前结论：**两者都暂不继续拆分，先收口 P0 验收项。**
@@ -45,6 +46,8 @@
 
 - 如果 `codebaseRetrieval` 再继续增长，或结果卡片/冷启动/反馈治理出现高频冲突，再单独开“模块化二次拆分”任务。
 - 如果 `SearchService` 再重新吸收 recall/rerank/packing 细节，再重新评估 facade 边界。
+
+详细记录：见 [Iteration 1 模块收口评估（2026-04-08）](./ITERATION_1_MODULE_CLOSURE_EVALUATION_2026_04_08.md)
 
 ### 2. 首次接入闭环验收
 
@@ -105,9 +108,24 @@
 
 ### 5. 产品身份统一验收
 
-- [ ] 检查 `README.md`、`README.EN.md`、包名、CLI 名、发布信息是否完全统一
-- [ ] 清理可能残留的旧命名或旧品牌文案
-- [ ] 补验收记录并关闭对应路线图勾选项
+- [x] 检查 `README.md`、`README.EN.md`、包名、CLI 名、发布信息是否完全统一
+- [x] 清理可能残留的旧命名或旧品牌文案
+- [x] 补验收记录并关闭对应路线图勾选项
+
+验收记录：
+
+- `package.json` 已统一为：
+  - 包名 `@codefromkarl/context-atlas`
+  - CLI 主命令 `contextatlas`
+  - 兼容短别名 `cw`
+- `README.md`、`README.EN.md`、`docs/FIRST_USE.md`、`docs/CLI.md`、`docs/DEPLOYMENT.md` 均以 `contextatlas` 作为默认命令名。
+- `.github/workflows/release.yml` 的发布说明已统一使用：
+  - npm 包名 `@codefromkarl/context-atlas`
+  - 默认 CLI 命令 `contextatlas`
+- 仓库检索未发现 `CodeWeaver`、`ContextWeaver` 等旧品牌残留。
+- `cw` 仍被保留，但仅作为兼容短别名，不影响产品身份统一。
+
+详细记录：见 [Iteration 1 验收报告（2026-04-08）](./ITERATION_1_ACCEPTANCE_REPORT_2026_04_08.md)
 
 ---
 

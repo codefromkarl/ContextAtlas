@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { registerBootstrapCommands } from '../src/cli/commands/bootstrap.js';
+import { buildDefaultEnvContent, registerBootstrapCommands } from '../src/cli/commands/bootstrap.js';
 import { registerGatewayCommands } from '../src/cli/commands/gateway.js';
 import { registerHubCommands } from '../src/cli/commands/hub.js';
 import { registerHubExploreCommands } from '../src/cli/commands/hubExplore.js';
@@ -80,6 +80,16 @@ test('registerBootstrapCommands registers startup-oriented commands', () => {
   const registered = Array.from(cli.commands.keys());
 
   assert.deepEqual(registered, ['init', 'start [path]', 'mcp']);
+});
+
+test('buildDefaultEnvContent emits SiliconFlow-first embedding gateway example', () => {
+  const content = buildDefaultEnvContent();
+
+  assert.match(content, /EMBEDDINGS_BASE_URL=https:\/\/api\.siliconflow\.cn\/v1\/embeddings/);
+  assert.match(content, /EMBEDDINGS_MODEL=BAAI\/bge-m3/);
+  assert.match(content, /EMBEDDING_GATEWAY_VALIDATE_MODELS=BAAI\/bge-m3/);
+  assert.match(content, /"name":"siliconflow-primary"/);
+  assert.match(content, /"baseUrl":"https:\/\/api\.siliconflow\.cn\/v1\/embeddings"/);
 });
 
 test('registerGatewayCommands registers gateway server command', () => {

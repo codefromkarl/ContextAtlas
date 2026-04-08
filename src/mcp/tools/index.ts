@@ -60,3 +60,15 @@ export {
   listCheckpointsSchema,
   loadCheckpointSchema,
 } from './checkpoints.js';
+export {
+  assembleContextSchema,
+  handleAssembleContext,
+} from './assembleContext.js';
+export {
+  handlePrepareHandoff,
+  prepareHandoffSchema,
+} from './prepareHandoff.js';
+export {
+  handleSuggestPhaseBoundary,
+  suggestPhaseBoundarySchema,
+} from './suggestPhaseBoundary.js';

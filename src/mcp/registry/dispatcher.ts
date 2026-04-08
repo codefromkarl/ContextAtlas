@@ -1,11 +1,14 @@
 import type { ToolTextResponse } from '../response.js';
 import {
+  assembleContextSchema,
   codebaseRetrievalSchema,
   createCheckpointSchema,
   deleteMemorySchema,
+  handleAssembleContext,
   handleCreateCheckpoint,
   handleListCheckpoints,
   handleLoadCheckpoint,
+  handlePrepareHandoff,
   findMemorySchema,
   getDependencyChainSchema,
   getProjectProfileSchema,
@@ -41,7 +44,10 @@ import {
   recordMemorySchema,
   recordResultFeedbackSchema,
   sessionEndSchema,
+  suggestPhaseBoundarySchema,
   suggestMemorySchema,
+  prepareHandoffSchema,
+  handleSuggestPhaseBoundary,
 } from '../tools/index.js';
 
 export type DispatcherProgressCallback = (
@@ -65,6 +71,12 @@ export function createToolDispatcher(cwd: string) {
         return handleLoadCheckpoint(loadCheckpointSchema.parse(args));
       case 'list_checkpoints':
         return handleListCheckpoints(listCheckpointsSchema.parse(args));
+      case 'prepare_handoff':
+        return handlePrepareHandoff(prepareHandoffSchema.parse(args));
+      case 'assemble_context':
+        return handleAssembleContext(assembleContextSchema.parse(args));
+      case 'suggest_phase_boundary':
+        return handleSuggestPhaseBoundary(suggestPhaseBoundarySchema.parse(args));
       case 'find_memory':
         return handleFindMemory(findMemorySchema.parse(args), cwd);
       case 'record_memory':

@@ -1,5 +1,6 @@
 import { createResponseFormatInputSchemaProperty } from '../tools/responseFormat.js';
 import {
+  assembleContextSchema,
   codebaseRetrievalSchema,
   createCheckpointSchema,
   deleteMemorySchema,
@@ -20,7 +21,9 @@ import {
   recordMemorySchema,
   recordResultFeedbackSchema,
   sessionEndSchema,
+  suggestPhaseBoundarySchema,
   suggestMemorySchema,
+  prepareHandoffSchema,
 } from '../tools/index.js';
 
 const responseFormatProperty = createResponseFormatInputSchemaProperty();
@@ -155,6 +158,91 @@ List durable task checkpoints saved for the current repository.
         format: { ...responseFormatProperty },
       },
       required: ['repo_path'],
+    },
+  },
+  {
+    name: 'prepare_handoff',
+    description: `
+Assemble a handoff-ready bundle from an existing checkpoint.
+
+Use this when an agent needs a compact, structured package for resume or transfer.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string', description: 'Absolute repository root path' },
+        checkpoint_id: { type: 'string', description: 'Checkpoint id' },
+        format: { ...responseFormatProperty },
+      },
+      required: ['repo_path', 'checkpoint_id'],
+    },
+  },
+  {
+    name: 'assemble_context',
+    description: `
+Assemble phase-aware context from checkpoint, module memory, and derived code retrieval.
+
+Use this to build a minimal context package for overview/debug/implementation/verification/handoff workflows.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string', description: 'Absolute repository root path' },
+        phase: {
+          type: 'string',
+          enum: ['overview', 'research', 'debug', 'implementation', 'verification', 'handoff'],
+          description: 'Target task phase',
+        },
+        profile: {
+          type: 'string',
+          enum: ['overview', 'debug', 'implementation', 'verification', 'handoff'],
+          description: 'Assembly profile override',
+        },
+        checkpoint_id: { type: 'string', description: 'Optional checkpoint id to include' },
+        moduleName: { type: 'string', description: 'Exact module name to load' },
+        query: { type: 'string', description: 'Keyword query for phase-aware module memory assembly' },
+        filePaths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'File paths used by load_module_memory routing',
+        },
+        format: { ...responseFormatProperty },
+      },
+      required: ['repo_path'],
+    },
+  },
+  {
+    name: 'suggest_phase_boundary',
+    description: `
+Suggest the next workflow phase boundary from current checkpoint and context signals.
+
+Use this to decide whether to stay in the current phase or move into implementation, verification, or handoff.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string', description: 'Absolute repository root path' },
+        current_phase: {
+          type: 'string',
+          enum: ['overview', 'research', 'debug', 'implementation', 'verification', 'handoff'],
+          description: 'Current task phase',
+        },
+        checkpoint_id: { type: 'string', description: 'Optional checkpoint id to evaluate' },
+        checkpoint: {
+          type: 'object',
+          description: 'Optional explicit checkpoint payload',
+        },
+        retrieval_signal: {
+          type: 'object',
+          description: 'Optional retrieval quality / density signal',
+        },
+        assembly_signal: {
+          type: 'object',
+          description: 'Optional context assembly signal',
+        },
+        format: { ...responseFormatProperty },
+      },
+      required: ['repo_path', 'current_phase'],
     },
   },
   {

@@ -113,6 +113,9 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.ok(toolNames.includes('find_memory'));
     assert.ok(toolNames.includes('maintain_memory_catalog'));
     assert.ok(toolNames.includes('manage_long_term_memory'));
+    assert.ok(toolNames.includes('prepare_handoff'));
+    assert.ok(toolNames.includes('assemble_context'));
+    assert.ok(toolNames.includes('suggest_phase_boundary'));
 
     await client.call(3, 'tools/call', {
       name: 'record_memory',
@@ -163,7 +166,71 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.equal(loadedPayload.tool, 'load_module_memory');
     assert.equal(loadedPayload.result_count, 1);
 
-    const catalog = await client.call(8, 'tools/call', {
+    const checkpoint = await client.call(8, 'tools/call', {
+      name: 'create_checkpoint',
+      arguments: {
+        repo_path: projectDir,
+        title: 'proto handoff',
+        goal: 'package context',
+        phase: 'handoff',
+        summary: 'checkpoint summary',
+        activeBlockIds: ['memory:proto-module'],
+        exploredRefs: ['src/proto.ts'],
+        keyFindings: ['proto ready'],
+        nextSteps: ['prepare handoff'],
+        format: 'json',
+      },
+    });
+    const checkpointPayload = JSON.parse(checkpoint.result.content[0].text);
+    assert.equal(checkpointPayload.tool, 'create_checkpoint');
+
+    const handoff = await client.call(9, 'tools/call', {
+      name: 'prepare_handoff',
+      arguments: {
+        repo_path: projectDir,
+        checkpoint_id: checkpointPayload.checkpoint.id,
+        format: 'json',
+      },
+    });
+    const handoffPayload = JSON.parse(handoff.result.content[0].text);
+    assert.equal(handoffPayload.tool, 'prepare_handoff');
+    assert.equal(handoffPayload.handoffBundle.kind, 'handoff-bundle');
+    assert.equal(handoffPayload.handoffSummary.phase, 'handoff');
+    assert.ok(Array.isArray(handoffPayload.handoffSummary.referencedBlockIds));
+
+    const assembled = await client.call(10, 'tools/call', {
+      name: 'assemble_context',
+      arguments: {
+        repo_path: projectDir,
+        profile: 'handoff',
+        moduleName: 'proto-module',
+        checkpoint_id: checkpointPayload.checkpoint.id,
+        format: 'json',
+      },
+    });
+    const assembledPayload = JSON.parse(assembled.result.content[0].text);
+    assert.equal(assembledPayload.tool, 'assemble_context');
+    assert.equal(assembledPayload.assemblyProfile.resolvedProfile, 'handoff');
+    assert.equal(assembledPayload.source.checkpoint.tool, 'load_checkpoint');
+    assert.equal(assembledPayload.source.moduleMemory.tool, 'load_module_memory');
+    assert.ok(Array.isArray(assembledPayload.selectedContext.contextBlocks));
+
+    const phaseBoundary = await client.call(11, 'tools/call', {
+      name: 'suggest_phase_boundary',
+      arguments: {
+        repo_path: projectDir,
+        current_phase: 'handoff',
+        checkpoint_id: checkpointPayload.checkpoint.id,
+        format: 'json',
+      },
+    });
+    const phaseBoundaryPayload = JSON.parse(phaseBoundary.result.content[0].text);
+    assert.equal(phaseBoundaryPayload.tool, 'suggest_phase_boundary');
+    assert.equal(phaseBoundaryPayload.recommendedPhase, 'handoff');
+    assert.equal(phaseBoundaryPayload.transition, 'stay');
+    assert.equal(phaseBoundaryPayload.shouldTransition, false);
+
+    const catalog = await client.call(12, 'tools/call', {
       name: 'list_memory_catalog',
       arguments: { includeDetails: true, format: 'json' },
     });
@@ -171,7 +238,7 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.equal(catalogPayload.tool, 'list_memory_catalog');
     assert.ok(catalogPayload.catalog.modules['proto-module']);
 
-    const deleted = await client.call(9, 'tools/call', {
+    const deleted = await client.call(13, 'tools/call', {
       name: 'delete_memory',
       arguments: { name: 'proto-module', format: 'json' },
     });
@@ -179,7 +246,7 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.equal(deletedPayload.tool, 'delete_memory');
     assert.equal(deletedPayload.status, 'deleted');
 
-    const rebuilt = await client.call(10, 'tools/call', {
+    const rebuilt = await client.call(14, 'tools/call', {
       name: 'maintain_memory_catalog',
       arguments: { action: 'rebuild', format: 'json' },
     });
@@ -187,7 +254,7 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.equal(rebuiltPayload.tool, 'rebuild_memory_catalog');
     assert.equal(rebuiltPayload.status, 'rebuilt');
 
-    await client.call(11, 'tools/call', {
+    await client.call(15, 'tools/call', {
       name: 'record_long_term_memory',
       arguments: {
         type: 'reference',
@@ -199,7 +266,7 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
       },
     });
 
-    const longTermList = await client.call(12, 'tools/call', {
+    const longTermList = await client.call(16, 'tools/call', {
       name: 'manage_long_term_memory',
       arguments: { action: 'list', types: ['reference'], format: 'json' },
     });
@@ -208,7 +275,7 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.equal(longTermListPayload.action, 'list');
     assert.equal(longTermListPayload.result_count, 1);
 
-    const pruned = await client.call(13, 'tools/call', {
+    const pruned = await client.call(17, 'tools/call', {
       name: 'manage_long_term_memory',
       arguments: {
         action: 'prune',

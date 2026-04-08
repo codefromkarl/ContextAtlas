@@ -39,10 +39,10 @@ contextatlas mcp
 }
 ```
 
-- `full`：默认，暴露全部 18 个工具
+- `full`：默认，暴露全部 21 个工具
 - `retrieval-only`：仅暴露 7 个只读检索工具，适合把 ContextAtlas 当作纯 retrieval/memory reader 使用
 
-## 工具总览（18 个）
+## 工具总览（21 个）
 
 ### 代码检索
 
@@ -86,6 +86,34 @@ contextatlas mcp
 |------|------|
 | `session_end` | 会话结束时自动分析并建议记录记忆 |
 | `suggest_memory` | AI 辅助提取模块记忆 |
+
+### 上下文生命周期
+
+| 工具 | 用途 |
+|------|------|
+| `prepare_handoff` | 基于 checkpoint 组装交接/恢复包 |
+| `assemble_context` | 按 phase/profile 组装最小可用上下文 |
+| `suggest_phase_boundary` | 建议下一阶段及阻塞项 |
+
+#### 生命周期工具说明
+
+`prepare_handoff`
+
+- 输入：`repo_path`、`checkpoint_id`
+- 输出重点：`handoffSummary`、`referencedBlockIds`、`unresolvedBlockIds`
+- 语义：在 checkpoint 自身的 task-state block 之外，会尽量补出可解析的模块摘要和已检视代码引用，便于下一位 agent 直接接手
+
+`assemble_context`
+
+- 输入：`repo_path`，可选 `phase` / `profile` / `checkpoint_id` / `moduleName` / `query` / `filePaths`
+- 输出重点：`selectedContext.contextBlocks`、`references`、`assemblyProfile`
+- 语义：按阶段装配“最小可用上下文包”；`phase=research` 会映射到 `overview` profile，`profile` 当前仅支持 `overview/debug/implementation/verification/handoff`
+
+`suggest_phase_boundary`
+
+- 输入：`repo_path`、`current_phase`，可选 `checkpoint_id` / `checkpoint` / `retrieval_signal` / `assembly_signal`
+- 输出重点：`recommendedPhase`、`transition`、`shouldTransition`、`blockers`
+- 语义：这是边界判断器，不是固定推进器；当证据不足、存在 blocker 或 phase 冲突时，会明确返回保持当前阶段
 
 ## 推荐使用顺序
 
@@ -164,5 +192,53 @@ contextatlas mcp
   "project": "ctx",
   "module": "AuthService",
   "recursive": true
+}
+```
+
+### 交接包
+
+```json
+{
+  "repo_path": "/path/to/repo",
+  "checkpoint_id": "chk_1234567890ab",
+  "format": "json"
+}
+```
+
+### 上下文装配
+
+```json
+{
+  "repo_path": "/path/to/repo",
+  "phase": "implementation",
+  "checkpoint_id": "chk_1234567890ab",
+  "moduleName": "SearchService",
+  "query": "Trace retrieval flow",
+  "filePaths": ["src/search/SearchService.ts"],
+  "format": "json"
+}
+```
+
+### 阶段边界建议
+
+```json
+{
+  "repo_path": "/path/to/repo",
+  "current_phase": "debug",
+  "checkpoint_id": "chk_1234567890ab",
+  "retrieval_signal": {
+    "codeBlocks": 3,
+    "memoryBlocks": 1,
+    "decisionBlocks": 0,
+    "confidence": "high",
+    "mode": "expanded"
+  },
+  "assembly_signal": {
+    "profile": "debug",
+    "source": "phase",
+    "budgetUsed": 4,
+    "budgetLimit": 8
+  },
+  "format": "json"
 }
 ```

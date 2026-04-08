@@ -1,4 +1,5 @@
 import { registerBootstrapCommands } from './commands/bootstrap.js';
+import { registerGatewayCommands } from './commands/gateway.js';
 import { registerIndexingCommands } from './commands/indexing.js';
 import { registerMemoryCommands } from './commands/memory.js';
 import { registerHubCommands } from './commands/hub.js';
@@ -9,6 +10,7 @@ import type { CommandRegistrar } from './types.js';
 
 export function registerCliCommands(cli: CommandRegistrar): void {
   registerBootstrapCommands(cli);
+  registerGatewayCommands(cli);
   registerIndexingCommands(cli);
   registerSearchCommands(cli);
   registerMemoryCommands(cli);

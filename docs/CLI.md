@@ -87,6 +87,49 @@ contextatlas search \
 - 文本和 JSON 输出都会显示计划结论以及是否复用了已有队列任务
 - `full` / schema drift 场景会额外提示需要“广泛复核”的 feature memories（`broad-review`）
 
+## Embedding Gateway
+
+```bash
+# 启动本地 OpenAI-compatible embeddings gateway
+contextatlas gateway:embeddings
+contextatlas gateway:embeddings --port 8787
+
+# 使用内存缓存
+contextatlas gateway:embeddings \
+  --cache-ttl-ms 60000 \
+  --cache-max-entries 500
+
+# 使用 Redis 缓存
+contextatlas gateway:embeddings \
+  --cache-backend redis \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --redis-key-prefix contextatlas:gateway:embeddings:
+
+# 关闭并发相同请求合并
+contextatlas gateway:embeddings --no-coalesce-identical-requests
+```
+
+`contextatlas gateway:embeddings` 当前能力：
+
+- 提供 OpenAI-compatible 的 `POST /v1/embeddings`
+- 提供 `GET /healthz`，暴露上游 provider 与 cache 统计
+- 支持多上游加权轮询、`429` / `5xx` / 网络异常自动 failover、provider cooldown
+- 支持内存缓存或 Redis 缓存
+- 支持并发相同请求合并，避免重复打上游
+
+常用环境变量：
+
+- `EMBEDDING_GATEWAY_UPSTREAMS`
+- `EMBEDDING_GATEWAY_API_KEYS`
+- `EMBEDDING_GATEWAY_CACHE_TTL_MS`
+- `EMBEDDING_GATEWAY_CACHE_MAX_ENTRIES`
+- `EMBEDDING_GATEWAY_CACHE_BACKEND`
+- `EMBEDDING_GATEWAY_REDIS_URL`
+- `EMBEDDING_GATEWAY_REDIS_KEY_PREFIX`
+- `EMBEDDING_GATEWAY_COALESCE_IDENTICAL_REQUESTS`
+
+更完整的部署示例见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
 ## 项目记忆
 
 ```bash

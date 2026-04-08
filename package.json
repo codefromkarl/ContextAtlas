@@ -45,6 +45,7 @@
     "ignore": "^7.0.5",
     "p-limit": "^7.2.0",
     "pino": "^10.1.0",
+    "redis": "^4.7.0",
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-c-sharp": "^0.23.1",
     "tree-sitter-cpp": "^0.23.4",

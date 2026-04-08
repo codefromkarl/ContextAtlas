@@ -49,6 +49,21 @@ RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
 RERANK_MODEL=BAAI/bge-reranker-v2-m3
 RERANK_TOP_N=20
 
+# Embedding Gateway（可选）
+# 使用 contextatlas gateway:embeddings 启动本地 OpenAI-compatible 网关。
+# EMBEDDING_GATEWAY_HOST=127.0.0.1
+# EMBEDDING_GATEWAY_PORT=8787
+# EMBEDDING_GATEWAY_TIMEOUT_MS=30000
+# EMBEDDING_GATEWAY_FAILOVER_COOLDOWN_MS=30000
+# EMBEDDING_GATEWAY_CACHE_TTL_MS=60000
+# EMBEDDING_GATEWAY_CACHE_MAX_ENTRIES=500
+# EMBEDDING_GATEWAY_CACHE_BACKEND=memory
+# EMBEDDING_GATEWAY_REDIS_URL=redis://127.0.0.1:6379/0
+# EMBEDDING_GATEWAY_REDIS_KEY_PREFIX=contextatlas:gateway:embeddings:
+# EMBEDDING_GATEWAY_COALESCE_IDENTICAL_REQUESTS=true
+# EMBEDDING_GATEWAY_API_KEYS=local-gateway-token
+# EMBEDDING_GATEWAY_UPSTREAMS=[{"name":"primary","baseUrl":"https://provider-a.example.com/v1/embeddings","apiKey":"provider-a-key","weight":2},{"name":"secondary","baseUrl":"https://provider-b.example.com/v1/embeddings","apiKey":"provider-b-key","weight":1}]
+
 # 索引忽略模式（可选，逗号分隔，默认已包含常见忽略项）
 # IGNORE_PATTERNS=.venv,node_modules
 `;

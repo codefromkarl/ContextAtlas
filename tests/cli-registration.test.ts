@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { registerBootstrapCommands } from '../src/cli/commands/bootstrap.js';
+import { registerGatewayCommands } from '../src/cli/commands/gateway.js';
 import { registerHubCommands } from '../src/cli/commands/hub.js';
 import { registerHubExploreCommands } from '../src/cli/commands/hubExplore.js';
 import { registerHubProjectCommands } from '../src/cli/commands/hubProjects.js';
@@ -58,6 +59,7 @@ test('registerCliCommands registers major command groups through a single entryp
   assert.ok(registered.includes('monitor:retrieval'));
   assert.ok(registered.includes('daemon <action>'));
   assert.ok(registered.includes('start [path]'));
+  assert.ok(registered.includes('gateway:embeddings'));
   assert.ok(registered.includes('memory:find <query>'));
   assert.ok(registered.includes('profile:record'));
   assert.ok(registered.includes('hub:search'));
@@ -78,6 +80,22 @@ test('registerBootstrapCommands registers startup-oriented commands', () => {
   const registered = Array.from(cli.commands.keys());
 
   assert.deepEqual(registered, ['init', 'start [path]', 'mcp']);
+});
+
+test('registerGatewayCommands registers gateway server command', () => {
+  const cli = new FakeCli();
+
+  registerGatewayCommands(cli as never);
+
+  const registered = Array.from(cli.commands.keys());
+  const gateway = cli.commands.get('gateway:embeddings');
+
+  assert.deepEqual(registered, ['gateway:embeddings']);
+  assert.ok(gateway?.options.includes('--port <port>'));
+  assert.ok(gateway?.options.includes('--cache-ttl-ms <ms>'));
+  assert.ok(gateway?.options.includes('--cache-backend <backend>'));
+  assert.ok(gateway?.options.includes('--redis-url <url>'));
+  assert.ok(gateway?.options.includes('--no-coalesce-identical-requests'));
 });
 
 test('registerIndexingCommands registers indexing lifecycle commands', () => {

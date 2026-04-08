@@ -29,6 +29,12 @@
   <img src="https://raw.githubusercontent.com/codefromkarl/ContextAtlas/main/docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
+## Updates
+
+- `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
+- `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
+- `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
+
 ## Contents
 
 - [Why ContextAtlas](#why-contextatlas)

@@ -29,6 +29,12 @@
   <img src="https://raw.githubusercontent.com/codefromkarl/ContextAtlas/main/docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
+## 更新记录
+
+- `2026-04-06`：收口默认主路径、记忆治理与运维观测，让首次接入、反馈闭环和健康检查更清晰。
+- `2026-04-07`：围绕索引链路完成轻量计划、快照复制优化、队列可观测、fallback 稳定性和性能基准建设。
+- `2026-04-08`：新增 embedding gateway、本地缓存与多上游切换能力，并补齐 Hugging Face 接入与 MCP 上下文生命周期工具。
+
 ## 目录
 
 - [为什么需要 ContextAtlas](#为什么需要-contextatlas)
@@ -210,12 +216,6 @@ RERANK_MODEL=
 ```
 
 > `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
-
-今日更新摘要：
-
-- 增加了 Hugging Face embedding gateway 适配能力
-- 补充了 gateway 的启动校验和相关文档说明
-- 完善了 MCP 上下文生命周期工具链与交接能力
 
 更多配置与部署细节见 [部署手册](./docs/DEPLOYMENT.md) 和 [CLI 文档](./docs/CLI.md)。
 

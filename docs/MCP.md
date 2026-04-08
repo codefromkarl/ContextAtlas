@@ -42,7 +42,7 @@ contextatlas mcp
 - `full`：默认，暴露全部 21 个工具
 - `retrieval-only`：仅暴露 7 个只读检索工具，适合把 ContextAtlas 当作纯 retrieval/memory reader 使用
 
-## 工具总览（21 个）
+## 工具总览（24 个）
 
 ### 代码检索
 
@@ -67,8 +67,11 @@ contextatlas mcp
 
 | 工具 | 用途 |
 |------|------|
-| `record_long_term_memory` | 记录用户偏好、协作规则、外部参考 |
-| `manage_long_term_memory` | 查找/列举/清理/删除长期记忆（action: find / list / prune / delete） |
+| `record_long_term_memory` | 记录用户偏好、协作规则、外部参考、evidence、temporal fact |
+| `manage_long_term_memory` | 查找/列举/清理/删除/失效长期记忆 |
+| `record_agent_diary` | 追加 agent diary 条目 |
+| `read_agent_diary` | 读取某个 agent 的最近 diary |
+| `find_agent_diary` | 按关键词搜索 diary |
 | `record_result_feedback` | 记录结果有帮助/没帮助/记忆过期/绑定错误等反馈 |
 
 ### 跨项目 Hub
@@ -99,15 +102,15 @@ contextatlas mcp
 
 `prepare_handoff`
 
-- 输入：`repo_path`、`checkpoint_id`
+- 输入：`repo_path`、`checkpoint_id`，可选 `agent_name` / `topic` / `diary_limit`
 - 输出重点：`handoffSummary`、`referencedBlockIds`、`unresolvedBlockIds`
-- 语义：在 checkpoint 自身的 task-state block 之外，会尽量补出可解析的模块摘要和已检视代码引用，便于下一位 agent 直接接手
+- 语义：在 checkpoint 自身的 task-state block 之外，会尽量补出可解析的模块摘要、supporting refs、已检视代码引用，以及按需带上的最近 diary，便于下一位 agent 直接接手
 
 `assemble_context`
 
-- 输入：`repo_path`，可选 `phase` / `profile` / `checkpoint_id` / `moduleName` / `query` / `filePaths`
-- 输出重点：`selectedContext.contextBlocks`、`references`、`assemblyProfile`
-- 语义：按阶段装配“最小可用上下文包”；`phase=research` 会映射到 `overview` profile，`profile` 当前仅支持 `overview/debug/implementation/verification/handoff`
+- 输入：`repo_path`，可选 `phase` / `profile` / `checkpoint_id` / `moduleName` / `query` / `filePaths` / `includeDiary` / `agentName` / `diaryTopic` / `diaryLimit`
+- 输出重点：`selectedContext.contextBlocks`、`references`、`assemblyProfile`、`wakeupLayers`
+- 语义：按阶段装配“最小可用上下文包”；`phase=research` 会映射到 `overview` profile，`profile` 当前仅支持 `overview/debug/implementation/verification/handoff`。输出会显式给出 L0-L3 wakeup layers，并在命中的 evidence / temporal fact / diary 存在时一并暴露
 
 `suggest_phase_boundary`
 

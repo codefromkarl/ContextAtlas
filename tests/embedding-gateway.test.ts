@@ -152,7 +152,7 @@ test('getEmbeddingGatewayConfig 从环境变量读取监听与上游配置', () 
       EMBEDDING_GATEWAY_FAILOVER_COOLDOWN_MS: '45000',
       EMBEDDING_GATEWAY_CACHE_TTL_MS: '15000',
       EMBEDDING_GATEWAY_CACHE_MAX_ENTRIES: '64',
-      EMBEDDING_GATEWAY_CACHE_BACKEND: 'redis',
+      EMBEDDING_GATEWAY_CACHE_BACKEND: 'hybrid',
       EMBEDDING_GATEWAY_REDIS_URL: 'redis://127.0.0.1:6379/2',
       EMBEDDING_GATEWAY_REDIS_KEY_PREFIX: 'ctx:test:',
       EMBEDDING_GATEWAY_COALESCE_IDENTICAL_REQUESTS: 'false',
@@ -178,7 +178,7 @@ test('getEmbeddingGatewayConfig 从环境变量读取监听与上游配置', () 
       assert.equal(config.failoverCooldownMs, 45000);
       assert.equal(config.cacheTtlMs, 15000);
       assert.equal(config.cacheMaxEntries, 64);
-      assert.equal(config.cacheBackend, 'redis');
+      assert.equal(config.cacheBackend, 'hybrid');
       assert.equal(config.redisUrl, 'redis://127.0.0.1:6379/2');
       assert.equal(config.redisKeyPrefix, 'ctx:test:');
       assert.equal(config.coalesceIdenticalRequests, false);
@@ -296,6 +296,143 @@ test('embedding gateway 轮询可用上游并在失败时切换', async (t) => {
   assert.equal((await second.json()).model, 'provider-b');
 
   assert.deepEqual(calls, ['a:text-embedding-3-large', 'a:text-embedding-3-large', 'b:text-embedding-3-large']);
+});
+
+test('embedding gateway healthz 暴露 provider 级成功率、失败率、延迟和冷却状态', async (t) => {
+  const upstreamA = await startUpstreamServer(async (_body, _req, res) => {
+    res.statusCode = 503;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ error: { message: 'provider-a unavailable' } }));
+  });
+  const upstreamB = await startUpstreamServer(async (_body, _req, res) => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json');
+    res.end(
+      JSON.stringify({
+        object: 'list',
+        data: [{ object: 'embedding', index: 0, embedding: [0, 1, 0] }],
+        model: 'provider-b',
+        usage: { prompt_tokens: 3, total_tokens: 3 },
+      }),
+    );
+  });
+
+  t.after(async () => {
+    await upstreamA.close();
+    await upstreamB.close();
+  });
+
+  const gateway = createEmbeddingGatewayServer({
+    host: '127.0.0.1',
+    port: 0,
+    timeoutMs: 3000,
+    failoverCooldownMs: 60_000,
+    apiKeys: [],
+    cacheTtlMs: 0,
+    cacheMaxEntries: 32,
+    cacheBackend: 'memory',
+    redisKeyPrefix: 'contextatlas:gateway:embeddings:',
+    upstreams: [
+      {
+        name: 'a',
+        baseUrl: upstreamA.baseUrl,
+        apiKey: 'key-a',
+        weight: 1,
+        models: [],
+        modelMap: {},
+        headers: {},
+        protocol: 'openai',
+      },
+      {
+        name: 'b',
+        baseUrl: upstreamB.baseUrl,
+        apiKey: 'key-b',
+        weight: 1,
+        models: [],
+        modelMap: {},
+        headers: {},
+        protocol: 'openai',
+      },
+    ],
+    validateUpstreams: false,
+    validateModels: [],
+    validateInput: 'dimension-probe',
+    coalesceIdenticalRequests: true,
+  });
+
+  const { port, close } = await gateway.listen();
+  t.after(async () => {
+    await close();
+  });
+
+  const response = await fetch(`http://127.0.0.1:${port}/v1/embeddings`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ model: 'text-embedding-3-large', input: 'alpha' }),
+  });
+  assert.equal(response.status, 200);
+
+  const healthz = await fetch(`http://127.0.0.1:${port}/healthz`);
+  assert.equal(healthz.status, 200);
+
+  const payload = (await healthz.json()) as {
+    providerSummary: {
+      totalRequests: number;
+      successes: number;
+      failures: number;
+      successRate: number;
+      failureRate: number;
+      cooldownActive: number;
+      available: number;
+      avgLatencyMs: number;
+    };
+    providers: Array<{
+      name: string;
+      available: boolean;
+      cooldownRemainingMs: number;
+      metrics: {
+        requests: number;
+        successes: number;
+        failures: number;
+        successRate: number;
+        failureRate: number;
+        avgLatencyMs: number;
+        cooldowns: number;
+        lastStatus?: number;
+      };
+    }>;
+  };
+
+  assert.equal(payload.providerSummary.totalRequests, 2);
+  assert.equal(payload.providerSummary.successes, 1);
+  assert.equal(payload.providerSummary.failures, 1);
+  assert.equal(payload.providerSummary.successRate, 0.5);
+  assert.equal(payload.providerSummary.failureRate, 0.5);
+  assert.equal(payload.providerSummary.cooldownActive, 1);
+  assert.equal(payload.providerSummary.available, 1);
+  assert.ok(payload.providerSummary.avgLatencyMs >= 0);
+
+  const providerA = payload.providers.find((item) => item.name === 'a');
+  const providerB = payload.providers.find((item) => item.name === 'b');
+
+  assert.ok(providerA);
+  assert.equal(providerA.available, false);
+  assert.ok(providerA.cooldownRemainingMs > 0);
+  assert.equal(providerA.metrics.requests, 1);
+  assert.equal(providerA.metrics.failures, 1);
+  assert.equal(providerA.metrics.failureRate, 1);
+  assert.equal(providerA.metrics.cooldowns, 1);
+  assert.equal(providerA.metrics.lastStatus, 503);
+
+  assert.ok(providerB);
+  assert.equal(providerB.available, true);
+  assert.equal(providerB.metrics.requests, 1);
+  assert.equal(providerB.metrics.successes, 1);
+  assert.equal(providerB.metrics.successRate, 1);
+  assert.ok(providerB.metrics.avgLatencyMs >= 0);
 });
 
 test('embedding gateway 对相同请求命中本地缓存，避免重复访问上游', async (t) => {

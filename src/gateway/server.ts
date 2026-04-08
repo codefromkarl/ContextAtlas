@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 import {
   buildEmbeddingGatewayCacheKey,
   EmbeddingGatewayCacheManager,
+  LayeredEmbeddingGatewayCacheStore,
   MemoryEmbeddingGatewayCacheStore,
   type EmbeddingGatewayCacheStore,
   type EmbeddingGatewayCachedResponse,
@@ -391,16 +392,28 @@ function createCacheManager(
   }
 
   const store =
-    config.cacheBackend === 'redis'
-      ? new RedisEmbeddingGatewayCacheStore({
-          ttlMs: config.cacheTtlMs,
-          keyPrefix: config.redisKeyPrefix,
-          url: config.redisUrl,
+    config.cacheBackend === 'hybrid'
+      ? new LayeredEmbeddingGatewayCacheStore({
+          l1: new MemoryEmbeddingGatewayCacheStore({
+            ttlMs: config.cacheTtlMs,
+            maxEntries: config.cacheMaxEntries,
+          }),
+          l2: new RedisEmbeddingGatewayCacheStore({
+            ttlMs: config.cacheTtlMs,
+            keyPrefix: config.redisKeyPrefix,
+            url: config.redisUrl,
+          }),
         })
-      : new MemoryEmbeddingGatewayCacheStore({
-          ttlMs: config.cacheTtlMs,
-          maxEntries: config.cacheMaxEntries,
-        });
+      : config.cacheBackend === 'redis'
+        ? new RedisEmbeddingGatewayCacheStore({
+            ttlMs: config.cacheTtlMs,
+            keyPrefix: config.redisKeyPrefix,
+            url: config.redisUrl,
+          })
+        : new MemoryEmbeddingGatewayCacheStore({
+            ttlMs: config.cacheTtlMs,
+            maxEntries: config.cacheMaxEntries,
+          });
 
   return new EmbeddingGatewayCacheManager(store);
 }
@@ -419,6 +432,7 @@ export function createEmbeddingGatewayServer(
       if (req.method === 'GET' && url.pathname === '/healthz') {
         json(res, 200, {
           ok: true,
+          providerSummary: pool.getSummary(),
           providers: pool.getSnapshots(),
           cache: cache.getStats(),
         });
@@ -496,19 +510,31 @@ export function createEmbeddingGatewayServer(
 
         let lastRetriableMessage = 'all upstreams failed';
         for (const provider of candidates) {
+          const startedAt = Date.now();
           try {
             const upstream = await forwardEmbeddingRequest({
               provider,
               requestBody: buildUpstreamRequestBody(provider, payload),
               timeoutMs: config.timeoutMs,
             });
+            const latencyMs = Date.now() - startedAt;
 
             if (upstream.ok) {
-              pool.markSuccess(provider.name);
+              pool.markSuccess(provider.name, {
+                latencyMs,
+                status: upstream.status,
+              });
               const response = normalizeUpstreamSuccessResponse(provider, payload, upstream);
               await cache.set(cacheKey, response);
               return response;
             }
+
+            pool.markFailure(provider.name, {
+              latencyMs,
+              status: upstream.status,
+              error: `upstream returned ${upstream.status}`,
+              cooldown: upstream.retriable,
+            });
 
             if (!upstream.retriable) {
               return {
@@ -518,7 +544,6 @@ export function createEmbeddingGatewayServer(
               };
             }
 
-            pool.markFailure(provider.name);
             lastRetriableMessage = `upstream ${provider.name} returned ${upstream.status}`;
             logger.warn(
               { provider: provider.name, status: upstream.status },
@@ -526,7 +551,11 @@ export function createEmbeddingGatewayServer(
             );
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            pool.markFailure(provider.name);
+            pool.markFailure(provider.name, {
+              latencyMs: Date.now() - startedAt,
+              error: message,
+              cooldown: true,
+            });
             lastRetriableMessage = `upstream ${provider.name} failed: ${message}`;
             logger.warn(
               { provider: provider.name, error: message },

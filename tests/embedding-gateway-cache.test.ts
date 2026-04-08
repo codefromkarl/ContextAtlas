@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   EmbeddingGatewayCacheManager,
+  LayeredEmbeddingGatewayCacheStore,
   MemoryEmbeddingGatewayCacheStore,
   type EmbeddingGatewayCachedResponse,
   type EmbeddingGatewayCacheStore,
@@ -52,6 +53,41 @@ class FakeAsyncStore implements EmbeddingGatewayCacheStore {
       kind: 'fake' as const,
       enabled: true,
       ttlMs: 1000,
+    };
+  }
+}
+
+class SpyStore implements EmbeddingGatewayCacheStore {
+  readonly values = new Map<string, EmbeddingGatewayCachedResponse>();
+  readonly getCalls: string[] = [];
+  readonly setCalls: Array<{ key: string; value: EmbeddingGatewayCachedResponse }> = [];
+
+  constructor(
+    private readonly stats: {
+      kind: string;
+      enabled: boolean;
+      ttlMs: number;
+      entries?: number;
+      maxEntries?: number;
+      connected?: boolean;
+      keyPrefix?: string;
+    },
+  ) {}
+
+  async get(key: string): Promise<EmbeddingGatewayCachedResponse | null> {
+    this.getCalls.push(key);
+    return this.values.get(key) ?? null;
+  }
+
+  async set(key: string, value: EmbeddingGatewayCachedResponse): Promise<void> {
+    this.setCalls.push({ key, value });
+    this.values.set(key, value);
+  }
+
+  getStats() {
+    return {
+      ...this.stats,
+      entries: this.values.size,
     };
   }
 }
@@ -151,4 +187,51 @@ test('MemoryEmbeddingGatewayCacheStore 维持 TTL 和最大条目限制', async 
   assert.equal(await store.get('a'), null);
   assert.deepEqual(await store.get('b'), { status: 200, body: 'b', contentType: 'text/plain' });
   assert.equal(store.getStats().entries, 1);
+});
+
+test('LayeredEmbeddingGatewayCacheStore 在 L2 命中后回填 L1，并同步写入双层缓存', async () => {
+  const l1 = new SpyStore({
+    kind: 'memory',
+    enabled: true,
+    ttlMs: 1000,
+    maxEntries: 16,
+  });
+  const l2 = new SpyStore({
+    kind: 'redis',
+    enabled: true,
+    ttlMs: 1000,
+    connected: true,
+    keyPrefix: 'ctx:test:',
+  });
+  const layered = new LayeredEmbeddingGatewayCacheStore({
+    l1,
+    l2,
+  });
+
+  const cachedValue: EmbeddingGatewayCachedResponse = {
+    status: 200,
+    body: '{"from":"redis"}',
+    contentType: 'application/json',
+  };
+  l2.values.set('warm-key', cachedValue);
+
+  assert.deepEqual(await layered.get('warm-key'), cachedValue);
+  assert.deepEqual(await l1.get('warm-key'), cachedValue);
+
+  const freshValue: EmbeddingGatewayCachedResponse = {
+    status: 200,
+    body: '{"from":"write"}',
+    contentType: 'application/json',
+  };
+  await layered.set('fresh-key', freshValue);
+
+  assert.deepEqual(l1.values.get('fresh-key'), freshValue);
+  assert.deepEqual(l2.values.get('fresh-key'), freshValue);
+
+  const stats = layered.getStats();
+  assert.equal(stats.kind, 'hybrid');
+  assert.equal(stats.enabled, true);
+  assert.equal(stats.layers?.length, 2);
+  assert.equal(stats.layers?.[0]?.kind, 'memory');
+  assert.equal(stats.layers?.[1]?.kind, 'redis');
 });

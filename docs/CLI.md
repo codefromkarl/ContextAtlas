@@ -120,6 +120,14 @@ contextatlas gateway:embeddings \
   --redis-url redis://127.0.0.1:6379/0 \
   --redis-key-prefix contextatlas:gateway:embeddings:
 
+# 使用 L1 memory + L2 Redis 两级缓存
+contextatlas gateway:embeddings \
+  --cache-backend hybrid \
+  --cache-ttl-ms 60000 \
+  --cache-max-entries 500 \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --redis-key-prefix contextatlas:gateway:embeddings:
+
 # 关闭并发相同请求合并
 contextatlas gateway:embeddings --no-coalesce-identical-requests
 ```
@@ -127,9 +135,9 @@ contextatlas gateway:embeddings --no-coalesce-identical-requests
 `contextatlas gateway:embeddings` 当前能力：
 
 - 提供 OpenAI-compatible 的 `POST /v1/embeddings`
-- 提供 `GET /healthz`，暴露上游 provider 与 cache 统计
+- 提供 `GET /healthz`，暴露 provider 汇总、provider 级成功/失败/延迟/冷却指标与 cache 面板
 - 支持多上游加权轮询、`429` / `5xx` / 网络异常自动 failover、provider cooldown
-- 支持内存缓存或 Redis 缓存
+- 支持内存缓存、Redis 缓存，以及 `hybrid` 两级缓存（L1 memory + L2 Redis）
 - 支持并发相同请求合并，避免重复打上游
 - 支持 OpenAI-compatible 上游，以及 Hugging Face `feature-extraction` 上游适配
 

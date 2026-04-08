@@ -124,25 +124,26 @@
 
 - [x] 验证产品对 repo 日常变化的处理稳定性
 - [x] 补管理者视角的可见性，回答“是否在用、哪里不准、哪里在坏”
-- [ ] 实现 `L1 memory + L2 Redis` 两级缓存
-- [ ] 增加 provider 级成功率、失败率、延迟和冷却指标
-- [ ] 在健康检查或工作台中暴露 provider 级状态
-- [ ] 补性能、命中率和可观测性验证
+- [x] 实现 `L1 memory + L2 Redis` 两级缓存
+- [x] 增加 provider 级成功率、失败率、延迟和冷却指标
+- [x] 在健康检查或工作台中暴露 provider 级状态
+- [x] 补性能、命中率和可观测性验证
 
 交付记录：
 
 - [Iteration 4 团队级验收报告（2026-04-08）](./ITERATION_4_TEAM_ACCEPTANCE_REPORT_2026_04_08.md)
+- [Iteration 5 Gateway 增强报告（2026-04-08）](./ITERATION_5_GATEWAY_ENHANCEMENT_REPORT_2026_04_08.md)
 
 交付物：
 
-- [ ] 稳定性验证记录
-- [ ] Gateway 两级缓存实现
-- [ ] Provider 级指标输出
+- [x] 稳定性验证记录
+- [x] Gateway 两级缓存实现
+- [x] Provider 级指标输出
 
 退出标准：
 
-- [ ] 日常 repo 变化不再频繁依赖人工全量重建
-- [ ] Gateway 后续增强具备基本观测和验证闭环
+- [x] 日常 repo 变化不再频繁依赖人工全量重建
+- [x] Gateway 后续增强具备基本观测和验证闭环
 
 ---
 

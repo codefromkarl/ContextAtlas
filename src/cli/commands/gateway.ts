@@ -13,7 +13,7 @@ export function registerGatewayCommands(cli: CommandRegistrar): void {
     .option('--failover-cooldown-ms <ms>', '上游失败后的摘除时间')
     .option('--cache-ttl-ms <ms>', '本地内存缓存 TTL，0 表示关闭')
     .option('--cache-max-entries <count>', '本地内存缓存最多保留多少条记录')
-    .option('--cache-backend <backend>', '缓存后端：memory 或 redis')
+    .option('--cache-backend <backend>', '缓存后端：memory、redis 或 hybrid')
     .option('--redis-url <url>', 'Redis 连接串，默认读取 EMBEDDING_GATEWAY_REDIS_URL')
     .option('--redis-key-prefix <prefix>', 'Redis key 前缀')
     .option('--no-coalesce-identical-requests', '关闭并发相同请求合并')
@@ -25,7 +25,7 @@ export function registerGatewayCommands(cli: CommandRegistrar): void {
         failoverCooldownMs?: string | number;
         cacheTtlMs?: string | number;
         cacheMaxEntries?: string | number;
-        cacheBackend?: 'memory' | 'redis';
+        cacheBackend?: 'memory' | 'redis' | 'hybrid';
         redisUrl?: string;
         redisKeyPrefix?: string;
         coalesceIdenticalRequests?: boolean;
@@ -62,7 +62,10 @@ export function registerGatewayCommands(cli: CommandRegistrar): void {
                 backend: config.cacheBackend,
                 ttlMs: config.cacheTtlMs,
                 maxEntries: config.cacheMaxEntries,
-                redisKeyPrefix: config.cacheBackend === 'redis' ? config.redisKeyPrefix : undefined,
+                redisKeyPrefix:
+                  config.cacheBackend === 'redis' || config.cacheBackend === 'hybrid'
+                    ? config.redisKeyPrefix
+                    : undefined,
                 coalescing: config.coalesceIdenticalRequests,
               },
               upstreams: config.upstreams.map((item) => ({

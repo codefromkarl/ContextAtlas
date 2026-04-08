@@ -1,4 +1,5 @@
 export type EmbeddingGatewayUpstreamProtocol = 'openai' | 'hf-feature-extraction';
+export type EmbeddingGatewayCacheBackend = 'memory' | 'redis' | 'hybrid';
 
 export interface EmbeddingGatewayUpstreamConfig {
   name: string;
@@ -18,7 +19,7 @@ export interface EmbeddingGatewayConfig {
   failoverCooldownMs: number;
   cacheTtlMs: number;
   cacheMaxEntries: number;
-  cacheBackend: 'memory' | 'redis';
+  cacheBackend: EmbeddingGatewayCacheBackend;
   redisUrl?: string;
   redisKeyPrefix: string;
   coalesceIdenticalRequests: boolean;
@@ -66,8 +67,15 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
-function parseCacheBackend(value: string | undefined): 'memory' | 'redis' {
-  return value?.trim().toLowerCase() === 'redis' ? 'redis' : 'memory';
+function parseCacheBackend(value: string | undefined): EmbeddingGatewayCacheBackend {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'redis') {
+    return 'redis';
+  }
+  if (normalized === 'hybrid' || normalized === 'memory+redis' || normalized === 'l1+l2') {
+    return 'hybrid';
+  }
+  return 'memory';
 }
 
 function parseCommaSeparated(value: string | undefined): string[] {
@@ -253,7 +261,7 @@ export function getEmbeddingGatewayConfig(
       ].filter(Boolean)),
     );
 
-  if (cacheBackend === 'redis' && (!redisUrl || redisUrl.trim().length === 0)) {
+  if ((cacheBackend === 'redis' || cacheBackend === 'hybrid') && (!redisUrl || redisUrl.trim().length === 0)) {
     throw new Error('EMBEDDING_GATEWAY_REDIS_URL 环境变量未设置');
   }
 

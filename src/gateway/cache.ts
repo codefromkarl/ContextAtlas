@@ -20,6 +20,7 @@ export interface EmbeddingGatewayCacheStoreStats {
   evictions?: number;
   connected?: boolean;
   keyPrefix?: string;
+  layers?: EmbeddingGatewayCacheStoreStats[];
 }
 
 export interface EmbeddingGatewayCacheStats {
@@ -196,6 +197,58 @@ export class EmbeddingGatewayCacheManager {
       coalesced: this.coalesced,
       inflight: this.inflight.size,
       store: this.store.getStats(),
+    };
+  }
+}
+
+export class LayeredEmbeddingGatewayCacheStore implements EmbeddingGatewayCacheStore {
+  private readonly l1: EmbeddingGatewayCacheStore;
+  private readonly l2: EmbeddingGatewayCacheStore;
+
+  constructor(input: { l1: EmbeddingGatewayCacheStore; l2: EmbeddingGatewayCacheStore }) {
+    this.l1 = input.l1;
+    this.l2 = input.l2;
+  }
+
+  async connect(): Promise<void> {
+    await this.l1.connect?.();
+    await this.l2.connect?.();
+  }
+
+  async close(): Promise<void> {
+    await this.l1.close?.();
+    await this.l2.close?.();
+  }
+
+  async get(key: string): Promise<EmbeddingGatewayCachedResponse | null> {
+    const local = await this.l1.get(key);
+    if (local) {
+      return local;
+    }
+
+    const remote = await this.l2.get(key);
+    if (!remote) {
+      return null;
+    }
+
+    await this.l1.set(key, remote);
+    return remote;
+  }
+
+  async set(key: string, value: EmbeddingGatewayCachedResponse): Promise<void> {
+    await this.l1.set(key, value);
+    await this.l2.set(key, value);
+  }
+
+  getStats(): EmbeddingGatewayCacheStoreStats {
+    const l1 = this.l1.getStats();
+    const l2 = this.l2.getStats();
+
+    return {
+      kind: 'hybrid',
+      enabled: l1.enabled || l2.enabled,
+      ttlMs: Math.max(l1.ttlMs, l2.ttlMs),
+      layers: [l1, l2],
     };
   }
 }

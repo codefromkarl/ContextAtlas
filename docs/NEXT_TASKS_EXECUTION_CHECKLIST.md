@@ -83,10 +83,25 @@
 
 ### 4. 冷启动降级验收
 
-- [ ] 验证索引未完成时会走 lexical / FTS 降级查询
-- [ ] 验证输出明确展示“索引中 / 可部分回答 / 完整模式未就绪”
-- [ ] 验证系统不会因冷启动直接卡死
-- [ ] 补一条长期可回归的 cold-start smoke 用例
+- [x] 验证索引未完成时会走 lexical / FTS 降级查询
+- [x] 验证输出明确展示“索引中 / 可部分回答 / 完整模式未就绪”
+- [x] 验证系统不会因冷启动直接卡死
+- [x] 补一条长期可回归的 cold-start smoke 用例
+
+验收记录：
+
+- 主路径实现证据：
+  - `src/mcp/tools/codebaseRetrieval.ts` 已显式输出 `索引缺失，当前返回词法降级结果`
+  - `src/mcp/tools/codebaseRetrieval.ts` 已显式输出 `完整模式未就绪`
+  - `src/workflow/start.ts` 已显式区分 full hybrid / partial lexical / first indexing 三种模式
+- 测试证据：
+  - `tests/codebase-retrieval.test.ts`
+    - `handleCodebaseRetrieval returns lexical fallback when project is not indexed`
+    - `handleCodebaseRetrieval enqueues indexing and still returns lexical fallback`
+  - `tests/release-smoke.test.ts`
+    - `cold-start-search`
+- 路线图状态证据：
+  - `docs/ROADMAP_CHECKLIST.md` 中 `P0 冷启动体验` 相关条目已完成
 
 ### 5. 产品身份统一验收
 

@@ -156,7 +156,7 @@ test('session_end can extract long-term memory candidates and auto-record them',
     const summary = [
       '提交代码前必须运行 lint，因为之前多次把格式问题带进主分支。',
       '生产环境 Grafana 仪表盘在 https://grafana.example.com/d/abc123 。',
-      '用户模块迁移截止日期是 2026-04-07，目前完成了查询部分，接下来做变更部分。',
+      '用户模块迁移截止日期是 2099-04-07，目前完成了查询部分，接下来做变更部分。',
     ].join(' ');
 
     const response = await handleSessionEnd({
@@ -217,13 +217,13 @@ test('session_end autoRecord adds provenance/confidence and supersedes prior pro
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
 
     await handleSessionEnd({
-      summary: '用户模块迁移截止日期是 2026-04-07，目前完成了查询部分，接下来做变更部分。',
+      summary: '用户模块迁移截止日期是 2099-04-07，目前完成了查询部分，接下来做变更部分。',
       project: projectRoot,
       autoRecord: true,
     });
 
     await handleSessionEnd({
-      summary: '用户模块迁移截止日期是 2026-04-08，目前完成了变更部分，接下来做回归验证。',
+      summary: '用户模块迁移截止日期是 2099-04-08，目前完成了变更部分，接下来做回归验证。',
       project: projectRoot,
       autoRecord: true,
     });

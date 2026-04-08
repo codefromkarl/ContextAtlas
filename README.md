@@ -211,21 +211,11 @@ RERANK_MODEL=
 
 > `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
 
-Embedding provider 选择建议：
+今日更新摘要：
 
-- 默认推荐 `SiliconFlow + BAAI/bge-m3`，接入成本最低，和当前默认配置一致
-- 如果要接 `Hugging Face Inference`，建议通过本地 `gateway:embeddings` 统一适配到 OpenAI-compatible `/v1/embeddings`
-- 在需要系统代理访问外网的环境里，启动 gateway 时请加上 `NODE_USE_ENV_PROXY=1`
-
-Hugging Face `bge-m3` 的 gateway 上游示例：
-
-```bash
-EMBEDDING_GATEWAY_UPSTREAMS='[
-  {"name":"hf-bge-m3","baseUrl":"https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction","apiKey":"hf_your_token_here","weight":1,"models":["BAAI/bge-m3"],"protocol":"hf-feature-extraction"}
-]'
-
-NODE_USE_ENV_PROXY=1 contextatlas gateway:embeddings --port 8787
-```
+- 增加了 Hugging Face embedding gateway 适配能力
+- 补充了 gateway 的启动校验和相关文档说明
+- 完善了 MCP 上下文生命周期工具链与交接能力
 
 更多配置与部署细节见 [部署手册](./docs/DEPLOYMENT.md) 和 [CLI 文档](./docs/CLI.md)。
 

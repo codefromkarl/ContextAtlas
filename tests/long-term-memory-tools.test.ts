@@ -595,6 +595,8 @@ test('record_long_term_memory merges duplicate entries and preserves provenance'
     );
     const secondPayload = JSON.parse(second.content[0].text);
     assert.equal(secondPayload.write_action, 'merged');
+    assert.ok(Array.isArray(secondPayload.duplicateHints));
+    assert.ok(secondPayload.duplicateHints.length > 0);
 
     const listResponse = await handleManageLongTermMemory(
       {
@@ -688,6 +690,30 @@ test('manage_long_term_memory can invalidate an active temporal fact by factKey'
     assert.equal(recordedPayload.memory.type, 'temporal-fact');
     assert.equal(recordedPayload.memory.status, undefined);
     assert.equal(recordedPayload.memory.factKey, 'migration:user-module');
+    assert.deepEqual(recordedPayload.duplicateHints, []);
+
+    const repeated = await handleRecordLongTermMemory(
+      {
+        type: 'temporal-fact',
+        title: 'User module migration status',
+        summary: 'User module migration is still blocked on data backfill.',
+        tags: ['migration'],
+        scope: 'project',
+        source: 'agent-inferred',
+        confidence: 0.7,
+        validFrom: '2026-04-08',
+        format: 'json',
+        factKey: 'migration:user-module',
+      },
+      projectRoot,
+    );
+    const repeatedPayload = JSON.parse(repeated.content[0].text);
+    assert.equal(repeatedPayload.write_action, 'merged');
+    assert.ok(
+      repeatedPayload.duplicateHints.some((hint: { reason: string }) =>
+        hint.reason.includes('factKey'),
+      ),
+    );
 
     const invalidated = await handleManageLongTermMemory(
       {

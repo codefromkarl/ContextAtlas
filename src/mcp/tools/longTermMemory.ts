@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MemoryWriteAdvisor } from '../../memory/MemoryWriteAdvisor.js';
 import { MemoryStore } from '../../memory/MemoryStore.js';
 import type { ResolvedLongTermMemoryItem } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
@@ -88,6 +89,7 @@ export async function handleRecordLongTermMemory(
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const store = new MemoryStore(projectRoot);
+  const advisor = new MemoryWriteAdvisor();
   const profile = await store.readProfile();
   const resolvedScope = args.scope || profile?.governance?.personalMemory || 'project';
 
@@ -95,6 +97,16 @@ export async function handleRecordLongTermMemory(
     { type: args.type, scope: resolvedScope, title: args.title },
     'MCP record_long_term_memory 调用开始',
   );
+
+  const duplicateHints = await advisor.suggestLongTermMemoryHints(store, {
+    type: args.type,
+    title: args.title,
+    summary: args.summary,
+    scope: resolvedScope,
+    factKey: args.factKey,
+    links: args.links,
+    tags: args.tags,
+  });
 
   const { memory, action } = await store.appendLongTermMemoryItem({
     type: args.type,
@@ -120,17 +132,26 @@ export async function handleRecordLongTermMemory(
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ tool: 'record_long_term_memory', write_action: action, memory }, null, 2),
+          text: JSON.stringify(
+            { tool: 'record_long_term_memory', write_action: action, memory, duplicateHints },
+            null,
+            2,
+          ),
         },
       ],
     };
   }
 
+  const diagnosticsSection = advisor.formatDiagnosticsSection(
+    duplicateHints,
+    'No potential duplicates found.',
+  );
+
   return {
     content: [
       {
         type: 'text',
-        text: `## Long-term Memory Recorded\n\n- **ID**: ${memory.id}\n- **Type**: ${memory.type}\n- **Scope**: ${memory.scope}\n- **Title**: ${memory.title}\n- **Summary**: ${memory.summary}`,
+        text: `## Long-term Memory Recorded\n\n- **ID**: ${memory.id}\n- **Type**: ${memory.type}\n- **Scope**: ${memory.scope}\n- **Title**: ${memory.title}\n- **Summary**: ${memory.summary}\n\n${diagnosticsSection}`,
       },
     ],
   };

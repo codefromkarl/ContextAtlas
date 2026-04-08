@@ -1,4 +1,4 @@
-import { splitCommaSeparated } from '../helpers.js';
+import { joinToolText, splitCommaSeparated, writeText } from '../helpers.js';
 import type { CommandRegistrar } from '../types.js';
 import { logger } from '../../utils/logger.js';
 
@@ -49,38 +49,29 @@ export function registerMemoryFeatureCommands(cli: CommandRegistrar): void {
       '确认状态：suggested | agent-inferred | human-confirmed',
     )
     .action(async (name: string, options: Record<string, string | undefined>) => {
-      const { MemoryStore } = await import('../../memory/MemoryStore.js');
-      const store = new MemoryStore(process.cwd());
-      const confirmationStatus: 'suggested' | 'agent-inferred' | 'human-confirmed' =
-        options['confirmation-status'] === 'suggested'
-        || options['confirmation-status'] === 'agent-inferred'
-        || options['confirmation-status'] === 'human-confirmed'
-          ? options['confirmation-status']
-          : 'human-confirmed';
-
-      const memory = {
-        name,
-        responsibility: options.desc || '',
-        location: {
+      const { handleRecordMemory } = await import('../../mcp/tools/projectMemory.js');
+      const response = await handleRecordMemory(
+        {
+          name,
+          responsibility: options.desc || '',
           dir: options.dir || 'src/',
           files: splitCommaSeparated(options.files),
-        },
-        api: {
           exports: splitCommaSeparated(options.exports),
-          endpoints: [],
-        },
-        dependencies: {
           imports: splitCommaSeparated(options.imports),
           external: splitCommaSeparated(options.external),
+          dataFlow: options.dataFlow || options['data-flow'] || '',
+          keyPatterns: splitCommaSeparated(options.patterns),
+          confirmationStatus:
+            options['confirmation-status'] === 'suggested'
+            || options['confirmation-status'] === 'agent-inferred'
+            || options['confirmation-status'] === 'human-confirmed'
+              ? options['confirmation-status']
+              : 'human-confirmed',
         },
-        dataFlow: options.dataFlow || options['data-flow'] || '',
-        keyPatterns: splitCommaSeparated(options.patterns),
-        lastUpdated: new Date().toISOString(),
-        confirmationStatus,
-      };
+        process.cwd(),
+      );
 
-      const filePath = await store.saveFeature(memory);
-      logger.info(`功能记忆已保存到：${filePath}`);
+      writeText(joinToolText(response));
     });
 
   cli.command('memory:list', '列出所有功能记忆').action(async () => {

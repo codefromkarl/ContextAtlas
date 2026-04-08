@@ -283,6 +283,44 @@ test('record_memory surfaces similar module merge hints', async () => {
   });
 });
 
+test('record_decision surfaces unified write diagnostics for similar decisions', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await handleRecordDecision(
+      {
+        id: '2026-04-siliconflow-embeddings',
+        title: 'Prefer direct SiliconFlow embeddings',
+        context: 'Use direct SiliconFlow for faster indexing',
+        decision: 'Default the embedding client to direct SiliconFlow',
+        alternatives: [],
+        rationale: 'It is measurably faster than the local gateway in this setup',
+        consequences: ['Simpler runtime path'],
+        reviewer: 'infra-lead',
+      },
+      projectRoot,
+    );
+
+    const response = await handleRecordDecision(
+      {
+        id: '2026-04-siliconflow-embeddings-dup',
+        title: 'Prefer direct SiliconFlow embeddings',
+        context: 'Use direct SiliconFlow for faster indexing',
+        decision: 'Default the embedding client to direct SiliconFlow',
+        alternatives: [],
+        rationale: 'It is measurably faster than the local gateway in this setup',
+        consequences: ['Simpler runtime path'],
+        reviewer: 'infra-lead',
+      },
+      projectRoot,
+    );
+
+    assert.match(response.content[0].text, /Write Diagnostics/);
+    assert.match(response.content[0].text, /Potential Duplicates/);
+    assert.match(response.content[0].text, /Prefer direct SiliconFlow embeddings/);
+  });
+});
+
 test('record_result_feedback stores retrieval feedback as long-term memory', async () => {
   await withTempProject(async (projectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
@@ -339,6 +377,58 @@ test('record_decision persists reviewer metadata', async () => {
     const store = new MemoryStore(projectRoot);
     const decision = await store.readDecision('2026-04-reviewer');
     assert.equal(decision?.reviewer, 'ops-lead');
+  });
+});
+
+test('record_memory persists evidenceRefs when provided', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await handleRecordMemory(
+      {
+        name: 'SearchService',
+        responsibility: 'orchestrates retrieval and packing',
+        dir: 'src/search',
+        files: ['SearchService.ts'],
+        exports: ['SearchService'],
+        endpoints: [],
+        imports: ['GraphExpander'],
+        external: [],
+        dataFlow: 'query -> rank -> pack',
+        keyPatterns: ['search'],
+        evidenceRefs: ['evidence:incident-123', 'evidence:profile-note'],
+      } as any,
+      projectRoot,
+    );
+
+    const store = new MemoryStore(projectRoot);
+    const memory = await store.readFeature('SearchService');
+    assert.deepEqual(memory?.evidenceRefs, ['evidence:incident-123', 'evidence:profile-note']);
+  });
+});
+
+test('record_decision persists evidenceRefs when provided', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await handleRecordDecision(
+      {
+        id: '2026-04-evidence-backed-decision',
+        title: 'Prefer direct embeddings',
+        context: 'Gateway path proved slower during indexing.',
+        decision: 'Use direct SiliconFlow for default indexing path.',
+        alternatives: [],
+        rationale: 'Observed lower latency and fewer upstream failures.',
+        consequences: ['Gateway becomes failover instead of default'],
+        reviewer: 'infra-lead',
+        evidenceRefs: ['evidence:bench-2026-04-08', 'evidence:incident-123'],
+      } as any,
+      projectRoot,
+    );
+
+    const store = new MemoryStore(projectRoot);
+    const decision = await store.readDecision('2026-04-evidence-backed-decision');
+    assert.deepEqual(decision?.evidenceRefs, ['evidence:bench-2026-04-08', 'evidence:incident-123']);
   });
 });
 
@@ -533,7 +623,8 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
       unresolvedQuestions: ['How to persist handoff state?'],
       nextSteps: ['Inspect MemoryStore'],
       format: 'json',
-    });
+      supportingRefs: ['evidence:bench-2026-04-08'],
+    } as any);
 
     const created = JSON.parse(createResponse.content[0].text);
     assert.equal(created.tool, 'create_checkpoint');
@@ -550,6 +641,7 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
     assert.equal(created.resumeBundle.resumeFromCheckpointId, created.checkpoint.id);
     assert.equal(created.summary.activeBlockCount, 1);
     assert.equal(created.summary.nextStepCount, 1);
+    assert.deepEqual(created.checkpoint.supportingRefs, ['evidence:bench-2026-04-08']);
 
     const loadResponse = await handleLoadCheckpoint({
       repo_path: projectRoot,
@@ -564,6 +656,7 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
     assert.equal(loaded.handoff.checkpointId, created.checkpoint.id);
     assert.equal(loaded.handoffBundle.kind, 'handoff-bundle');
     assert.equal(loaded.resumeBundle.kind, 'resume-bundle');
+    assert.deepEqual(loaded.checkpoint.supportingRefs, ['evidence:bench-2026-04-08']);
 
     const listResponse = await handleListCheckpoints({
       repo_path: projectRoot,

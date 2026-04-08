@@ -48,11 +48,11 @@
 
 ### Phase 5 - 写入治理与冲突提示
 
-- [ ] 为 feature memory / decision 维持重复提示
-- [ ] 为长期记忆新增写入前诊断与冲突提示
-- [ ] 对 `temporal-fact` 做 `factKey` 冲突诊断
-- [ ] 对 `evidence` / `journal` / `feedback` 做重复提示
-- [ ] 补充写入治理测试
+- [x] 为 feature memory / decision 维持重复提示
+- [x] 为长期记忆新增写入前诊断与冲突提示
+- [x] 对 `temporal-fact` 做 `factKey` 冲突诊断
+- [x] 对 `evidence` / `journal` / `feedback` 做重复提示
+- [x] 补充写入治理测试
 
 ### Phase 6 - 文档、验证与收尾
 
@@ -67,5 +67,5 @@
 - Phase 2: done
 - Phase 3: done
 - Phase 4: done
-- Phase 5: pending
+- Phase 5: done
 - Phase 6: pending

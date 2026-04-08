@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { MemoryFinder } from '../../memory/MemoryFinder.js';
 import { MemoryRouter } from '../../memory/MemoryRouter.js';
 import { MemoryStore } from '../../memory/MemoryStore.js';
+import { MemoryWriteAdvisor } from '../../memory/MemoryWriteAdvisor.js';
 import type {
   DecisionRecord,
   FeatureMemory,
@@ -62,6 +63,7 @@ export const recordMemorySchema = z.object({
     .describe('Review status for memory governance'),
   reviewReason: z.string().optional().describe('Why the memory needs review'),
   reviewMarkedAt: z.string().optional().describe('When the memory was marked for review'),
+  evidenceRefs: z.array(z.string()).optional().default([]).describe('Supporting evidence references'),
 });
 
 export const recordDecisionSchema = z.object({
@@ -83,6 +85,7 @@ export const recordDecisionSchema = z.object({
     .describe('Considered alternatives'),
   rationale: z.string().describe('Rationale for the decision'),
   consequences: z.array(z.string()).optional().default([]).describe('Consequences'),
+  evidenceRefs: z.array(z.string()).optional().default([]).describe('Supporting evidence references'),
 });
 
 export const getProjectProfileSchema = z.object({
@@ -243,11 +246,13 @@ export async function handleRecordMemory(
     reviewStatus,
     reviewReason,
     reviewMarkedAt,
+    evidenceRefs,
   } = args;
 
   logger.info({ name, dir }, 'MCP record_memory 调用开始');
 
   const store = new MemoryStore(projectRoot);
+  const advisor = new MemoryWriteAdvisor();
 
   const memory: FeatureMemory = {
     name,
@@ -271,26 +276,22 @@ export async function handleRecordMemory(
     reviewStatus,
     reviewReason,
     reviewMarkedAt,
+    evidenceRefs,
   };
 
-  const duplicateHints = await findPotentialDuplicateMemories(store, memory);
+  const duplicateHints = await advisor.suggestFeatureMemoryHints(store, memory);
 
   const filePath = await store.saveFeature(memory);
-  const duplicateSection =
-    duplicateHints.length > 0
-      ? `\n\n### Potential Duplicates\n${duplicateHints
-          .map(
-            (hint) =>
-              `- **${hint.name}** (score=${hint.score.toFixed(2)}): ${hint.reason}`,
-          )
-          .join('\n')}\n\n建议先人工确认是否应合并、复用或改名，避免记忆污染。`
-      : '';
+  const diagnosticsSection = advisor.formatDiagnosticsSection(
+    duplicateHints,
+    'No potential duplicates found.',
+  );
 
   return {
     content: [
       {
         type: 'text',
-        text: `## Feature Memory Recorded\n\n- **Name**: ${name}\n- **Location**: ${dir}\n- **Responsibility**: ${responsibility}\n- **Confirmation Status**: ${confirmationStatus}\n- **Review Status**: ${reviewStatus}${reviewReason ? ` (${reviewReason})` : ''}\n- **Saved to**: ${filePath}${duplicateSection}`,
+        text: `## Feature Memory Recorded\n\n- **Name**: ${name}\n- **Location**: ${dir}\n- **Responsibility**: ${responsibility}\n- **Confirmation Status**: ${confirmationStatus}\n- **Review Status**: ${reviewStatus}${reviewReason ? ` (${reviewReason})` : ''}\n- **Saved to**: ${filePath}\n\n${diagnosticsSection}`,
       },
     ],
   };
@@ -303,11 +304,12 @@ export async function handleRecordDecision(
   args: RecordDecisionInput,
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const { id, title, context, decision, reviewer, alternatives, rationale, consequences } = args;
+  const { id, title, context, decision, reviewer, alternatives, rationale, consequences, evidenceRefs } = args;
 
   logger.info({ id, title }, 'MCP record_decision 调用开始');
 
   const store = new MemoryStore(projectRoot);
+  const advisor = new MemoryWriteAdvisor();
 
   const decisionRecord: DecisionRecord = {
     id,
@@ -319,16 +321,22 @@ export async function handleRecordDecision(
     alternatives: alternatives || [],
     rationale,
     consequences: consequences || [],
+    evidenceRefs,
     status: 'accepted',
   };
 
+  const duplicateHints = await advisor.suggestDecisionHints(store, decisionRecord);
   const filePath = await store.saveDecision(decisionRecord);
+  const diagnosticsSection = advisor.formatDiagnosticsSection(
+    duplicateHints,
+    'No potential duplicates found.',
+  );
 
   return {
     content: [
       {
         type: 'text',
-        text: `## Decision Recorded\n\n- **ID**: ${id}\n- **Title**: ${title}\n- **Reviewer**: ${reviewer || 'N/A'}\n- **Decision**: ${decision}\n- **Saved to**: ${filePath}`,
+        text: `## Decision Recorded\n\n- **ID**: ${id}\n- **Title**: ${title}\n- **Reviewer**: ${reviewer || 'N/A'}\n- **Decision**: ${decision}\n- **Saved to**: ${filePath}\n\n${diagnosticsSection}`,
       },
     ],
   };
@@ -668,58 +676,4 @@ ${profile.structure.keyModules.map((m) => `- **${m.name}**: ${m.path} - ${m.desc
 ---
 Last Updated: ${new Date(profile.lastUpdated).toLocaleString()}
 `;
-}
-
-async function findPotentialDuplicateMemories(
-  store: MemoryStore,
-  memory: FeatureMemory,
-): Promise<Array<{ name: string; score: number; reason: string }>> {
-  const existing = await store.listFeatures();
-  const currentTerms = buildMemorySimilarityTerms(memory);
-
-  return existing
-    .filter((item) => item.name !== memory.name)
-    .map((item) => {
-      const otherTerms = buildMemorySimilarityTerms(item);
-      const overlap = [...currentTerms].filter((term) => otherTerms.has(term));
-      const sameDir = item.location.dir === memory.location.dir;
-      const sameResponsibility =
-        item.responsibility.trim().toLowerCase() === memory.responsibility.trim().toLowerCase();
-      const score =
-        overlap.length / Math.max(1, Math.min(currentTerms.size, otherTerms.size))
-        + (sameDir ? 0.25 : 0)
-        + (sameResponsibility ? 0.35 : 0);
-
-      return {
-        name: item.name,
-        score,
-        reason: sameResponsibility
-          ? '职责描述高度接近'
-          : sameDir
-            ? `同目录且关键词重叠: ${overlap.slice(0, 4).join(', ')}`
-            : `关键词重叠: ${overlap.slice(0, 4).join(', ')}`,
-      };
-    })
-    .filter((item) => item.score >= 0.45)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-}
-
-function buildMemorySimilarityTerms(memory: FeatureMemory): Set<string> {
-  const tokens = [
-    memory.name,
-    memory.responsibility,
-    memory.location.dir,
-    ...memory.location.files,
-    ...memory.api.exports,
-    ...memory.dependencies.imports,
-    ...memory.keyPatterns,
-  ]
-    .join(' ')
-    .toLowerCase()
-    .split(/[\s,./\\|[\]{}()"':;!?<>`~@#$%^&*+=-]+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
-
-  return new Set(tokens);
 }

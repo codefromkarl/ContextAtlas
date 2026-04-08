@@ -152,6 +152,22 @@ contextatlas mcp
 }
 ```
 
+### 记录架构决策
+
+```json
+{
+  "id": "2026-04-02-memory-routing",
+  "title": "引入渐进式记忆路由",
+  "context": "需要控制代理加载的上下文大小",
+  "decision": "使用 catalog -> global -> feature 三层加载",
+  "owner": "search-owner",
+  "reviewer": "ops-lead",
+  "rationale": "先路由再按需加载，减少 token 开销",
+  "alternatives": [],
+  "consequences": ["决策记录需要可追责的 owner/reviewer 元数据"]
+}
+```
+
 ### 管理长期记忆
 
 ```json

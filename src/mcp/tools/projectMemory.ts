@@ -71,7 +71,8 @@ export const recordDecisionSchema = z.object({
   title: z.string().describe('Decision title'),
   context: z.string().describe('Background context'),
   decision: z.string().describe('The decision made'),
-  reviewer: z.string().optional().describe('Optional reviewer / owner for the decision'),
+  owner: z.string().optional().describe('Optional owner / maintainer for the decision'),
+  reviewer: z.string().optional().describe('Optional reviewer for the decision'),
   alternatives: z
     .array(
       z.object({
@@ -304,7 +305,7 @@ export async function handleRecordDecision(
   args: RecordDecisionInput,
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const { id, title, context, decision, reviewer, alternatives, rationale, consequences, evidenceRefs } = args;
+  const { id, title, context, decision, owner, reviewer, alternatives, rationale, consequences, evidenceRefs } = args;
 
   logger.info({ id, title }, 'MCP record_decision 调用开始');
 
@@ -314,6 +315,7 @@ export async function handleRecordDecision(
   const decisionRecord: DecisionRecord = {
     id,
     date: new Date().toISOString().split('T')[0],
+    owner,
     reviewer,
     title,
     context,
@@ -336,7 +338,7 @@ export async function handleRecordDecision(
     content: [
       {
         type: 'text',
-        text: `## Decision Recorded\n\n- **ID**: ${id}\n- **Title**: ${title}\n- **Reviewer**: ${reviewer || 'N/A'}\n- **Decision**: ${decision}\n- **Saved to**: ${filePath}\n\n${diagnosticsSection}`,
+        text: `## Decision Recorded\n\n- **ID**: ${id}\n- **Title**: ${title}\n- **Owner**: ${owner || 'N/A'}\n- **Reviewer**: ${reviewer || 'N/A'}\n- **Decision**: ${decision}\n- **Saved to**: ${filePath}\n\n${diagnosticsSection}`,
       },
     ],
   };

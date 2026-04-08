@@ -380,6 +380,30 @@ test('record_decision persists reviewer metadata', async () => {
   });
 });
 
+test('record_decision persists owner metadata', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await handleRecordDecision(
+      {
+        id: '2026-04-owner',
+        title: 'Decision with owner',
+        context: 'Need owner metadata',
+        decision: 'Store owner in decision context payload',
+        alternatives: [],
+        rationale: 'P2 governance needs ownership',
+        consequences: ['Owner visible in listings'],
+        owner: 'infra-maintainer',
+      } as any,
+      projectRoot,
+    );
+
+    const store = new MemoryStore(projectRoot);
+    const decision = await store.readDecision('2026-04-owner');
+    assert.equal(decision?.owner, 'infra-maintainer');
+  });
+});
+
 test('record_memory persists evidenceRefs when provided', async () => {
   await withTempProject(async (projectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
@@ -432,7 +456,7 @@ test('record_decision persists evidenceRefs when provided', async () => {
   });
 });
 
-test('decision:list supports reviewer filter and json output', async () => {
+test('decision:list supports reviewer and owner filter with json output', async () => {
   await withTempProject(async (projectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
 
@@ -445,6 +469,7 @@ test('decision:list supports reviewer filter and json output', async () => {
         alternatives: [],
         rationale: 'r',
         consequences: [],
+        owner: 'team-a',
         reviewer: 'ops-lead',
       },
       projectRoot,
@@ -459,6 +484,7 @@ test('decision:list supports reviewer filter and json output', async () => {
         alternatives: [],
         rationale: 'r',
         consequences: [],
+        owner: 'team-b',
         reviewer: 'search-lead',
       },
       projectRoot,
@@ -495,7 +521,37 @@ test('decision:list supports reviewer filter and json output', async () => {
       const payload = JSON.parse(result.stdout);
       assert.equal(payload.result_count, 1);
       assert.equal(payload.decisions[0].reviewer, 'ops-lead');
+      assert.equal(payload.decisions[0].owner, 'team-a');
       assert.equal(payload.decisions[0].id, '2026-04-reviewer-a');
+
+      const ownerResult = spawnSync(
+        'node',
+        [
+          '--import',
+          'tsx',
+          'src/index.ts',
+          'decision:list',
+          '--repo',
+          projectRoot,
+          '--owner',
+          'team-b',
+          '--json',
+        ],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            CONTEXTATLAS_BASE_DIR: path.dirname(dbPath),
+          },
+        },
+      );
+
+      assert.equal(ownerResult.status, 0, ownerResult.stderr);
+      const ownerPayload = JSON.parse(ownerResult.stdout);
+      assert.equal(ownerPayload.result_count, 1);
+      assert.equal(ownerPayload.decisions[0].owner, 'team-b');
+      assert.equal(ownerPayload.decisions[0].id, '2026-04-reviewer-b');
     } finally {
       if (previousBaseDir === undefined) {
         delete process.env.CONTEXTATLAS_BASE_DIR;

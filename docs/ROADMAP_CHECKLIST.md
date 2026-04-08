@@ -169,10 +169,15 @@
 
 ### P2 shared / personal memory 分层
 
-- [ ] shared memory 与 personal memory 分层
-- [ ] 组织级只读 project profile
-- [ ] 决策记录 reviewer / owner 约束
-- [ ] 跨项目 Hub 的权限边界与来源边界
+- [x] shared memory 与 personal memory 分层
+- [x] 组织级只读 project profile
+- [x] 决策记录 reviewer / owner 约束
+- [x] 跨项目 Hub 的权限边界与来源边界
+
+验收记录：
+
+- [Iteration 2 记忆治理边界设计（2026-04-08）](./ITERATION_2_MEMORY_GOVERNANCE_DESIGN_2026_04_08.md)
+- [Iteration 3 治理能力实现记录（2026-04-08）](./ITERATION_3_GOVERNANCE_IMPLEMENTATION_2026_04_08.md)
 
 ### P2 验收标准
 

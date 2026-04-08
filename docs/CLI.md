@@ -178,20 +178,29 @@ contextatlas feedback:record \
 ```bash
 contextatlas decision:record "2026-04-02-memory-routing" \
   --title "引入渐进式记忆路由" \
+  --owner "search-owner" \
   --reviewer "ops-lead" \
   --context "需要控制代理加载的上下文大小" \
   --decision "使用 catalog -> global -> feature 三层加载" \
   --rationale "先路由再按需加载，减少 token 开销"
 
 contextatlas decision:list
+contextatlas decision:list --owner "search-owner"
+contextatlas decision:list --reviewer "ops-lead"
 contextatlas profile:record --name "ContextAtlas" --desc "AI 检索基础设施" --readonly
-contextatlas profile:show
-contextatlas profile:show --json
+contextatlas profile:show --repo /path/to/repo
+contextatlas profile:show --repo /path/to/repo --json
 contextatlas profile:import-omc
 contextatlas profile:import-omc --force
 ```
 
 当 `profile.governance.personalMemory` 被设置后，`memory:record-long-term` 和对应 MCP 写入入口在未显式传 `scope` 时会默认继承该作用域。
+
+`profile:show` 当前会额外外显：
+
+- `source`
+- `writableState`
+- `profile/shared/personal` 三个治理开关
 
 ## 跨项目 Hub
 

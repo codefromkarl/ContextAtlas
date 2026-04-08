@@ -16,7 +16,7 @@
 本轮设计结论如下：
 
 1. 当前仓库已经具备一部分治理底座，不应从零重做。
-2. `profile governance + shared hub policy + reviewer metadata` 已经落地，但仍属于“能力已存在、团队边界未完全产品化”的状态。
+2. `profile governance + shared hub policy + reviewer/owner metadata` 已经落地，但仍属于“能力已存在、团队边界未完全产品化”的状态。
 3. `Iteration 3` 的重点不再是发明新模型，而是把现有模型补成统一的读写权限、可信状态和来源展示规则。
 
 ---
@@ -35,7 +35,10 @@
 - `handleRecordLongTermMemory()` 在未显式提供 `scope` 时，会继承 `profile.governance.personalMemory`。
 - `SharedMemoryHub.contribute()` 会检查项目 `sharedMemory` 策略，只有 `editable` 允许贡献共享记忆。
 - `SharedMemoryHub.syncToProject()` 会在目标项目 `sharedMemory=disabled` 时拒绝同步。
-- `DecisionRecord` 已有 `reviewer` 字段，CLI / MCP / SQLite 持久化 / list filter 都已接通。
+- `DecisionRecord` 已有 `owner` 与 `reviewer` 字段，CLI / MCP / SQLite 持久化 / list filter 都已接通。
+- retrieval / handoff 主路径已经能展示：
+  - feature memory 的 `memoryType`、`sourceProjectId`
+  - decision 的 `owner`、`reviewer`、`reviewed / owner-owned / unowned`
 
 对应代码与测试依据：
 
@@ -44,6 +47,8 @@
 - [SharedMemoryHub.ts](/home/yuanzhi/Develop/tools/ContextAtlas/src/memory/SharedMemoryHub.ts#L60)
 - [profile.ts](/home/yuanzhi/Develop/tools/ContextAtlas/src/cli/commands/profile.ts#L18)
 - [memoryKnowledge.ts](/home/yuanzhi/Develop/tools/ContextAtlas/src/cli/commands/memoryKnowledge.ts#L315)
+- [codebaseRetrieval.ts](/home/yuanzhi/Develop/tools/ContextAtlas/src/mcp/tools/codebaseRetrieval.ts#L1495)
+- [prepareHandoff.ts](/home/yuanzhi/Develop/tools/ContextAtlas/src/mcp/tools/prepareHandoff.ts#L133)
 - [profile-governance.test.ts](/home/yuanzhi/Develop/tools/ContextAtlas/tests/profile-governance.test.ts#L32)
 - [mcp-memory-tools.test.ts](/home/yuanzhi/Develop/tools/ContextAtlas/tests/mcp-memory-tools.test.ts#L359)
 
@@ -52,9 +57,10 @@
 当前仍未正式收口的点主要有：
 
 - `shared memory` 与 `personal memory` 的对象边界还不够明确，尤其是“哪些类型允许 personal，哪些允许 shared”没有统一规则。
-- `owner` 尚未进入 `DecisionRecord`，当前只有 `reviewer`，责任归属与审核归属混在一起。
-- CLI / MCP 主路径虽然已有部分治理字段，但没有稳定外显“来源、可写性、可信状态、共享来源边界”。
-- Cross-project Hub 目前有同步能力，但“谁可以贡献、谁可以消费、消费后如何标注来源”仍偏隐式。
+- profile 的治理状态目前主要在 `profile:show` 暴露，尚未成为 retrieval / assemble / handoff 的稳定背景信息。
+- CLI / MCP 主路径虽然已有部分治理字段，但还没有统一外显“可写性、共享来源、作用域层级、消费边界”。
+- Cross-project Hub 目前有贡献、同步和搜索能力，但“谁可以贡献、谁可以消费、消费后如何保留 provenance、消费结果如何在检索主路径稳定展示”仍偏隐式。
+- `shared memory` 的“共享基底 + 本地 override”规则尚未正式产品化。
 
 ---
 
@@ -200,17 +206,11 @@
 
 ### 1. 当前判断
 
-当前 `reviewer` 已存在，但语义同时承担了：
+`owner` 与 `reviewer` 当前都已经存在，底层持久化和 CLI/MCP 写入也已接通。
 
-- 审核人
-- 责任人
-- 团队背书人
-
-这三个语义不应继续混用。
+因此，这一部分不再是“字段设计缺失”，而是“治理语义定稿和主路径展示收口”问题。
 
 ### 2. 定稿方案
-
-为 `DecisionRecord` 拆成两类字段：
 
 - `owner`
   - 负责维护该决策的人
@@ -232,11 +232,10 @@
 
 最小改造建议：
 
-- `types.ts` 给 `DecisionRecord` 增加 `owner?: string`
-- `DecisionStore` 持久化与映射加入 `owner`
-- CLI / MCP `decision:record` 与 `record_decision` 接入 `owner`
-- `decision:list` 支持按 `owner` / `reviewer` 过滤
-- retrieval / assemble / handoff 结果块展示 `owner` 与 `reviewer`
+- 将 `owner / reviewer / governanceState` 解释稳定写入主路径文档
+- 保证 `decision:list`、retrieval、handoff、assemble 对治理状态解释一致
+- 明确哪些决策可以被视为 reviewed，哪些只能视为 owner-owned
+- 为后续团队视图补 reviewer/owner 维度聚合预留一致口径
 
 ---
 
@@ -275,6 +274,11 @@ shared memory 同步后应保留这些元信息：
 - 但必须保留原 shared reference
 - 检索展示时应明确“shared base + local override”
 
+补充说明：
+
+- 当前 `hub:search` / `hub:fts` / `hub:deps` 偏向数据层查询入口，还没有把 governance/provenance 当作一等输出字段。
+- Iteration 3 的目标不应只是“能搜到 shared memory”，而应是“能看清 shared memory 从哪里来、当前项目能不能改、它是否只是共享基底”。
+
 ---
 
 ## 八、CLI / MCP 主路径外显要求
@@ -286,6 +290,7 @@ Iteration 3 需要把以下治理信息稳定外显到主路径：
 - `profileMode`
 - `sharedMemory`
 - `personalMemory`
+- 这些治理信息来自哪个 profile 来源
 
 ### 2. decision
 
@@ -298,6 +303,7 @@ Iteration 3 需要把以下治理信息稳定外显到主路径：
 - `memoryType`
 - `sourceProjectId` 或 shared source
 - 是否可写 / 是否来自共享
+- 是否存在 local override
 
 ### 4. long-term memory
 
@@ -332,16 +338,16 @@ Iteration 3 实现时，优先影响以下位置：
 
 建议按下面顺序进入 `Iteration 3`：
 
-1. 补 `DecisionRecord.owner`
-2. 统一 CLI / MCP 写入与列表过滤
-3. 在 retrieval / assemble / handoff 中外显 governance 状态
-4. 补 shared provenance 展示
-5. 补个人 / 项目作用域展示与测试
+1. 统一 profile/shared/personal 的展示口径
+2. 在 retrieval / assemble / handoff 中稳定外显 governance 状态
+3. 补 shared provenance 与 local override 展示
+4. 补个人 / 项目作用域展示与测试
+5. 再补团队视角的 owner / reviewer 聚合或过滤增强
 
 原因：
 
-- `owner` 是目前最明确的结构缺口。
-- 主路径展示要建立在底层字段统一后，否则会重复改两遍。
+- `owner` 已经存在，当前瓶颈已经从“字段缺失”变成“语义和展示不统一”。
+- 主路径展示要建立在统一口径后，否则会重复改两遍。
 - shared provenance 一旦进入展示层，shared/personal/project 三层关系会更清晰。
 
 ---

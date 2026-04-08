@@ -79,6 +79,8 @@ function buildFeatureMemoryContextBlock(memory: FeatureMemory): ContextBlock {
       `Location: ${memory.location.dir}`,
       `Files: ${memory.location.files.length > 0 ? memory.location.files.join(', ') : 'N/A'}`,
       `Exports: ${memory.api.exports.length > 0 ? memory.api.exports.join(', ') : 'N/A'}`,
+      `Memory Type: ${memory.memoryType || 'local'}`,
+      `Source Project: ${memory.sourceProjectId || 'current-project'}`,
       `Data Flow: ${memory.dataFlow || 'N/A'}`,
       `Key Patterns: ${memory.keyPatterns.length > 0 ? memory.keyPatterns.join(', ') : 'N/A'}`,
     ].join('\n'),
@@ -128,12 +130,24 @@ function buildLongTermMemoryContextBlock(memory: ResolvedLongTermMemoryItem): Co
 }
 
 function buildDecisionContextBlock(decision: DecisionRecord): ContextBlock {
+  const governanceState = decision.owner
+    ? decision.reviewer
+      ? 'reviewed'
+      : 'owner-owned'
+    : 'unowned';
   return {
     id: `decision:${decision.id}`,
     type: 'decision-context',
     title: decision.title,
     purpose: 'Preserve architectural decisions referenced by the checkpoint',
-    content: [decision.context, decision.decision, `Rationale: ${decision.rationale}`].join('\n'),
+    content: [
+      decision.context,
+      decision.decision,
+      `Owner: ${decision.owner || 'N/A'}`,
+      `Reviewer: ${decision.reviewer || 'N/A'}`,
+      `Governance: ${governanceState}`,
+      `Rationale: ${decision.rationale}`,
+    ].join('\n'),
     priority: 'medium',
     pinned: false,
     expandable: true,

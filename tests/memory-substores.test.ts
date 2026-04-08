@@ -160,7 +160,7 @@ test('LongTermMemoryService can merge project and global-user memories and prune
   });
 });
 
-test('DecisionStore can save, read, and list decisions with reviewer metadata', async () => {
+test('DecisionStore can save, read, and list decisions with reviewer and owner metadata', async () => {
   await withTempHub(async ({ projectId, hub }) => {
     const store = new DecisionStore({
       hub,
@@ -170,6 +170,7 @@ test('DecisionStore can save, read, and list decisions with reviewer metadata', 
     const savedTo = await store.save({
       id: '2026-04-split-memory-store',
       date: '2026-04-07',
+      owner: 'memory-maintainer',
       reviewer: 'search-lead',
       title: 'Extract DecisionStore',
       context: 'MemoryStore still owns decision CRUD and JSON mapping logic',
@@ -188,6 +189,7 @@ test('DecisionStore can save, read, and list decisions with reviewer metadata', 
     assert.match(savedTo, /decision=2026-04-split-memory-store/);
 
     const loaded = await store.read('2026-04-split-memory-store');
+    assert.equal(loaded?.owner, 'memory-maintainer');
     assert.equal(loaded?.reviewer, 'search-lead');
     assert.equal(loaded?.alternatives[0]?.name, 'keep in MemoryStore');
 

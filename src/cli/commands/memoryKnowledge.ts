@@ -312,7 +312,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
   cli
     .command('decision:record <id>', '记录架构决策')
     .option('--title <title>', '决策标题')
-    .option('--reviewer <reviewer>', '审核人 / 责任人')
+    .option('--owner <owner>', '责任人')
+    .option('--reviewer <reviewer>', '审核人')
     .option('--context <context>', '背景上下文')
     .option('--decision <decision>', '决策内容')
     .option('--rationale <rationale>', '决策理由')
@@ -330,6 +331,7 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
           consequences: options.consequences
             ? splitCommaSeparated(options.consequences)
             : [],
+          owner: options.owner || undefined,
           reviewer: options.reviewer || undefined,
         },
         process.cwd(),
@@ -341,15 +343,22 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
   cli
     .command('decision:list', '列出所有架构决策')
     .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--owner <owner>', '按 owner 过滤')
     .option('--reviewer <reviewer>', '按 reviewer 过滤')
     .option('--json', '以 JSON 输出结果')
-    .action(async (options: { repo?: string; reviewer?: string; json?: boolean }) => {
+    .action(async (options: { repo?: string; owner?: string; reviewer?: string; json?: boolean }) => {
       const { MemoryStore } = await import('../../memory/MemoryStore.js');
       const store = new MemoryStore(options.repo ? path.resolve(options.repo) : process.cwd());
       const decisions = await store.listDecisions();
-      const filtered = options.reviewer
-        ? decisions.filter((decision) => decision.reviewer === options.reviewer)
-        : decisions;
+      const filtered = decisions.filter((decision) => {
+        if (options.owner && decision.owner !== options.owner) {
+          return false;
+        }
+        if (options.reviewer && decision.reviewer !== options.reviewer) {
+          return false;
+        }
+        return true;
+      });
 
       if (options.json) {
         writeJson({
@@ -367,6 +376,9 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       logger.info(`共 ${filtered.length} 个架构决策:`);
       for (const d of filtered) {
         logger.info(`  - [${d.date}] ${d.title}`);
+        if (d.owner) {
+          logger.info(`    责任人：${d.owner}`);
+        }
         if (d.reviewer) {
           logger.info(`    审核人：${d.reviewer}`);
         }

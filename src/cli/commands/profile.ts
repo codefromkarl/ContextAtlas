@@ -104,10 +104,12 @@ export function registerProfileCommands(cli: CommandRegistrar): void {
 
   cli
     .command('profile:show', '显示项目档案')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
     .option('--json', '以 JSON 输出')
-    .action(async (options: { json?: boolean }) => {
+    .action(async (options: { repo?: string; json?: boolean }) => {
       const { MemoryStore } = await import('../../memory/MemoryStore.js');
-      const store = new MemoryStore(process.cwd());
+      const repoRoot = options.repo ? path.resolve(options.repo) : process.cwd();
+      const store = new MemoryStore(repoRoot);
       const profile = await store.readProfile();
 
       if (!profile) {
@@ -115,14 +117,23 @@ export function registerProfileCommands(cli: CommandRegistrar): void {
         return;
       }
 
+      const writableState =
+        profile.governance?.profileMode === 'organization-readonly' ? 'readonly' : 'editable';
+
       if (options.json) {
-        writeJson(profile);
+        writeJson({
+          ...profile,
+          source: 'project profile',
+          writableState,
+        });
         return;
       }
 
       logger.info(`项目：${profile.name}`);
       logger.info(`描述：${profile.description}`);
       logger.info(`技术栈：${profile.techStack.language.join(', ')}`);
+      logger.info('来源：project profile');
+      logger.info(`可写状态：${writableState}`);
       logger.info(
         `治理：profile=${profile.governance?.profileMode || 'editable'}, shared=${profile.governance?.sharedMemory || 'readonly'}, personal=${profile.governance?.personalMemory || 'global-user'}`,
       );

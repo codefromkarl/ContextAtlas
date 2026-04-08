@@ -469,3 +469,75 @@ test('shared:list and shared:sync CLI expose shared memory inventory and sync fl
     }
   });
 });
+
+test('profile:show CLI exposes governance source and writable status', async () => {
+  await withTempProject(async (projectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+
+    await store.saveProfile({
+      name: 'ContextAtlas',
+      description: '测试项目',
+      techStack: {
+        language: ['TypeScript'],
+        frameworks: [],
+        databases: ['SQLite'],
+        tools: ['pnpm'],
+      },
+      structure: {
+        srcDir: 'src',
+        mainEntry: 'src/index.ts',
+        keyModules: [],
+      },
+      conventions: {
+        namingConventions: [],
+        codeStyle: [],
+        gitWorkflow: 'trunk',
+      },
+      commands: {
+        build: ['pnpm build'],
+        test: ['pnpm test'],
+        dev: ['pnpm dev'],
+        start: ['pnpm start'],
+      },
+      governance: {
+        profileMode: 'organization-readonly',
+        sharedMemory: 'readonly',
+        personalMemory: 'global-user',
+      },
+      lastUpdated: new Date().toISOString(),
+    });
+
+    const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+    process.env.CONTEXTATLAS_BASE_DIR = path.dirname(dbPath);
+
+    try {
+      const result = spawnSync(
+        'node',
+        ['--import', 'tsx', 'src/index.ts', 'profile:show', '--repo', projectRoot, '--json'],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            CONTEXTATLAS_BASE_DIR: path.dirname(dbPath),
+          },
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      const payload = JSON.parse(result.stdout);
+      assert.equal(payload.source, 'project profile');
+      assert.equal(payload.writableState, 'readonly');
+      assert.equal(payload.governance.profileMode, 'organization-readonly');
+      assert.equal(payload.governance.sharedMemory, 'readonly');
+      assert.equal(payload.governance.personalMemory, 'global-user');
+    } finally {
+      if (previousBaseDir === undefined) {
+        delete process.env.CONTEXTATLAS_BASE_DIR;
+      } else {
+        process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+      }
+    }
+  });
+});

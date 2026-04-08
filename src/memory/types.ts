@@ -88,6 +88,8 @@ export interface DecisionRecord {
   id: string;
   /** 记录日期 */
   date: string;
+  /** 责任人 */
+  owner?: string;
   /** 审核人 / 责任人 */
   reviewer?: string;
   /** 决策标题 */

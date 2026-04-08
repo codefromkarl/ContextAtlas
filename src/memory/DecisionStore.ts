@@ -22,6 +22,7 @@ export class DecisionStore {
       consequences: decision.consequences,
       evidenceRefs: decision.evidenceRefs,
       date: decision.date,
+      owner: decision.owner,
       reviewer: decision.reviewer,
     });
 
@@ -63,6 +64,7 @@ export class DecisionStore {
     return {
       id: String(row.decision_id ?? fallbackId),
       date: String(contextPayload.date ?? row.created_at ?? new Date().toISOString().split('T')[0]),
+      owner: typeof contextPayload.owner === 'string' ? contextPayload.owner : undefined,
       reviewer: typeof contextPayload.reviewer === 'string' ? contextPayload.reviewer : undefined,
       title: String(row.title ?? ''),
       context: String(contextPayload.context ?? ''),

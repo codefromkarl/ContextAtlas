@@ -94,23 +94,27 @@
 
 工作项：
 
-- [ ] 实现 `shared memory` 与 `personal memory` 分层
-- [ ] 实现组织级只读 `project profile`
-- [ ] 为 `decision record` 增加 `reviewer` / `owner` 约束
-- [ ] 为 Cross-project Hub 增加权限边界和来源边界
-- [ ] 在 CLI / MCP 输出中补来源、可信度或可写状态信息
-- [ ] 补充污染防护、权限边界和来源展示测试
+- [x] 实现 `shared memory` 与 `personal memory` 分层
+- [x] 实现组织级只读 `project profile`
+- [x] 为 `decision record` 增加 `reviewer` / `owner` 约束
+- [x] 为 Cross-project Hub 增加权限边界和来源边界
+- [x] 在 CLI / MCP 输出中补来源、可信度或可写状态信息
+- [x] 补充污染防护、权限边界和来源展示测试
 
 交付物：
 
-- [ ] 可运行实现
-- [ ] 回归测试
-- [ ] 更新后的文档和命令示例
+- [x] 可运行实现
+- [x] 回归测试
+- [x] 更新后的文档和命令示例
+
+交付记录：
+
+- [Iteration 3 治理能力实现记录（2026-04-08）](./ITERATION_3_GOVERNANCE_IMPLEMENTATION_2026_04_08.md)
 
 退出标准：
 
-- [ ] 团队共享 memory 不再是“默认全可见全可写”的隐含模型
-- [ ] 决策记录、profile、跨项目引用都能看出来源和治理状态
+- [x] 团队共享 memory 不再是“默认全可见全可写”的隐含模型
+- [x] 决策记录、profile、跨项目引用都能看出来源和治理状态
 
 ### Iteration 4：稳定性与 Gateway 后置增强周
 

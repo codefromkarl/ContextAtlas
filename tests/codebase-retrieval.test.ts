@@ -225,10 +225,14 @@ test('handleCodebaseRetrieval formats default result card with memory and decisi
     dataFlow: 'query -> recall -> rerank -> expand -> pack',
     keyPatterns: ['search', 'rerank', 'context pack'],
     lastUpdated: new Date('2026-04-05T10:00:00Z').toISOString(),
+    memoryType: 'shared',
+    sourceProjectId: 'shared-search-patterns',
   });
   await store.saveDecision({
     id: '2026-04-default-result-card',
     date: '2026-04-05',
+    owner: 'search-owner',
+    reviewer: 'ops-lead',
     title: '默认检索结果卡片',
     context: '需要把代码、记忆和解释统一成稳定阅读结构',
     decision: '统一输出代码命中、模块记忆、决策记录和命中原因四个区域',
@@ -353,9 +357,13 @@ test('handleCodebaseRetrieval formats default result card with memory and decisi
     assert.match(text, /### 代码命中 \(Source: Code\)/);
     assert.match(text, /### 相关模块记忆 \(Source: Feature Memory\)/);
     assert.match(text, /SearchService/);
+    assert.match(text, /类型: shared/);
+    assert.match(text, /来源项目: [a-z0-9]+/);
     assert.match(text, /反馈信号: 近期存在 memory-stale 反馈/);
     assert.match(text, /### 相关决策记录 \(Source: Decision Record\)/);
     assert.match(text, /默认检索结果卡片/);
+    assert.match(text, /Owner: search-owner/);
+    assert.match(text, /Reviewer: ops-lead/);
     assert.match(text, /### 相关长期记忆 \(Source: Long-term Memory\)/);
     assert.match(text, /检索结果可信化/);
     assert.match(text, /### 近期反馈信号 \(Source: Feedback Loop\)/);

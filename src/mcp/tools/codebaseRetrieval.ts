@@ -1361,7 +1361,7 @@ function buildNextActions({
 
   const decisionSeed = decisionMatches[0]?.decision.id || '<id>';
   actions.push(
-    `\`contextatlas decision:record ${decisionSeed} --title "<标题>" --reviewer "<审核人>" --context "<背景>" --decision "<决策>" --rationale "<原因>"\``,
+    `\`contextatlas decision:record ${decisionSeed} --title "<标题>" --owner "<责任人>" --reviewer "<审核人>" --context "<背景>" --decision "<决策>" --rationale "<原因>"\``,
   );
   actions.push(
     '`contextatlas memory:record-long-term --type reference --title "<标题>" --summary "<摘要>"`',
@@ -1480,6 +1480,8 @@ function formatFeatureMemoryMatches(matches: ResultCardFeatureMemoryMatch[]): st
 - 职责: ${memory.responsibility}
 - 位置: ${memory.location.dir}/${memory.location.files.join(', ')}
 - 导出: ${memory.api.exports.join(', ') || 'N/A'}
+- 类型: ${memory.memoryType || 'local'}
+- 来源项目: ${memory.sourceProjectId || 'current-project'}
 - 确认状态: ${memory.confirmationStatus || 'human-confirmed'}
 - 复核状态: ${freshness.reviewStatus}${freshness.reviewReason ? ` (${freshness.reviewReason})` : ''}
 - 状态: ${freshness.status.join(', ')}
@@ -1499,12 +1501,23 @@ function formatDecisionMatches(matches: ResultCardDecisionMatch[]): string {
 
   return matches
     .map(
-      ({ decision, reasons, fallback }) =>
+      ({ decision, reasons, fallback }) => {
+        const governanceState = decision.owner
+          ? decision.reviewer
+            ? 'reviewed'
+            : 'owner-owned'
+          : 'unowned';
+        return (
         `#### ${decision.title}
 - 状态: ${decision.status}
+- Owner: ${decision.owner || 'N/A'}
+- Reviewer: ${decision.reviewer || 'N/A'}
+- 治理状态: ${governanceState}
 - 决策: ${decision.decision}
 - 理由: ${decision.rationale || 'N/A'}
-- 命中原因: ${reasons.join('；')}${fallback ? '（fallback）' : ''}`,
+- 命中原因: ${reasons.join('；')}${fallback ? '（fallback）' : ''}`
+        );
+      },
     )
     .join('\n\n');
 }
@@ -1583,7 +1596,11 @@ function buildContextBlocks(pack: ContextPack, resultCard: RetrievalResultCard):
       type: 'module-summary',
       title: match.memory.name,
       purpose: 'Summarize stable module responsibilities and interfaces',
-      content: match.memory.responsibility,
+      content: [
+        match.memory.responsibility,
+        `Memory Type: ${match.memory.memoryType || 'local'}`,
+        `Source Project: ${match.memory.sourceProjectId || 'current-project'}`,
+      ].join('\n'),
       priority: 'high',
       pinned: true,
       expandable: true,
@@ -1598,12 +1615,22 @@ function buildContextBlocks(pack: ContextPack, resultCard: RetrievalResultCard):
   }
 
   for (const match of resultCard.decisions) {
+    const governanceState = match.decision.owner
+      ? match.decision.reviewer
+        ? 'reviewed'
+        : 'owner-owned'
+      : 'unowned';
     blocks.push({
       id: `decision:${match.decision.id}`,
       type: 'decision-context',
       title: match.decision.title,
       purpose: 'Capture relevant architecture and product decisions',
-      content: match.decision.decision,
+      content: [
+        match.decision.decision,
+        `Owner: ${match.decision.owner || 'N/A'}`,
+        `Reviewer: ${match.decision.reviewer || 'N/A'}`,
+        `Governance: ${governanceState}`,
+      ].join('\n'),
       priority: 'medium',
       pinned: false,
       expandable: true,

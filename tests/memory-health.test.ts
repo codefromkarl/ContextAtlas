@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { analyzeMemoryHealth } from '../src/monitoring/memoryHealth.ts';
 import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
 import { MemoryStore } from '../src/memory/MemoryStore.ts';
 
@@ -70,6 +69,7 @@ test('analyzeMemoryHealth keeps project long-term counts isolated and aggregates
     await seedProject(repoA, 'repo A state');
     await seedProject(repoB, 'repo B state');
 
+    const { analyzeMemoryHealth } = await import('../src/monitoring/memoryHealth.ts');
     const report = await analyzeMemoryHealth({
       projectRoots: [repoA, repoB],
       staleDays: 30,

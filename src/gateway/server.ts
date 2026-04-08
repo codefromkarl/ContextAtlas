@@ -69,9 +69,115 @@ function resolveUpstreamModel(provider: EmbeddingGatewayProvider, requestedModel
   return provider.modelMap[requestedModel] || provider.modelMap.default || requestedModel;
 }
 
+function selectCompatibleProviders(
+  providers: EmbeddingGatewayProvider[],
+  logicalModel: string,
+): EmbeddingGatewayProvider[] {
+  return providers.filter((provider) => provider.models.length === 0 || provider.models.includes(logicalModel));
+}
+
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'number' && Number.isFinite(item));
+}
+
+function normalizeHfFeatureExtractionEmbeddings(
+  input: string | string[],
+  body: string,
+): number[][] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`feature-extraction 响应不是合法 JSON: ${message}`);
+  }
+
+  if (isNumberArray(parsed)) {
+    if (typeof input === 'string' || input.length === 1) {
+      return [parsed];
+    }
+    throw new Error('feature-extraction 返回单个向量，但请求包含多条输入');
+  }
+
+  if (!Array.isArray(parsed) || !parsed.every(isNumberArray)) {
+    throw new Error('feature-extraction 响应格式无效，期望 number[] 或 number[][]');
+  }
+
+  if (typeof input === 'string') {
+    if (parsed.length === 1) {
+      return [parsed[0]];
+    }
+    throw new Error('feature-extraction 返回多条向量，但请求仅包含单条输入');
+  }
+
+  if (parsed.length !== input.length) {
+    throw new Error(
+      `feature-extraction 返回向量数 ${parsed.length} 与输入数 ${input.length} 不一致`,
+    );
+  }
+
+  return parsed;
+}
+
+function buildOpenAiEmbeddingResponse(input: string | string[], model: string, embeddings: number[][]): string {
+  return JSON.stringify({
+    object: 'list',
+    data: embeddings.map((embedding, index) => ({
+      object: 'embedding',
+      index,
+      embedding,
+    })),
+    model,
+    usage: {
+      prompt_tokens: 0,
+      total_tokens: 0,
+    },
+  });
+}
+
+function buildUpstreamRequestBody(
+  provider: EmbeddingGatewayProvider,
+  requestBody: GatewayRequestBody,
+): Record<string, unknown> {
+  if (provider.protocol === 'hf-feature-extraction') {
+    return {
+      inputs: requestBody.input,
+    };
+  }
+
+  return {
+    ...requestBody,
+    model: resolveUpstreamModel(provider, requestBody.model),
+  };
+}
+
+function normalizeUpstreamSuccessResponse(
+  provider: EmbeddingGatewayProvider,
+  requestBody: GatewayRequestBody,
+  upstream: UpstreamResult,
+): EmbeddingGatewayCachedResponse {
+  if (provider.protocol === 'hf-feature-extraction') {
+    return {
+      status: upstream.status,
+      contentType: 'application/json',
+      body: buildOpenAiEmbeddingResponse(
+        requestBody.input,
+        requestBody.model,
+        normalizeHfFeatureExtractionEmbeddings(requestBody.input, upstream.body),
+      ),
+    };
+  }
+
+  return {
+    status: upstream.status,
+    contentType: upstream.contentType,
+    body: upstream.body,
+  };
+}
+
 async function forwardEmbeddingRequest(input: {
   provider: EmbeddingGatewayProvider;
-  requestBody: GatewayRequestBody;
+  requestBody: Record<string, unknown>;
   timeoutMs: number;
 }): Promise<UpstreamResult> {
   const controller = new AbortController();
@@ -112,6 +218,155 @@ function sendResponse(
     res.setHeader('x-contextatlas-cache', cacheStatus);
   }
   res.end(response.body);
+}
+
+function extractEmbeddingDimensions(
+  provider: EmbeddingGatewayProvider,
+  requestBody: GatewayRequestBody,
+  body: string,
+): number {
+  if (provider.protocol === 'hf-feature-extraction') {
+    const embeddings = normalizeHfFeatureExtractionEmbeddings(requestBody.input, body);
+    if (embeddings.length === 0) {
+      throw new Error('probe 响应缺少 embedding 向量');
+    }
+    return embeddings[0].length;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`probe 响应不是合法 JSON: ${message}`);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('probe 响应格式无效');
+  }
+
+  const data = (parsed as { data?: unknown }).data;
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error('probe 响应缺少 data[0]');
+  }
+
+  const embedding = (data[0] as { embedding?: unknown }).embedding;
+  if (!Array.isArray(embedding)) {
+    throw new Error('probe 响应缺少 embedding 向量');
+  }
+
+  return embedding.length;
+}
+
+function resolveValidationModels(config: EmbeddingGatewayConfig): string[] {
+  if (config.validateModels.length > 0) {
+    return config.validateModels;
+  }
+
+  return Array.from(
+    new Set([
+      ...(process.env.EMBEDDINGS_MODEL ? [process.env.EMBEDDINGS_MODEL.trim()] : []),
+      ...config.upstreams.flatMap((item) => item.models),
+      ...config.upstreams.flatMap((item) =>
+        Object.keys(item.modelMap).filter((key) => key !== 'default' && key.trim().length > 0),
+      ),
+    ].filter(Boolean)),
+  );
+}
+
+function resolveExpectedDimensions(config: EmbeddingGatewayConfig): number | undefined {
+  if (config.expectedDimensions !== undefined) {
+    return config.expectedDimensions;
+  }
+
+  const parsed = Number.parseInt(process.env.EMBEDDINGS_DIMENSIONS || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+async function validateGatewayUpstreams(config: EmbeddingGatewayConfig): Promise<void> {
+  if (!config.validateUpstreams) {
+    return;
+  }
+
+  const validationModels = resolveValidationModels(config);
+  const expectedDimensions = resolveExpectedDimensions(config);
+
+  if (validationModels.length === 0) {
+    logger.warn('Embedding gateway 启动校验已跳过：未发现可探测的逻辑模型');
+    return;
+  }
+
+  const providers = config.upstreams.map((provider) => ({
+    ...provider,
+    disabledUntil: 0,
+  }));
+
+  for (const logicalModel of validationModels) {
+    const compatible = selectCompatibleProviders(providers, logicalModel);
+    if (compatible.length === 0) {
+      logger.warn({ logicalModel }, 'Embedding gateway 启动校验已跳过：没有兼容的上游 provider');
+      continue;
+    }
+
+    const probedDimensions = new Map<string, number>();
+
+    for (const provider of compatible) {
+      try {
+        const probeRequestBody: GatewayRequestBody = {
+          model: logicalModel,
+          input: config.validateInput,
+        };
+        const upstream = await forwardEmbeddingRequest({
+          provider,
+          requestBody: buildUpstreamRequestBody(provider, probeRequestBody),
+          timeoutMs: config.timeoutMs,
+        });
+
+        if (!upstream.ok) {
+          logger.warn(
+            { provider: provider.name, logicalModel, status: upstream.status },
+            'Embedding gateway 启动校验探测失败，已跳过该上游',
+          );
+          continue;
+        }
+
+        const dimensions = extractEmbeddingDimensions(provider, probeRequestBody, upstream.body);
+        if (expectedDimensions !== undefined && dimensions !== expectedDimensions) {
+          throw new Error(
+            `上游 ${provider.name} 对模型 ${logicalModel} 返回维度 ${dimensions}，expected ${expectedDimensions}`,
+          );
+        }
+        probedDimensions.set(provider.name, dimensions);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('expected ')) {
+          throw error;
+        }
+
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(
+          { provider: provider.name, logicalModel, error: message },
+          'Embedding gateway 启动校验探测异常，已跳过该上游',
+        );
+      }
+    }
+
+    const uniqueDimensions = new Set(probedDimensions.values());
+    if (uniqueDimensions.size > 1) {
+      const details = Array.from(probedDimensions.entries())
+        .map(([name, dimensions]) => `${name}=${dimensions}`)
+        .join(', ');
+      throw new Error(`上游 embedding 维度不一致: model=${logicalModel}, ${details}`);
+    }
+
+    logger.info(
+      {
+        logicalModel,
+        providers: Array.from(probedDimensions.keys()),
+        dimensions: uniqueDimensions.size === 1 ? Array.from(uniqueDimensions)[0] : undefined,
+      },
+      'Embedding gateway 启动校验完成',
+    );
+  }
 }
 
 export interface EmbeddingGatewayServer {
@@ -241,25 +496,16 @@ export function createEmbeddingGatewayServer(
 
         let lastRetriableMessage = 'all upstreams failed';
         for (const provider of candidates) {
-          const upstreamBody = {
-            ...payload,
-            model: resolveUpstreamModel(provider, payload.model),
-          };
-
           try {
             const upstream = await forwardEmbeddingRequest({
               provider,
-              requestBody: upstreamBody,
+              requestBody: buildUpstreamRequestBody(provider, payload),
               timeoutMs: config.timeoutMs,
             });
 
             if (upstream.ok) {
               pool.markSuccess(provider.name);
-              const response = {
-                status: upstream.status,
-                contentType: upstream.contentType,
-                body: upstream.body,
-              };
+              const response = normalizeUpstreamSuccessResponse(provider, payload, upstream);
               await cache.set(cacheKey, response);
               return response;
             }
@@ -323,6 +569,12 @@ export function createEmbeddingGatewayServer(
   return {
     async listen() {
       await cache.connect();
+      try {
+        await validateGatewayUpstreams(config);
+      } catch (error) {
+        await cache.close();
+        throw error;
+      }
 
       await new Promise<void>((resolve, reject) => {
         server.once('error', reject);

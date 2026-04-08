@@ -119,9 +119,28 @@ test('parseEmbeddingGatewayUpstreams 解析 JSON 上游列表并归一化默认�
       default: 'provider-a-model',
     },
     headers: {},
+    protocol: 'openai',
   });
   assert.equal(upstreams[1]?.weight, 1);
   assert.deepEqual(upstreams[1]?.models, []);
+});
+
+test('parseEmbeddingGatewayUpstreams 支持 Hugging Face feature-extraction 协议', () => {
+  const upstreams = parseEmbeddingGatewayUpstreams(
+    JSON.stringify([
+      {
+        name: 'hf',
+        baseUrl: 'https://router.huggingface.co/hf-inference/models/BAAI/bge-m3',
+        apiKey: 'hf_xxx',
+        protocol: 'hf-feature-extraction',
+        models: ['BAAI/bge-m3'],
+      },
+    ]),
+  );
+
+  assert.equal(upstreams.length, 1);
+  assert.equal(upstreams[0]?.protocol, 'hf-feature-extraction');
+  assert.deepEqual(upstreams[0]?.models, ['BAAI/bge-m3']);
 });
 
 test('getEmbeddingGatewayConfig 从环境变量读取监听与上游配置', () =>
@@ -137,6 +156,9 @@ test('getEmbeddingGatewayConfig 从环境变量读取监听与上游配置', () 
       EMBEDDING_GATEWAY_REDIS_URL: 'redis://127.0.0.1:6379/2',
       EMBEDDING_GATEWAY_REDIS_KEY_PREFIX: 'ctx:test:',
       EMBEDDING_GATEWAY_COALESCE_IDENTICAL_REQUESTS: 'false',
+      EMBEDDING_GATEWAY_VALIDATE_UPSTREAMS: 'true',
+      EMBEDDING_GATEWAY_VALIDATE_MODELS: 'text-embedding-3-large, BAAI/bge-m3',
+      EMBEDDING_GATEWAY_VALIDATE_INPUT: 'gateway-probe',
       EMBEDDING_GATEWAY_API_KEYS: 'gw-a, gw-b',
       EMBEDDING_GATEWAY_UPSTREAMS: JSON.stringify([
         {
@@ -160,6 +182,9 @@ test('getEmbeddingGatewayConfig 从环境变量读取监听与上游配置', () 
       assert.equal(config.redisUrl, 'redis://127.0.0.1:6379/2');
       assert.equal(config.redisKeyPrefix, 'ctx:test:');
       assert.equal(config.coalesceIdenticalRequests, false);
+      assert.equal(config.validateUpstreams, true);
+      assert.deepEqual(config.validateModels, ['text-embedding-3-large', 'BAAI/bge-m3']);
+      assert.equal(config.validateInput, 'gateway-probe');
       assert.deepEqual(config.apiKeys, ['gw-a', 'gw-b']);
       assert.equal(config.upstreams.length, 1);
       assert.equal(config.upstreams[0]?.weight, 2);
@@ -217,9 +242,30 @@ test('embedding gateway 轮询可用上游并在失败时切换', async (t) => {
     cacheBackend: 'memory',
     redisKeyPrefix: 'contextatlas:gateway:embeddings:',
     upstreams: [
-      { name: 'a', baseUrl: upstreamA.baseUrl, apiKey: 'key-a', weight: 2, models: [], modelMap: {}, headers: {} },
-      { name: 'b', baseUrl: upstreamB.baseUrl, apiKey: 'key-b', weight: 1, models: [], modelMap: {}, headers: {} },
+      {
+        name: 'a',
+        baseUrl: upstreamA.baseUrl,
+        apiKey: 'key-a',
+        weight: 2,
+        models: [],
+        modelMap: {},
+        headers: {},
+        protocol: 'openai',
+      },
+      {
+        name: 'b',
+        baseUrl: upstreamB.baseUrl,
+        apiKey: 'key-b',
+        weight: 1,
+        models: [],
+        modelMap: {},
+        headers: {},
+        protocol: 'openai',
+      },
     ],
+    validateUpstreams: false,
+    validateModels: [],
+    validateInput: 'dimension-probe',
   });
 
   const { port, close } = await gateway.listen();
@@ -282,9 +328,21 @@ test('embedding gateway 对相同请求命中本地缓存，避免重复访问�
     cacheBackend: 'memory',
     redisKeyPrefix: 'contextatlas:gateway:embeddings:',
     coalesceIdenticalRequests: true,
+    validateUpstreams: false,
+    validateModels: [],
+    validateInput: 'dimension-probe',
     apiKeys: [],
     upstreams: [
-      { name: 'cache', baseUrl: upstream.baseUrl, apiKey: 'key-cache', weight: 1, models: [], modelMap: {}, headers: {} },
+      {
+        name: 'cache',
+        baseUrl: upstream.baseUrl,
+        apiKey: 'key-cache',
+        weight: 1,
+        models: [],
+        modelMap: {},
+        headers: {},
+        protocol: 'openai',
+      },
     ],
   });
 
@@ -350,9 +408,21 @@ test('embedding gateway 对并发相同请求执行单次上游调用', async (t
     cacheBackend: 'memory',
     redisKeyPrefix: 'contextatlas:gateway:embeddings:',
     coalesceIdenticalRequests: true,
+    validateUpstreams: false,
+    validateModels: [],
+    validateInput: 'dimension-probe',
     apiKeys: [],
     upstreams: [
-      { name: 'coalesce', baseUrl: upstream.baseUrl, apiKey: 'key-coalesce', weight: 1, models: [], modelMap: {}, headers: {} },
+      {
+        name: 'coalesce',
+        baseUrl: upstream.baseUrl,
+        apiKey: 'key-coalesce',
+        weight: 1,
+        models: [],
+        modelMap: {},
+        headers: {},
+        protocol: 'openai',
+      },
     ],
   });
 
@@ -385,3 +455,172 @@ test('embedding gateway 对并发相同请求执行单次上游调用', async (t
   assert.equal((await second.json()).model, 'provider-coalesced');
   assert.equal(upstreamCalls, 1);
 });
+
+test('embedding gateway 可将 Hugging Face feature-extraction 上游适配为 OpenAI-compatible embeddings', async (t) => {
+  const upstreamCalls: Array<{ body: unknown; authorization: string | undefined }> = [];
+  const upstream = await startUpstreamServer(async (body, req, res) => {
+    upstreamCalls.push({
+      body,
+      authorization: req.headers.authorization,
+    });
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]));
+  });
+
+  t.after(async () => {
+    await upstream.close();
+  });
+
+  const gateway = createEmbeddingGatewayServer({
+    host: '127.0.0.1',
+    port: 0,
+    timeoutMs: 3000,
+    failoverCooldownMs: 3000,
+    cacheTtlMs: 0,
+    cacheMaxEntries: 32,
+    cacheBackend: 'memory',
+    redisKeyPrefix: 'contextatlas:gateway:embeddings:',
+    coalesceIdenticalRequests: true,
+    validateUpstreams: false,
+    validateModels: [],
+    validateInput: 'dimension-probe',
+    apiKeys: ['gateway-secret'],
+    upstreams: [
+      {
+        name: 'hf',
+        baseUrl: upstream.baseUrl,
+        apiKey: 'hf_test',
+        weight: 1,
+        models: ['BAAI/bge-m3'],
+        modelMap: {},
+        headers: {},
+        protocol: 'hf-feature-extraction',
+      },
+    ],
+  });
+
+  const { port, close } = await gateway.listen();
+  t.after(async () => {
+    await close();
+  });
+
+  const response = await fetch(`http://127.0.0.1:${port}/v1/embeddings`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: 'Bearer gateway-secret',
+    },
+    body: JSON.stringify({
+      model: 'BAAI/bge-m3',
+      input: ['alpha', 'beta'],
+      encoding_format: 'float',
+      user: 'ctx-test',
+    }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/json');
+  assert.deepEqual(upstreamCalls, [
+    {
+      body: {
+        inputs: ['alpha', 'beta'],
+      },
+      authorization: 'Bearer hf_test',
+    },
+  ]);
+  assert.deepEqual(await response.json(), {
+    object: 'list',
+    data: [
+      { object: 'embedding', index: 0, embedding: [0.1, 0.2, 0.3] },
+      { object: 'embedding', index: 1, embedding: [0.4, 0.5, 0.6] },
+    ],
+    model: 'BAAI/bge-m3',
+    usage: {
+      prompt_tokens: 0,
+      total_tokens: 0,
+    },
+  });
+});
+
+test('embedding gateway 启动时校验同一逻辑模型的上游维度一致性', async (t) =>
+  withEnv(
+    {
+      EMBEDDINGS_MODEL: 'text-embedding-3-large',
+      EMBEDDINGS_DIMENSIONS: '3',
+    },
+    async () => {
+      const upstreamA = await startUpstreamServer(async (_body, _req, res) => {
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            object: 'list',
+            data: [{ object: 'embedding', index: 0, embedding: [1, 2, 3] }],
+            model: 'provider-a',
+            usage: { prompt_tokens: 1, total_tokens: 1 },
+          }),
+        );
+      });
+      const upstreamB = await startUpstreamServer(async (_body, _req, res) => {
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            object: 'list',
+            data: [{ object: 'embedding', index: 0, embedding: [1, 2, 3, 4] }],
+            model: 'provider-b',
+            usage: { prompt_tokens: 1, total_tokens: 1 },
+          }),
+        );
+      });
+
+      t.after(async () => {
+        await upstreamA.close();
+        await upstreamB.close();
+      });
+
+      const gateway = createEmbeddingGatewayServer({
+        host: '127.0.0.1',
+        port: 0,
+        timeoutMs: 3000,
+        failoverCooldownMs: 3000,
+        cacheTtlMs: 0,
+        cacheMaxEntries: 32,
+        cacheBackend: 'memory',
+        redisKeyPrefix: 'contextatlas:gateway:embeddings:',
+        coalesceIdenticalRequests: true,
+        validateUpstreams: true,
+        validateModels: [],
+        validateInput: 'dimension-probe',
+        apiKeys: [],
+        upstreams: [
+          {
+            name: 'a',
+            baseUrl: upstreamA.baseUrl,
+            apiKey: 'key-a',
+            weight: 1,
+            models: [],
+            modelMap: {},
+            headers: {},
+            protocol: 'openai',
+          },
+          {
+            name: 'b',
+            baseUrl: upstreamB.baseUrl,
+            apiKey: 'key-b',
+            weight: 1,
+            models: [],
+            modelMap: {},
+            headers: {},
+            protocol: 'openai',
+          },
+        ],
+      });
+
+      await assert.rejects(
+        () => gateway.listen(),
+        /上游 embedding 维度不一致|expected 3/,
+      );
+    },
+  ));

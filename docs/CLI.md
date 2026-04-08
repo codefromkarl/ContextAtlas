@@ -99,6 +99,21 @@ contextatlas gateway:embeddings \
   --cache-ttl-ms 60000 \
   --cache-max-entries 500
 
+# SiliconFlow 作为首个上游
+EMBEDDING_GATEWAY_UPSTREAMS='[
+  {"name":"siliconflow-primary","baseUrl":"https://api.siliconflow.cn/v1/embeddings","apiKey":"your-api-key-here","weight":1,"models":["BAAI/bge-m3"]}
+]'
+contextatlas gateway:embeddings --port 8787
+
+# Hugging Face Inference 作为 bge-m3 上游
+EMBEDDING_GATEWAY_UPSTREAMS='[
+  {"name":"hf-bge-m3","baseUrl":"https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction","apiKey":"hf_your_token_here","weight":1,"models":["BAAI/bge-m3"],"protocol":"hf-feature-extraction"}
+]'
+contextatlas gateway:embeddings --port 8787
+
+# 如果当前环境依赖 HTTP(S)_PROXY / ALL_PROXY 出口，启动时加上：
+NODE_USE_ENV_PROXY=1 contextatlas gateway:embeddings --port 8787
+
 # 使用 Redis 缓存
 contextatlas gateway:embeddings \
   --cache-backend redis \
@@ -116,6 +131,7 @@ contextatlas gateway:embeddings --no-coalesce-identical-requests
 - 支持多上游加权轮询、`429` / `5xx` / 网络异常自动 failover、provider cooldown
 - 支持内存缓存或 Redis 缓存
 - 支持并发相同请求合并，避免重复打上游
+- 支持 OpenAI-compatible 上游，以及 Hugging Face `feature-extraction` 上游适配
 
 常用环境变量：
 

@@ -1,3 +1,5 @@
+export type EmbeddingGatewayUpstreamProtocol = 'openai' | 'hf-feature-extraction';
+
 export interface EmbeddingGatewayUpstreamConfig {
   name: string;
   baseUrl: string;
@@ -6,6 +8,7 @@ export interface EmbeddingGatewayUpstreamConfig {
   models: string[];
   modelMap: Record<string, string>;
   headers: Record<string, string>;
+  protocol: EmbeddingGatewayUpstreamProtocol;
 }
 
 export interface EmbeddingGatewayConfig {
@@ -19,6 +22,10 @@ export interface EmbeddingGatewayConfig {
   redisUrl?: string;
   redisKeyPrefix: string;
   coalesceIdenticalRequests: boolean;
+  validateUpstreams: boolean;
+  validateModels: string[];
+  validateInput: string;
+  expectedDimensions?: number;
   apiKeys: string[];
   upstreams: EmbeddingGatewayUpstreamConfig[];
 }
@@ -31,6 +38,7 @@ interface RawEmbeddingGatewayUpstream {
   models?: unknown;
   modelMap?: unknown;
   headers?: unknown;
+  protocol?: unknown;
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -62,6 +70,13 @@ function parseCacheBackend(value: string | undefined): 'memory' | 'redis' {
   return value?.trim().toLowerCase() === 'redis' ? 'redis' : 'memory';
 }
 
+function parseCommaSeparated(value: string | undefined): string[] {
+  return (value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function parseStringRecord(value: unknown, field: string): Record<string, string> {
   if (value === undefined) {
     return {};
@@ -78,6 +93,25 @@ function parseStringRecord(value: unknown, field: string): Record<string, string
     result[key] = raw;
   }
   return result;
+}
+
+function parseUpstreamProtocol(
+  value: unknown,
+  field: string,
+): EmbeddingGatewayUpstreamProtocol {
+  if (value === undefined) {
+    return 'openai';
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${field} 必须是字符串`);
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'openai' || normalized === 'hf-feature-extraction') {
+    return normalized;
+  }
+
+  throw new Error(`${field} 仅支持 openai 或 hf-feature-extraction`);
 }
 
 export function parseEmbeddingGatewayUpstreams(
@@ -137,6 +171,10 @@ export function parseEmbeddingGatewayUpstreams(
       models,
       modelMap: parseStringRecord(upstream.modelMap, `EMBEDDING_GATEWAY_UPSTREAMS[${index}].modelMap`),
       headers: parseStringRecord(upstream.headers, `EMBEDDING_GATEWAY_UPSTREAMS[${index}].headers`),
+      protocol: parseUpstreamProtocol(
+        upstream.protocol,
+        `EMBEDDING_GATEWAY_UPSTREAMS[${index}].protocol`,
+      ),
     };
   });
 }
@@ -155,6 +193,10 @@ export function getEmbeddingGatewayConfig(
       | 'redisUrl'
       | 'redisKeyPrefix'
       | 'coalesceIdenticalRequests'
+      | 'validateUpstreams'
+      | 'validateModels'
+      | 'validateInput'
+      | 'expectedDimensions'
     >
   > = {},
 ): EmbeddingGatewayConfig {
@@ -180,10 +222,36 @@ export function getEmbeddingGatewayConfig(
   const coalesceIdenticalRequests =
     overrides.coalesceIdenticalRequests ??
     parseBoolean(process.env.EMBEDDING_GATEWAY_COALESCE_IDENTICAL_REQUESTS, true);
+  const validateUpstreams =
+    overrides.validateUpstreams ??
+    parseBoolean(process.env.EMBEDDING_GATEWAY_VALIDATE_UPSTREAMS, true);
+  const validateInput =
+    overrides.validateInput ??
+    process.env.EMBEDDING_GATEWAY_VALIDATE_INPUT?.trim() ??
+    'dimension-probe';
+  const expectedDimensions =
+    overrides.expectedDimensions ??
+    (() => {
+      const parsed = Number.parseInt(process.env.EMBEDDINGS_DIMENSIONS || '', 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    })();
   const apiKeys = (process.env.EMBEDDING_GATEWAY_API_KEYS || '')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+  const upstreams = parseEmbeddingGatewayUpstreams(process.env.EMBEDDING_GATEWAY_UPSTREAMS);
+  const validateModels =
+    overrides.validateModels ??
+    Array.from(
+      new Set([
+        ...parseCommaSeparated(process.env.EMBEDDING_GATEWAY_VALIDATE_MODELS),
+        ...(process.env.EMBEDDINGS_MODEL ? [process.env.EMBEDDINGS_MODEL.trim()] : []),
+        ...upstreams.flatMap((item) => item.models),
+        ...upstreams.flatMap((item) =>
+          Object.keys(item.modelMap).filter((key) => key !== 'default' && key.trim().length > 0),
+        ),
+      ].filter(Boolean)),
+    );
 
   if (cacheBackend === 'redis' && (!redisUrl || redisUrl.trim().length === 0)) {
     throw new Error('EMBEDDING_GATEWAY_REDIS_URL 环境变量未设置');
@@ -200,7 +268,11 @@ export function getEmbeddingGatewayConfig(
     redisUrl,
     redisKeyPrefix,
     coalesceIdenticalRequests,
+    validateUpstreams,
+    validateModels,
+    validateInput,
+    expectedDimensions,
     apiKeys,
-    upstreams: parseEmbeddingGatewayUpstreams(process.env.EMBEDDING_GATEWAY_UPSTREAMS),
+    upstreams,
   };
 }

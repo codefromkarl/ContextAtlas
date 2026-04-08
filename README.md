@@ -19,7 +19,6 @@
 <p align="center">
   <a href="./README.EN.md">English</a> ·
   <a href="./docs/FIRST_USE.md">首次使用</a> ·
-  <a href="./docs/UPDATE_2026_04_06.md">2026-04-06 更新</a> ·
   <a href="./docs/DEPLOYMENT.md">部署手册</a> ·
   <a href="./docs/CLI.md">CLI</a> ·
   <a href="./docs/MCP.md">MCP</a>
@@ -40,22 +39,10 @@
 - [为什么需要 ContextAtlas](#为什么需要-contextatlas)
 - [适合什么场景](#适合什么场景)
 - [核心能力](#核心能力)
-- [快速亮点](#快速亮点)
-- [工程定位](#工程定位)
-- [技术栈](#技术栈)
 - [安装](#安装)
-- [配置](#配置)
 - [快速开始](#快速开始)
 - [接入方式](#接入方式)
-- [使用流程](#使用流程)
-- [常用命令](#常用命令)
-- [架构概览](#架构概览)
-- [项目结构](#项目结构)
-- [注意事项](#注意事项)
-- [当前限制](#当前限制)
 - [文档导航](#文档导航)
-- [贡献](#贡献)
-- [开发](#开发)
 - [友情链接](#友情链接)
 - [License](#license)
 
@@ -102,65 +89,6 @@ ContextAtlas 把这些问题拆成一套可组合的基础能力：
 | **Cross-project Hub** | 跨仓库共享模块记忆、依赖链和关系图谱 |
 | **Async Indexing** | SQLite 队列 + daemon 消费 + 快照原子切换 |
 | **Observability** | retrieval monitor、usage report、index health、memory health、alert evaluation |
-
-## 快速亮点
-
-### 1. 不只是搜代码，而是构建上下文包
-
-ContextAtlas 的目标不是返回“最像的一段文本”，而是通过：
-
-- 向量召回
-- FTS 精确召回
-- RRF 融合
-- rerank 精排
-- graph expansion
-- token-aware packing
-
-把结果组织成更适合 agent 消费的局部上下文。
-
-### 2. 项目理解可以沉淀，而不是每次重来
-
-除了代码检索，ContextAtlas 还提供：
-
-- Feature Memory：模块职责、文件、依赖、数据流
-- Decision Record：架构决策和理由
-- Project Profile：技术栈、结构、约定
-- Long-term Memory：规则、偏好、外部参考
-
-### 3. 检索系统本身可观测
-
-你可以看到的不只是结果，还有系统状态：
-
-- 索引是否健康
-- 检索是否退化
-- 长期记忆是否 stale / expired
-- usage 数据是否提示需要增量索引或重建
-
-### 4. 可作为 CLI，也可作为 MCP Server
-
-同一套能力可以：
-
-- 直接供本地命令行、脚本和 skills 使用
-- 作为 MCP server 提供给 Claude Desktop / 其他 MCP 客户端
-
-## 工程定位
-
-**ContextAtlas 是 AI agent 的上下文基础设施层。**
-
-它负责回答的是：
-
-> 当上层 agent 开始工作时，如何稳定拿到高价值、低噪声、可持续复用的代码上下文和项目知识？
-
-它**不负责**：
-
-- agent 推理本身
-- workflow / planner / orchestrator
-- 测试门禁或完整 verification harness
-- 浏览器、终端、业务 API 的动作执行
-
-换句话说，ContextAtlas 决定的是 **“给什么上下文”**，而不是 **“任务怎么推进”**。
-
-如果你想看完整的工程定位说明，见 [ContextAtlas 工程定位文档](./docs/ContextAtlas-Harness-Engineering.md)。
 
 ## 技术栈
 
@@ -314,188 +242,34 @@ ContextAtlas 的 MCP 工具覆盖：
 - 跨项目 Hub
 - 自动记录与建议写回
 
-## 使用流程
-
-```text
-1. init
-   ↓
-2. index
-   ↓
-3. search / MCP retrieval
-   ↓
-4. 理解代码与依赖关系
-   ↓
-5. 记录 project memory / long-term memory（可选）
-   ↓
-6. 持续通过 health / monitor / usage 观测系统状态
-```
-
-一个典型工作流如下：
-
-1. 用 `contextatlas init` 初始化环境
-2. 用 `contextatlas index /path/to/repo` 为仓库建立索引
-3. 用 `contextatlas search` 或 MCP 工具获取相关代码和记忆
-4. 在任务完成后记录模块知识、决策或长期记忆
-5. 定期执行 `health:full`、`monitor:retrieval`、`usage:index-report` 和 `memory:health`
-
-### 推荐写入 CLAUDE.md 的启动约束
-
-如果你在 Claude Code 或其他基于会话的 agent workflow 中使用 ContextAtlas，建议把下面这段规则写进 `CLAUDE.md`：
-
-```md
-在每次对话开始时：
-1. 先查询项目记忆（如 `project-memory-hub` / `memory-load` / `find_memory`）
-2. 立即执行仓库索引（`contextatlas index /path/to/repo`）
-3. 然后再开始检索、分析和实现
-```
-
-这样做的目的很简单：
-
-- 先拿到已有项目知识，减少重复探索
-- 先执行索引，减少“代码已变更但检索结果仍然过旧”的问题
-- 让后续的检索、规划和实现建立在更新后的上下文基础上
-
 ## 常用命令
 
-### 检索与索引
-
 ```bash
+contextatlas init
 contextatlas start /path/to/repo
 contextatlas index /path/to/repo
-contextatlas index --force
-contextatlas index:plan /path/to/repo --json
 contextatlas daemon start
 contextatlas search --repo-path /path/to/repo --information-request "数据库连接逻辑"
+contextatlas mcp
 ```
 
-### 项目记忆与长期记忆
-
-```bash
-contextatlas memory:find "auth"
-contextatlas memory:record "Auth Module" --desc "用户认证模块" --dir "src/auth"
-contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
-contextatlas memory:list
-contextatlas memory:prune-long-term --include-stale
-contextatlas decision:list
-contextatlas profile:show
-```
-
-`contextatlas start` 会给出默认闭环：`Connect Repo → Check Index Status → Ask → Review Result → Give Feedback / Save Memory`。检索结果卡片会固定展示来源层级、freshness/conflict/confidence 信号，以及下一步反馈/沉淀命令。
-
-索引健康检查现在也会带出每个项目最近一次成功索引时间和最近执行模式，便于判断当前仓库是在持续增量更新还是仍依赖全量重建。
-
-### 跨项目 Hub
-
-```bash
-contextatlas hub:list-projects
-contextatlas hub:search --category search
-contextatlas hub:deps <projectId> <moduleName>
-```
-
-### 观测与运维
-
-```bash
-contextatlas monitor:retrieval --days 7
-contextatlas usage:index-report --days 7
-contextatlas ops:summary
-contextatlas ops:metrics --days 7 --stale-days 30
-contextatlas health:check
-contextatlas index:plan /path/to/repo
-contextatlas alert:eval
-```
+更完整的命令分类、参数和运维命令见 [CLI 命令参考](./docs/CLI.md)。
 
 ## 架构概览
 
-### 检索链路
-
 ```text
-用户问题
-  → 向量召回
-  → FTS 词法召回
-  → RRF 融合
-  → rerank 精排
-  → graph expansion
-  → token-aware packing
-  → 返回结构化上下文
+索引：Crawler / Scanner → Chunking → Indexing → Vector / SQLite Storage
+检索：Vector + FTS Recall → RRF → Rerank → Graph Expansion → Context Packing
+记忆：Project Memory / Long-term Memory / Hub → CLI / MCP Tools
 ```
 
-当前实现里，`SearchService` 主要负责编排，不再直接承载所有细节逻辑：
-
-- `HybridRecallEngine` 负责向量/词法召回、FTS fallback 和 RRF 融合
-- `RerankPolicy` 负责 rerank 池选择和 Smart TopK cutoff
-- `SnippetExtractor` 负责 rerank 文本构造和命中片段截取
-- `GraphExpander` 和 `ContextPacker` 继续负责扩展与打包
-
-### 索引链路
-
-```text
-文件变更
-  → scanner/ 发现变更
-  → chunking/ 语义分片
-  → indexer/ embedding + vector store 写入
-  → storage/ 快照原子切换
-  → indexing/ 队列状态更新
-```
-
-### 记忆链路
-
-```text
-Feature / Decision / Profile / Long-term write
-  → MemoryStore facade
-  → bootstrap 初始化项目与兼容导入
-  → 子存储执行持久化与同步
-  → Memory Hub / Router / 查询工具读取
-```
-
-当前 `memory/` 下的职责边界是：
-
-- `MemoryStore` 作为统一 facade，对 CLI、MCP 和 monitoring 保持稳定入口
-- `MemoryStoreBootstrap` 负责只读/可写初始化、项目注册和兼容导入
-- `ProjectMetaStore` 负责 checkpoint、catalog、profile 和 global memory
-- `FeatureMemoryRepository` 与 `FeatureMemoryCatalogCoordinator` 负责 feature memory 存储和 catalog 同步
-- `DecisionStore` 负责架构决策记录映射
-- `LongTermMemoryService` 负责长期记忆的追加、检索、状态和清理
-
-## 项目结构
-
-```text
-src/
-├── api/                  # Embedding / Rerank / Unicode 处理
-├── chunking/             # Tree-sitter 语义分片
-├── db/                   # SQLite + FTS + 文件元数据
-├── indexer/              # 向量索引编排
-├── indexing/             # 索引队列与 daemon
-├── mcp/                  # MCP server 与工具定义
-├── memory/               # MemoryStore facade + bootstrap + 子存储 + 跨项目 Hub
-├── monitoring/           # 检索监控 / 健康检查 / 告警
-├── scanner/              # 文件发现与增量扫描
-├── search/               # SearchService facade + recall / rerank / snippet / expand / pack 子模块
-├── storage/              # 快照布局与原子切换
-├── usage/                # 使用追踪与优化分析
-└── vectorStore/          # LanceDB 向量存储
-```
-
-## 注意事项
-
-- **第一次全量索引可能较慢**：大仓库建议先索引，再用 daemon 保持增量更新
-- **长期记忆不要存代码里能推导出来的事实**：它更适合规则、偏好、外部参考和非代码状态
-- **MCP 和 CLI 是互补关系**：MCP 适合工具接入，CLI 适合脚本、技能和手工排障
-- **健康检查应该常态化**：当结果变差时，不要只怀疑模型，先看索引、记忆和检索指标
-
-## 当前限制
-
-- 目前不支持多租户 / 权限隔离
-- 记忆写入质量门禁仍依赖上层 workflow 控制
-- 跨项目 Hub 暂无冲突检测
-- 自动增量索引触发仍需 daemon 或外部调度配合
-- 检索结果还没有统一的置信度评分接口
+ContextAtlas 更关注“给 agent 什么上下文”，而不是“替 agent 完成任务决策”。更完整的边界说明见 [仓库定位](./docs/REPOSITORY_POSITIONING.md) 和 [工程定位文档](./docs/ContextAtlas-Harness-Engineering.md)。
 
 ## 文档导航
 
 | 文档 | 用途 |
 |------|------|
 | [首次使用](./docs/FIRST_USE.md) | 10 分钟跑通默认闭环，先理解包名、CLI 名和第一条查询 |
-| [2026-04-06 更新总结](./docs/UPDATE_2026_04_06.md) | 本轮主路径、记忆治理、可运维性、发布门禁与团队指标更新说明 |
 | [2026-04-07 更新总结](./docs/UPDATE_2026_04_07.md) | 索引 7 个阶段优化总结，覆盖轻量计划、快照复制、健康修复、队列可观测性、fallback、存储裁剪与 benchmark |
 | [部署手册](./docs/DEPLOYMENT.md) | 安装、部署场景、MCP 集成、运维建议 |
 | [CLI 命令参考](./docs/CLI.md) | 所有 CLI 命令的分类说明和示例 |

@@ -1078,6 +1078,10 @@ test('handleCodebaseRetrieval skips auto-enqueue when indexed repo is already up
 
   try {
     await scan(repoDir, { vectorIndex: false });
+    const projectId = generateProjectId(repoDir);
+    const db = initDb(projectId);
+    db.exec('UPDATE files SET vector_index_hash = hash');
+    db.close();
 
     const response = await handleCodebaseRetrieval({
       repo_path: repoDir,
@@ -1085,7 +1089,6 @@ test('handleCodebaseRetrieval skips auto-enqueue when indexed repo is already up
       technical_terms: ['SearchService'],
     });
 
-    const projectId = generateProjectId(repoDir);
     const activeTask = getActiveTask(projectId);
 
     assert.equal(activeTask, null);

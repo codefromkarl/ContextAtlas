@@ -46,6 +46,10 @@ export const assembleContextSchema = z.object({
   moduleName: z.string().optional().describe('Exact module name to route memory loading'),
   filePaths: z.array(z.string()).optional().describe('File paths used for module memory routing'),
   checkpoint_id: z.string().optional().describe('Checkpoint id to seed task-state assembly'),
+  includeDiary: z.boolean().optional().default(false).describe('Whether to include recent agent diary entries'),
+  agentName: z.string().optional().describe('Optional agent name for diary lookup'),
+  diaryTopic: z.string().optional().describe('Optional diary topic filter'),
+  diaryLimit: z.number().int().min(1).max(10).optional().default(3).describe('Maximum number of diary entries to include'),
   format: responseFormatSchema.optional().default('text'),
 });
 
@@ -128,6 +132,10 @@ interface AssembledContextJsonPayload {
     moduleName?: string;
     filePaths?: string[];
     checkpoint_id?: string;
+    includeDiary?: boolean;
+    agentName?: string;
+    diaryTopic?: string;
+    diaryLimit?: number;
     format: 'json';
   };
   assemblyProfile: {
@@ -172,6 +180,7 @@ interface AssembledContextJsonPayload {
     contextBlocks: ContextBlock[];
     summary: {
       checkpointBlocks: number;
+      diaryBlocks: number;
       moduleMemoryBlocks: number;
       codeBlocks: number;
       totalBlocks: number;
@@ -195,6 +204,12 @@ interface AssembledContextJsonPayload {
       tool: 'codebase-retrieval';
       responseMode: 'expanded';
       summary: CodebaseRetrievalJsonPayload['summary'];
+    };
+    diary: null | {
+      tool: 'record_agent_diary';
+      resultCount: number;
+      agentName?: string;
+      topic?: string;
     };
   };
 }
@@ -226,11 +241,12 @@ export async function handleAssembleContext(
   const checkpointPayload = checkpoint.payload;
   const modulePayload = moduleMemoryResult.payload;
   const codePayload = codebaseResult.payload;
+  const diaryBlocks = await loadDiaryBlocks(args.repo_path, args);
 
   const checkpointBlocks = checkpointPayload?.contextBlocks ?? [];
   const moduleMemoryBlocks = buildModuleMemoryBlocks(modulePayload?.memories ?? []);
   const codeBlocks = codePayload?.contextBlocks ?? [];
-  const selectedBlocks = mergeContextBlocks(checkpointBlocks, moduleMemoryBlocks, codeBlocks);
+  const selectedBlocks = mergeContextBlocks(checkpointBlocks, diaryBlocks, moduleMemoryBlocks, codeBlocks);
   const references = uniqueReferences(
     selectedBlocks.flatMap((block) =>
       block.provenance.map((item) => ({
@@ -276,6 +292,7 @@ export async function handleAssembleContext(
     references,
     summary: {
       checkpointBlocks: checkpointBlocks.length,
+      diaryBlocks: diaryBlocks.length,
       moduleMemoryBlocks: moduleMemoryBlocks.length,
       codeBlocks: codeBlocks.length,
       totalBlocks: selectedBlocks.length,
@@ -293,6 +310,10 @@ export async function handleAssembleContext(
       moduleName: args.moduleName,
       filePaths: args.filePaths,
       checkpoint_id: args.checkpoint_id,
+      includeDiary: args.includeDiary,
+      agentName: args.agentName,
+      diaryTopic: args.diaryTopic,
+      diaryLimit: args.diaryLimit,
       format: 'json',
     },
     assemblyProfile: {
@@ -343,6 +364,7 @@ export async function handleAssembleContext(
       contextBlocks: selectedBlocks,
       summary: {
         checkpointBlocks: checkpointBlocks.length,
+        diaryBlocks: diaryBlocks.length,
         moduleMemoryBlocks: moduleMemoryBlocks.length,
         codeBlocks: codeBlocks.length,
         totalBlocks: selectedBlocks.length,
@@ -371,6 +393,14 @@ export async function handleAssembleContext(
             tool: 'codebase-retrieval',
             responseMode: 'expanded',
             summary: codePayload.summary,
+          }
+        : null,
+      diary: diaryBlocks.length > 0
+        ? {
+            tool: 'record_agent_diary',
+            resultCount: diaryBlocks.length,
+            agentName: args.agentName,
+            topic: args.diaryTopic,
           }
         : null,
     },
@@ -604,6 +634,46 @@ function buildModuleMemoryBlocks(memories: FeatureMemory[]): ContextBlock[] {
   }));
 }
 
+async function loadDiaryBlocks(
+  repoPath: string,
+  args: AssembleContextInput,
+): Promise<ContextBlock[]> {
+  const shouldIncludeDiary = args.includeDiary || Boolean(args.agentName) || Boolean(args.diaryTopic);
+  if (!shouldIncludeDiary) {
+    return [];
+  }
+
+  const { MemoryStore } = await import('../../memory/MemoryStore.js');
+  const store = new MemoryStore(repoPath);
+  const limit = args.diaryLimit ?? 3;
+  const journals = (await store.listLongTermMemories({
+    types: ['journal'],
+    scope: 'project',
+    includeExpired: true,
+  }))
+    .filter((item) => !args.agentName || item.tags.includes(`agent:${args.agentName}`))
+    .filter((item) => !args.diaryTopic || item.tags.includes(`topic:${args.diaryTopic}`))
+    .slice(0, limit);
+
+  return journals.map((item) => ({
+    id: `diary:${item.id}`,
+    type: 'recent-findings',
+    title: item.title,
+    purpose: 'Preserve recent agent diary entries that explain attempts, blockers, and next verification steps',
+    content: item.summary,
+    priority: 'medium',
+    pinned: false,
+    expandable: true,
+    memoryKind: 'episodic',
+    provenance: [{ source: 'long-term-memory', ref: item.id }],
+    freshness: {
+      lastVerifiedAt: item.lastVerifiedAt || item.updatedAt,
+      stale: item.status !== 'active',
+      confidence: item.confidence >= 0.8 ? 'high' : item.confidence >= 0.5 ? 'medium' : 'low',
+    },
+  }));
+}
+
 function mergeContextBlocks(...groups: ContextBlock[][]): ContextBlock[] {
   const merged: ContextBlock[] = [];
   const seen = new Set<string>();
@@ -701,6 +771,7 @@ function formatAssembleContextText(payload: AssembledContextJsonPayload): string
     '',
     '### Selected Context',
     `- **Checkpoint**: ${payload.selectedContext.checkpoint ? payload.selectedContext.checkpoint.checkpoint.id : 'None'}`,
+    `- **Diary Blocks**: ${payload.selectedContext.summary.diaryBlocks}`,
     `- **Module Memories**: ${payload.selectedContext.moduleMemories.length}`,
     `- **Code Evidence Blocks**: ${payload.selectedContext.codebaseRetrieval?.contextBlocks.length ?? 0}`,
     '',

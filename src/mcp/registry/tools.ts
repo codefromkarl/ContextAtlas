@@ -142,6 +142,9 @@ Load a previously saved task checkpoint for resume or handoff.
       properties: {
         repo_path: { type: 'string', description: 'Absolute repository root path' },
         checkpoint_id: { type: 'string', description: 'Checkpoint id' },
+        agent_name: { type: 'string', description: 'Optional agent name for diary lookup' },
+        topic: { type: 'string', description: 'Optional diary topic filter' },
+        diary_limit: { type: 'number', description: 'Maximum diary entries to include', default: 3 },
         format: { ...responseFormatProperty },
       },
       required: ['repo_path', 'checkpoint_id'],
@@ -202,6 +205,10 @@ Use this to build a minimal context package for overview/debug/implementation/ve
         checkpoint_id: { type: 'string', description: 'Optional checkpoint id to include' },
         moduleName: { type: 'string', description: 'Exact module name to load' },
         query: { type: 'string', description: 'Keyword query for phase-aware module memory assembly' },
+        includeDiary: { type: 'boolean', description: 'Whether to include recent agent diary entries', default: false },
+        agentName: { type: 'string', description: 'Optional agent name for diary lookup' },
+        diaryTopic: { type: 'string', description: 'Optional diary topic filter' },
+        diaryLimit: { type: 'number', description: 'Maximum diary entries to include', default: 3 },
         filePaths: {
           type: 'array',
           items: { type: 'string' },

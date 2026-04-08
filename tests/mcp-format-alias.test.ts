@@ -77,7 +77,20 @@ test('assemble_context metadata stays aligned with the public schema', () => {
   const properties = tool.inputSchema?.properties ?? {};
   assert.deepEqual(
     Object.keys(properties).sort(),
-    ['checkpoint_id', 'filePaths', 'format', 'moduleName', 'phase', 'profile', 'query', 'repo_path'],
+    [
+      'agentName',
+      'checkpoint_id',
+      'diaryLimit',
+      'diaryTopic',
+      'filePaths',
+      'format',
+      'includeDiary',
+      'moduleName',
+      'phase',
+      'profile',
+      'query',
+      'repo_path',
+    ],
   );
   assert.deepEqual(properties.profile?.enum, ['overview', 'debug', 'implementation', 'verification', 'handoff']);
   assert.equal(properties.scope, undefined);

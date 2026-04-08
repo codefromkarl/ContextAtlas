@@ -41,10 +41,10 @@
 
 ### Phase 4 - Agent Diary 生命周期接入
 
-- [ ] 让 `assemble_context` 可选吸收最近 diary
-- [ ] 让 `prepare_handoff` 补带最近 diary 摘要
-- [ ] 让 diary 进入上下文生命周期，而不只是旁路工具
-- [ ] 补充上下文装配与 handoff 测试
+- [x] 让 `assemble_context` 可选吸收最近 diary
+- [x] 让 `prepare_handoff` 补带最近 diary 摘要
+- [x] 让 diary 进入上下文生命周期，而不只是旁路工具
+- [x] 补充上下文装配与 handoff 测试
 
 ### Phase 5 - 写入治理与冲突提示
 
@@ -66,6 +66,6 @@
 - Phase 1: done
 - Phase 2: done
 - Phase 3: done
-- Phase 4: pending
+- Phase 4: done
 - Phase 5: pending
 - Phase 6: pending

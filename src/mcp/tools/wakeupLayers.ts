@@ -87,8 +87,9 @@ export interface WakeupLayersBundle {
 
 export function buildWakeupLayers(input: WakeupLayersInput): WakeupLayersBundle {
   const checkpointBlocks = input.contextBlocks.filter((block) => block.type === 'task-state');
+  const diaryBlocks = input.contextBlocks.filter((block) => block.id.startsWith('diary:'));
   const moduleMemoryBlocks = input.contextBlocks.filter((block) => block.type === 'module-summary');
-  const codeBlocks = input.contextBlocks.filter((block) => block.type !== 'task-state' && block.type !== 'module-summary');
+  const codeBlocks = input.contextBlocks.filter((block) => block.type !== 'task-state' && block.type !== 'module-summary' && !block.id.startsWith('diary:'));
 
   const layers: WakeupLayer[] = [
     {
@@ -114,19 +115,24 @@ export function buildWakeupLayers(input: WakeupLayersInput): WakeupLayersBundle 
     },
     {
       name: 'L1',
-      title: 'Checkpoint',
+      title: 'Checkpoint / Diary',
       summary: input.checkpoint
-        ? `${input.checkpoint.title} · ${input.checkpoint.goal || input.checkpoint.phase}`
-        : 'No checkpoint loaded',
-      blockCount: checkpointBlocks.length,
-      blockIds: checkpointBlocks.map((block) => block.id),
+        ? `${input.checkpoint.title} · ${input.checkpoint.goal || input.checkpoint.phase}${diaryBlocks.length > 0 ? ` · ${diaryBlocks.length} diary` : ''}`
+        : diaryBlocks.length > 0
+          ? `${diaryBlocks.length} diary entr${diaryBlocks.length === 1 ? 'y' : 'ies'}`
+          : 'No checkpoint loaded',
+      blockCount: checkpointBlocks.length + diaryBlocks.length,
+      blockIds: [...checkpointBlocks.map((block) => block.id), ...diaryBlocks.map((block) => block.id)],
       highlights: input.checkpoint
         ? [
             `ID: ${input.checkpoint.id}`,
             `Phase: ${input.checkpoint.phase}`,
             `Goal: ${input.checkpoint.goal || 'N/A'}`,
+            ...(diaryBlocks.length > 0 ? [`Diary: ${diaryBlocks.length}`] : []),
           ]
-        : ['No checkpoint loaded'],
+        : diaryBlocks.length > 0
+          ? diaryBlocks.slice(0, 3).map((block) => block.title || block.id)
+          : ['No checkpoint loaded'],
     },
     {
       name: 'L2',

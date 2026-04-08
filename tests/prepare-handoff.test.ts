@@ -168,6 +168,18 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
 test('prepare_handoff returns readable text and errors when the checkpoint is missing', async () => {
   await withTempProject(async (projectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const store = new MemoryStore(projectRoot);
+    await store.appendLongTermMemoryItem({
+      id: 'handoff-diary',
+      type: 'journal',
+      title: 'worker-alpha · handoff',
+      summary: 'Rejected the old gateway fallback and queued resume bundle verification.',
+      tags: ['agent-diary', 'agent:worker-alpha', 'topic:handoff'],
+      scope: 'project',
+      source: 'agent-inferred',
+      confidence: 0.74,
+      durability: 'stable',
+    });
 
     const missingResponse = await handlePrepareHandoff({
       repo_path: projectRoot,
@@ -197,6 +209,8 @@ test('prepare_handoff returns readable text and errors when the checkpoint is mi
     const textResponse = await handlePrepareHandoff({
       repo_path: projectRoot,
       checkpoint_id: created.checkpoint.id,
+      agent_name: 'worker-alpha',
+      topic: 'handoff',
       format: 'text',
     });
 
@@ -208,5 +222,6 @@ test('prepare_handoff returns readable text and errors when the checkpoint is mi
     assert.match(textResponse.content[0].text, /### Active Block References/);
     assert.match(textResponse.content[0].text, /### Unresolved Block References/);
     assert.match(textResponse.content[0].text, /### Context Block/);
+    assert.match(textResponse.content[0].text, /worker-alpha · handoff/);
   });
 });

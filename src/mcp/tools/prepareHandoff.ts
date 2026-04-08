@@ -22,6 +22,9 @@ import { responseFormatSchema } from './responseFormat.js';
 export const prepareHandoffSchema = z.object({
   repo_path: z.string().describe('Absolute repository root path'),
   checkpoint_id: z.string().describe('Checkpoint id'),
+  agent_name: z.string().optional().describe('Optional agent name for diary lookup'),
+  topic: z.string().optional().describe('Optional diary topic filter'),
+  diary_limit: z.number().int().min(1).max(10).optional().default(3).describe('Maximum diary entries to include'),
   format: responseFormatSchema.optional().default('text'),
 });
 
@@ -246,6 +249,42 @@ async function resolveEvidenceBlocks(
     .map((memory) => buildLongTermMemoryContextBlock(memory));
 }
 
+async function resolveDiaryBlocks(
+  store: MemoryStore,
+  input: { agentName?: string; topic?: string; limit: number },
+): Promise<ContextBlock[]> {
+  if (!input.agentName && !input.topic) {
+    return [];
+  }
+
+  const journals = (await store.listLongTermMemories({
+    types: ['journal'],
+    scope: 'project',
+    includeExpired: true,
+  }))
+    .filter((item) => !input.agentName || item.tags.includes(`agent:${input.agentName}`))
+    .filter((item) => !input.topic || item.tags.includes(`topic:${input.topic}`))
+    .slice(0, input.limit);
+
+  return journals.map((item) => ({
+    id: `diary:${item.id}`,
+    type: 'recent-findings',
+    title: item.title,
+    purpose: 'Carry recent agent diary entries into handoff so the next agent sees attempts and blockers',
+    content: item.summary,
+    priority: 'medium',
+    pinned: false,
+    expandable: true,
+    memoryKind: 'episodic',
+    provenance: [{ source: 'long-term-memory', ref: item.id }],
+    freshness: {
+      lastVerifiedAt: item.lastVerifiedAt || item.updatedAt,
+      stale: item.status !== 'active',
+      confidence: item.confidence >= 0.8 ? 'high' : item.confidence >= 0.5 ? 'medium' : 'low',
+    },
+  }));
+}
+
 async function resolveReferencedContextBlocks(
   store: MemoryStore,
   checkpoint: TaskCheckpoint,
@@ -366,10 +405,12 @@ async function resolveReferencedContextBlocks(
 async function buildPrepareHandoffJsonPayload(
   store: MemoryStore,
   checkpoint: TaskCheckpoint,
+  input?: { agentName?: string; topic?: string; limit: number },
 ): Promise<PrepareHandoffPayload> {
   const contextBlock = buildCheckpointContextBlock(checkpoint, `checkpoint:${checkpoint.id}`);
   const resolved = await resolveReferencedContextBlocks(store, checkpoint);
-  const contextBlocks = [contextBlock, ...resolved.contextBlocks];
+  const diaryBlocks = input ? await resolveDiaryBlocks(store, input) : [];
+  const contextBlocks = [contextBlock, ...resolved.contextBlocks, ...diaryBlocks];
   const referencedBlockIds = buildReferencedBlockIds(checkpoint, contextBlock.id);
   const handoff = buildCheckpointHandoff(checkpoint, contextBlock.id);
   const handoffBundle: CheckpointHandoffBundle = buildCheckpointHandoffBundle(checkpoint, contextBlocks);
@@ -413,6 +454,7 @@ function formatList(items: string[]): string[] {
 
 function formatPrepareHandoffText(checkpoint: TaskCheckpoint, payload: PrepareHandoffPayload): string {
   const contextBlock = payload.contextBlocks[0];
+  const diaryBlocks = payload.contextBlocks.filter((block) => block.id.startsWith('diary:'));
   return [
     '## Prepare Handoff',
     `- **Checkpoint**: ${checkpoint.id}`,
@@ -439,6 +481,13 @@ function formatPrepareHandoffText(checkpoint: TaskCheckpoint, payload: PrepareHa
     '',
     '### Next Steps',
     ...formatList(payload.nextSteps),
+    '',
+    '### Diary Entries',
+    ...(
+      diaryBlocks.length > 0
+        ? diaryBlocks.map((block) => `- ${block.title}: ${block.content}`)
+        : ['- None']
+    ),
     '',
     '### Context Block',
     `- **ID**: ${contextBlock.id}`,
@@ -472,7 +521,11 @@ export async function handlePrepareHandoff(
     };
   }
 
-  const payload = await buildPrepareHandoffJsonPayload(store, checkpoint);
+  const payload = await buildPrepareHandoffJsonPayload(store, checkpoint, {
+    agentName: args.agent_name,
+    topic: args.topic,
+    limit: args.diary_limit,
+  });
 
   if (args.format === 'json') {
     return {

@@ -78,6 +78,18 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
 
     const store = new MemoryStore(projectRoot);
     await store.saveFeature(buildMemory('SearchService', 'orchestrates retrieval and packing', 'SearchService.ts'));
+    await store.appendLongTermMemoryItem({
+      id: 'diary-assemble',
+      type: 'journal',
+      title: 'worker-alpha · retrieval',
+      summary: 'Investigated retrieval slowdown and queued verification for SearchService.',
+      tags: ['agent-diary', 'agent:worker-alpha', 'topic:retrieval'],
+      scope: 'project',
+      source: 'agent-inferred',
+      confidence: 0.72,
+      createdAt: '2026-04-07T10:00:00.000Z',
+      updatedAt: '2026-04-07T10:00:00.000Z',
+    });
     await store.saveCheckpoint({
       id: 'chk_assemble',
       repoPath: projectRoot,
@@ -218,6 +230,9 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
         profile: 'implementation',
         query: 'Trace retrieval flow',
         moduleName: 'SearchService',
+        includeDiary: true,
+        agentName: 'worker-alpha',
+        diaryTopic: 'retrieval',
         filePaths: ['src/search/SearchService.ts'],
         checkpoint_id: 'chk_assemble',
         format: 'json',
@@ -242,6 +257,7 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
           contextBlocks: Array<{ id: string; type: string; provenance: Array<{ source: string; ref: string }> }>;
           summary: {
             checkpointBlocks: number;
+            diaryBlocks: number;
             moduleMemoryBlocks: number;
             codeBlocks: number;
             totalBlocks: number;
@@ -265,6 +281,7 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
           checkpoint: { tool: string; checkpointId: string } | null;
           moduleMemory: { tool: string; resultCount: number } | null;
           codebaseRetrieval: { tool: string; summary: { codeBlocks: number } } | null;
+          diary: { tool: string; resultCount: number } | null;
         };
       };
 
@@ -284,8 +301,10 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
       ]);
       assert.equal(payload.selectedContext.moduleMemories[0]?.name, 'SearchService');
       assert.ok(payload.selectedContext.contextBlocks.some((block) => block.type === 'task-state'));
+      assert.ok(payload.selectedContext.contextBlocks.some((block) => block.id === 'diary:diary-assemble'));
       assert.ok(payload.selectedContext.contextBlocks.some((block) => block.type === 'module-summary'));
       assert.ok(payload.selectedContext.contextBlocks.some((block) => block.type === 'code-evidence'));
+      assert.equal(payload.selectedContext.summary.diaryBlocks, 1);
       assert.equal(payload.selectedContext.summary.totalBlocks, payload.selectedContext.contextBlocks.length);
       assert.equal(payload.budget.selectedContextBlocks, payload.selectedContext.contextBlocks.length);
       assert.equal(payload.wakeupLayers.version, 1);
@@ -296,6 +315,7 @@ test('assemble_context combines checkpoint, module memory, and code evidence int
       assert.equal(payload.source.checkpoint?.tool, 'load_checkpoint');
       assert.equal(payload.source.moduleMemory?.tool, 'load_module_memory');
       assert.equal(payload.source.codebaseRetrieval?.tool, 'codebase-retrieval');
+      assert.equal(payload.source.diary?.tool, 'record_agent_diary');
 
       const sources = new Set(payload.references.map((reference) => reference.source));
       assert.ok(sources.has('code'));

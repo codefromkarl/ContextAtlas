@@ -296,9 +296,17 @@ export async function analyzeMemoryHealth(
 ): Promise<MemoryHealthReport> {
   const hub = new MemoryHubDatabase();
   try {
+    const allowedProjectRoots = options.projectRoots?.length
+      ? new Set(options.projectRoots.map((projectRoot) => path.resolve(projectRoot)))
+      : null;
     // 1. Long-term memory freshness (across all projects)
     let allLongTermItems: ResolvedLongTermMemoryItem[] = [];
-    const projects = hub.listProjects();
+    const projects = hub.listProjects().filter((project) => {
+      if (!allowedProjectRoots) {
+        return true;
+      }
+      return allowedProjectRoots.has(path.resolve(project.path));
+    });
 
     for (const project of projects) {
       try {
@@ -317,8 +325,11 @@ export async function analyzeMemoryHealth(
 
     // 2. Feature memory health + catalog consistency per project
     let allFeatures: FeatureMemory[] = [];
-    let catalogModules: Record<string, unknown> = {};
     const projectScores: ProjectMemoryScore[] = [];
+    const aggregatedMissingFromCatalog: string[] = [];
+    const aggregatedStaleInCatalog: string[] = [];
+    let aggregatedCatalogEntryCount = 0;
+    let aggregatedFeatureCount = 0;
 
     for (const project of projects) {
       try {
@@ -328,15 +339,14 @@ export async function analyzeMemoryHealth(
         allFeatures.push(...features);
 
         const catalog = await store.readCatalog();
-        if (catalog?.modules) {
-          Object.assign(catalogModules, catalog.modules);
-        }
 
         // Per-project analysis
         const projectFeatures = features;
-        const projectLongTerm = allLongTermItems.filter(
-          (item) => item.scope === 'project',
-        );
+        const projectLongTerm = await store.listLongTermMemories({
+          scope: 'project',
+          includeExpired: true,
+          staleDays: options.staleDays,
+        });
 
         const featureHealth = analyzeFeatureMemoryHealth(
           projectFeatures,
@@ -347,6 +357,14 @@ export async function analyzeMemoryHealth(
         const consistency = analyzeCatalogConsistency(
           projectFeatures,
           catalog?.modules || {},
+        );
+        aggregatedFeatureCount += consistency.totalFeatures;
+        aggregatedCatalogEntryCount += consistency.totalCatalogEntries;
+        aggregatedMissingFromCatalog.push(
+          ...consistency.missingFromCatalog.map((name) => `${project.id}:${name}`),
+        );
+        aggregatedStaleInCatalog.push(
+          ...consistency.staleInCatalog.map((name) => `${project.id}:${name}`),
         );
 
         const { score, issues } = calculateProjectScore(featureHealth, freshness, consistency);
@@ -371,17 +389,11 @@ export async function analyzeMemoryHealth(
     // 4. Catalog consistency (aggregated)
     const catalogConsistency: CatalogConsistency = {
       isConsistent: projectScores.every((p) => p.catalogConsistent),
-      missingFromCatalog: [],
-      staleInCatalog: [],
-      totalFeatures: allFeatures.length,
-      totalCatalogEntries: Object.keys(catalogModules).length,
+      missingFromCatalog: aggregatedMissingFromCatalog,
+      staleInCatalog: aggregatedStaleInCatalog,
+      totalFeatures: aggregatedFeatureCount,
+      totalCatalogEntries: aggregatedCatalogEntryCount,
     };
-
-    for (const project of projectScores) {
-      if (!project.catalogConsistent) {
-        catalogConsistency.isConsistent = false;
-      }
-    }
 
     const report: MemoryHealthReport = {
       longTermFreshness,

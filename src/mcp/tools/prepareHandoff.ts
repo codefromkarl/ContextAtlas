@@ -57,7 +57,11 @@ function normalizeName(name: string): string {
 }
 
 function buildReferencedBlockIds(checkpoint: TaskCheckpoint, contextBlockId: string): string[] {
-  const blockIds = new Set<string>([...checkpoint.activeBlockIds, contextBlockId]);
+  const blockIds = new Set<string>([
+    ...checkpoint.activeBlockIds,
+    ...(checkpoint.supportingRefs || []),
+    contextBlockId,
+  ]);
   return [...blockIds];
 }
 
@@ -215,6 +219,33 @@ function buildExploredRefsBlock(checkpoint: TaskCheckpoint): ContextBlock | null
   };
 }
 
+async function resolveEvidenceBlocks(
+  store: MemoryStore,
+  evidenceRefs: string[] = [],
+): Promise<ContextBlock[]> {
+  const evidenceIds = [...new Set(
+    evidenceRefs
+      .map((ref) => ref.trim())
+      .filter((ref) => ref.startsWith('evidence:'))
+      .map((ref) => ref.slice('evidence:'.length))
+      .filter(Boolean),
+  )];
+
+  if (evidenceIds.length === 0) {
+    return [];
+  }
+
+  const memories = await store.listLongTermMemories({
+    types: ['evidence'],
+    includeExpired: true,
+  });
+
+  return evidenceIds
+    .map((id) => memories.find((item) => item.id === id))
+    .filter((memory): memory is ResolvedLongTermMemoryItem => Boolean(memory))
+    .map((memory) => buildLongTermMemoryContextBlock(memory));
+}
+
 async function resolveReferencedContextBlocks(
   store: MemoryStore,
   checkpoint: TaskCheckpoint,
@@ -229,7 +260,7 @@ async function resolveReferencedContextBlocks(
     features.map((feature) => [`feature:${feature.name}`, feature] as const),
   );
 
-  for (const blockId of checkpoint.activeBlockIds) {
+  for (const blockId of [...checkpoint.activeBlockIds, ...(checkpoint.supportingRefs || [])]) {
     if (blockId.startsWith('memory:')) {
       const memory = featureByBlockId.get(blockId);
       if (!memory) {
@@ -238,6 +269,7 @@ async function resolveReferencedContextBlocks(
       }
 
       resolvedBlocks.push(buildFeatureMemoryContextBlock(memory));
+      resolvedBlocks.push(...await resolveEvidenceBlocks(store, memory.evidenceRefs));
       continue;
     }
 
@@ -249,6 +281,7 @@ async function resolveReferencedContextBlocks(
       }
 
       resolvedBlocks.push(buildFeatureAliasContextBlock(memory));
+      resolvedBlocks.push(...await resolveEvidenceBlocks(store, memory.evidenceRefs));
       continue;
     }
 
@@ -268,6 +301,22 @@ async function resolveReferencedContextBlocks(
       continue;
     }
 
+    if (blockId.startsWith('evidence:')) {
+      const evidenceId = blockId.slice('evidence:'.length);
+      const matches = await store.listLongTermMemories({
+        types: ['evidence'],
+        includeExpired: true,
+      });
+      const memory = matches.find((item) => item.id === evidenceId);
+      if (!memory) {
+        unresolvedBlockIds.push(blockId);
+        continue;
+      }
+
+      resolvedBlocks.push(buildLongTermMemoryContextBlock(memory));
+      continue;
+    }
+
     if (blockId.startsWith('decision:')) {
       const decisionId = blockId.slice('decision:'.length);
       const decision = await store.readDecision(decisionId);
@@ -277,6 +326,7 @@ async function resolveReferencedContextBlocks(
       }
 
       resolvedBlocks.push(buildDecisionContextBlock(decision));
+      resolvedBlocks.push(...await resolveEvidenceBlocks(store, decision.evidenceRefs));
       continue;
     }
 
@@ -303,8 +353,12 @@ async function resolveReferencedContextBlocks(
     resolvedBlocks.push(exploredRefsBlock);
   }
 
+  const dedupedBlocks = Array.from(
+    new Map(resolvedBlocks.map((block) => [block.id, block] as const)).values(),
+  );
+
   return {
-    contextBlocks: resolvedBlocks,
+    contextBlocks: dedupedBlocks,
     unresolvedBlockIds: Array.from(new Set(unresolvedBlockIds)),
   };
 }

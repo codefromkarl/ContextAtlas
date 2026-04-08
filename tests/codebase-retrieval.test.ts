@@ -262,6 +262,18 @@ test('handleCodebaseRetrieval formats default result card with memory and decisi
     confidence: 1,
     lastVerifiedAt: new Date('2026-04-05T10:30:00Z').toISOString(),
   });
+  await store.appendLongTermMemoryItem({
+    type: 'evidence',
+    title: 'retrieval-evidence-incident',
+    summary: '用户反馈要求把 evidence 明确展示到 codebase-retrieval 主路径。',
+    why: '避免代理只看到摘要，看不到支撑结论的原始证据层。',
+    howToApply: '在 contextBlocks 和 references 里显式暴露 evidence 条目。',
+    tags: ['retrieval', 'evidence', 'SearchService'],
+    scope: 'project',
+    source: 'user-explicit',
+    confidence: 0.95,
+    lastVerifiedAt: new Date('2026-04-05T10:40:00Z').toISOString(),
+  });
 
   const originalInit = SearchService.prototype.init;
   const originalBuildContextPack = SearchService.prototype.buildContextPack;
@@ -435,7 +447,34 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
     dependencies: { imports: ['GraphExpander', 'ContextPacker'], external: [] },
     dataFlow: 'query -> recall -> rerank -> expand -> pack',
     keyPatterns: ['search', 'rerank', 'context pack'],
+    evidenceRefs: ['evidence:retrieval-evidence-ref'],
     lastUpdated: new Date('2026-04-05T10:00:00Z').toISOString(),
+  });
+  await store.appendLongTermMemoryItem({
+    id: 'retrieval-evidence-ref',
+    type: 'evidence',
+    title: 'retrieval-evidence-incident',
+    summary: '用户反馈要求把 evidence 明确展示到 codebase-retrieval 主路径。',
+    why: '避免代理只看到摘要，看不到支撑结论的原始证据层。',
+    howToApply: '在 contextBlocks 和 references 里显式暴露 evidence 条目。',
+    tags: ['retrieval', 'evidence', 'SearchService'],
+    scope: 'project',
+    source: 'user-explicit',
+    confidence: 0.95,
+    lastVerifiedAt: new Date('2026-04-05T10:40:00Z').toISOString(),
+  });
+  await store.appendLongTermMemoryItem({
+    id: 'migration-user-module',
+    type: 'temporal-fact',
+    title: 'User module migration window',
+    summary: 'User module migration remains blocked until data backfill is verified.',
+    tags: ['migration', 'user-module'],
+    scope: 'project',
+    source: 'user-explicit',
+    confidence: 1,
+    factKey: 'migration:user-module',
+    validFrom: '2026-04-08',
+    lastVerifiedAt: new Date('2026-04-05T10:50:00Z').toISOString(),
   });
 
   const originalInit = SearchService.prototype.init;
@@ -514,14 +553,45 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
     assert.ok(Array.isArray(payload.contextBlocks));
     assert.ok(payload.contextBlocks.some((block: { type: string }) => block.type === 'code-evidence'));
     assert.ok(payload.contextBlocks.some((block: { type: string }) => block.type === 'module-summary'));
+    assert.ok(
+      payload.contextBlocks.some(
+        (block: { title: string; provenance: Array<{ source: string; ref: string }> }) =>
+          block.title === 'retrieval-evidence-incident'
+          && block.provenance.some((item) => item.source === 'evidence'),
+      ),
+    );
+    assert.ok(
+      payload.contextBlocks.some(
+        (block: { id: string; title: string; content: string }) =>
+          block.id === 'temporal:migration:user-module'
+          && block.title === 'User module migration window'
+          && block.content.includes('Fact Key: migration:user-module'),
+      ),
+    );
     assert.equal(payload.blockFirst.schemaVersion, 1);
     assert.equal(payload.blockFirst.contextBlocks.length, payload.contextBlocks.length);
     assert.equal(payload.blockFirst.checkpointCandidate.title, 'Trace retrieval flow');
     assert.equal(payload.blockFirst.checkpointCandidate.source, 'retrieval');
     assert.equal(payload.blockFirst.checkpointCandidate.confidence, 'high');
+    assert.ok(Array.isArray(payload.blockFirst.checkpointCandidate.supportingRefs));
+    assert.ok(
+      payload.blockFirst.checkpointCandidate.supportingRefs.some((ref: string) => ref.startsWith('evidence:')),
+    );
     assert.equal(payload.checkpointCandidate.goal, 'Trace retrieval flow');
     assert.equal(payload.checkpointCandidate.phase, 'overview');
     assert.ok(Array.isArray(payload.references));
+    assert.ok(
+      payload.references.some(
+        (item: { source: string; ref: string }) =>
+          item.source === 'evidence' && typeof item.ref === 'string' && item.ref.length > 0,
+      ),
+    );
+    assert.ok(
+      payload.references.some(
+        (item: { source: string; ref: string }) =>
+          item.source === 'long-term-memory' && item.ref === 'migration-user-module',
+      ),
+    );
     assert.ok(Array.isArray(payload.nextInspectionSuggestions));
   } finally {
     SearchService.prototype.init = originalInit;

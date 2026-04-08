@@ -23,6 +23,7 @@ export function buildCheckpointContextBlock(
       `Summary: ${checkpoint.summary}`,
       `Active blocks: ${checkpoint.activeBlockIds.length > 0 ? checkpoint.activeBlockIds.join(', ') : 'None'}`,
       `Explored refs: ${checkpoint.exploredRefs.length > 0 ? checkpoint.exploredRefs.join(', ') : 'None'}`,
+      `Supporting refs: ${checkpoint.supportingRefs && checkpoint.supportingRefs.length > 0 ? checkpoint.supportingRefs.join(', ') : 'None'}`,
       `Key findings: ${checkpoint.keyFindings.length > 0 ? checkpoint.keyFindings.join(' | ') : 'None'}`,
       `Unresolved questions: ${checkpoint.unresolvedQuestions.length > 0 ? checkpoint.unresolvedQuestions.join(' | ') : 'None'}`,
       `Next steps: ${checkpoint.nextSteps.length > 0 ? checkpoint.nextSteps.join(' | ') : 'None'}`,
@@ -54,6 +55,7 @@ export function buildCheckpointHandoff(
     summary: checkpoint.summary,
     activeBlockIds: checkpoint.activeBlockIds,
     exploredRefs: checkpoint.exploredRefs,
+    supportingRefs: checkpoint.supportingRefs || [],
     keyFindings: checkpoint.keyFindings,
     unresolvedQuestions: checkpoint.unresolvedQuestions,
     nextSteps: checkpoint.nextSteps,
@@ -108,6 +110,7 @@ export function buildCheckpointResumeBundle(
     resumeFromCheckpointId: checkpoint.id,
     activeBlockIds: checkpoint.activeBlockIds,
     exploredRefs: checkpoint.exploredRefs,
+    supportingRefs: checkpoint.supportingRefs || [],
     keyFindings: checkpoint.keyFindings,
     unresolvedQuestions: checkpoint.unresolvedQuestions,
   };

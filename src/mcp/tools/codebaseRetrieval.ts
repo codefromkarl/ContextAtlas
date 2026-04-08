@@ -861,10 +861,18 @@ async function buildRetrievalResultCard({
       technicalTerms,
       memoryMatchesWithFeedback,
     );
-    const longTermMatches = rankLongTermMemoryMatches(
+    const directLongTermMatches = rankLongTermMemoryMatches(
       longTermMemories.filter((memory) => memory.type !== 'feedback'),
       informationRequest,
       technicalTerms,
+    );
+    const longTermMatches = mergeLongTermMemoryMatches(
+      directLongTermMatches,
+      resolveReferencedEvidenceMatches(
+        longTermMemories,
+        memoryMatchesWithFeedback,
+        decisionMatches,
+      ),
     );
 
     return {
@@ -994,6 +1002,7 @@ function rankLongTermMemoryMatches(
         memory.summary,
         memory.why || '',
         memory.howToApply || '',
+        memory.factKey || '',
         ...memory.tags,
       ]
         .join(' ')
@@ -1007,13 +1016,113 @@ function rankLongTermMemoryMatches(
 
       if (memory.status === 'active') {
         score += 2;
+        reasons.push('当前有效');
+      }
+
+      if (memory.type === 'temporal-fact') {
+        score += memory.status === 'active' ? 8 : 4;
+        reasons.push(memory.factKey ? `时态事实: ${memory.factKey}` : '时态事实');
       }
 
       return { memory, score, reasons };
     })
     .filter((match) => match.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 2);
+    .filter((match, index, list) => {
+      const groupKey = buildLongTermMemoryDedupKey(match.memory);
+      return list.findIndex((entry) => buildLongTermMemoryDedupKey(entry.memory) === groupKey) === index;
+    })
+    .slice(0, 3);
+}
+
+function resolveReferencedEvidenceMatches(
+  memories: ResolvedLongTermMemoryItem[],
+  memoryMatches: ResultCardFeatureMemoryMatch[],
+  decisionMatches: ResultCardDecisionMatch[],
+): ResultCardLongTermMemoryMatch[] {
+  const evidenceById = new Map(
+    memories
+      .filter((memory) => memory.type === 'evidence')
+      .map((memory) => [memory.id, memory] as const),
+  );
+  const referencedIds = new Set<string>();
+
+  for (const match of memoryMatches) {
+    for (const ref of match.memory.evidenceRefs || []) {
+      const parsed = parseEvidenceRef(ref);
+      if (parsed) {
+        referencedIds.add(parsed);
+      }
+    }
+  }
+
+  for (const match of decisionMatches) {
+    for (const ref of match.decision.evidenceRefs || []) {
+      const parsed = parseEvidenceRef(ref);
+      if (parsed) {
+        referencedIds.add(parsed);
+      }
+    }
+  }
+
+  return [...referencedIds]
+    .map((id) => evidenceById.get(id))
+    .filter((memory): memory is ResolvedLongTermMemoryItem => Boolean(memory))
+    .map((memory) => ({
+      memory,
+      score: 100,
+      reasons: ['由命中的 feature memory / decision record 证据引用回链'],
+    }));
+}
+
+function mergeLongTermMemoryMatches(
+  ...groups: ResultCardLongTermMemoryMatch[][]
+): ResultCardLongTermMemoryMatch[] {
+  const merged = new Map<string, ResultCardLongTermMemoryMatch>();
+
+  for (const group of groups) {
+    for (const match of group) {
+      const key = buildLongTermMemoryDedupKey(match.memory);
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, match);
+        continue;
+      }
+
+      merged.set(key, {
+        memory: existing.score >= match.score ? existing.memory : match.memory,
+        score: Math.max(existing.score, match.score),
+        reasons: [...new Set([...existing.reasons, ...match.reasons])],
+      });
+    }
+  }
+
+  return [...merged.values()]
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return new Date(b.memory.updatedAt).getTime() - new Date(a.memory.updatedAt).getTime();
+    })
+    .slice(0, 4);
+}
+
+function buildLongTermMemoryDedupKey(memory: ResolvedLongTermMemoryItem): string {
+  if (memory.type === 'temporal-fact' && memory.factKey) {
+    return `temporal-fact:${normalizeToken(memory.factKey)}`;
+  }
+  return `${memory.type}:${memory.id}`;
+}
+
+function parseEvidenceRef(ref: string): string | null {
+  const trimmed = ref.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.startsWith('evidence:')) {
+    return trimmed.slice('evidence:'.length) || null;
+  }
+  return null;
 }
 
 function rankFeedbackMatches(
@@ -1183,6 +1292,12 @@ function buildReasoningLines(
 
   if (longTermMatches.length > 0) {
     reasoning.push('长期记忆只补充代码中推不出来的项目状态或协作约束');
+    if (longTermMatches.some((match) => match.memory.type === 'temporal-fact')) {
+      reasoning.push('时态事实会优先暴露当前仍有效的迁移窗口、兼容窗口和临时约束');
+    }
+    if (longTermMatches.some((match) => match.memory.type === 'evidence')) {
+      reasoning.push('命中的记忆和决策若带有 evidenceRefs，会自动回链原始证据块');
+    }
   } else {
     reasoning.push('当前项目没有命中相关长期记忆');
   }
@@ -1405,6 +1520,8 @@ function formatLongTermMemoryMatches(matches: ResultCardLongTermMemoryMatch[]): 
         `#### ${memory.title}
 - 类型: ${memory.type}
 - 状态: ${memory.status}
+- Fact Key: ${memory.factKey || 'N/A'}
+- 生效区间: ${memory.validFrom || 'N/A'} -> ${memory.validUntil || 'active'}
 - 来源: ${memory.source}
 - 可信度: ${Math.round(memory.confidence * 100)}%
 - 最后核验: ${memory.lastVerifiedAt || memory.updatedAt}
@@ -1496,6 +1613,50 @@ function buildContextBlocks(pack: ContextPack, resultCard: RetrievalResultCard):
   }
 
   for (const match of resultCard.longTermMemories) {
+    if (match.memory.type === 'evidence') {
+      blocks.push({
+        id: `evidence:${match.memory.id}`,
+        type: 'recent-findings',
+        title: match.memory.title,
+        purpose: 'Surface raw supporting evidence that explains why a conclusion should be trusted',
+        content: match.memory.summary,
+        priority: 'medium',
+        pinned: false,
+        expandable: true,
+        memoryKind: 'episodic',
+        provenance: [{ source: 'evidence', ref: match.memory.id }],
+        freshness: {
+          lastVerifiedAt: match.memory.lastVerifiedAt || match.memory.updatedAt,
+        },
+      });
+      continue;
+    }
+
+    if (match.memory.type === 'temporal-fact') {
+      blocks.push({
+        id: `temporal:${match.memory.factKey || match.memory.id}`,
+        type: 'recent-findings',
+        title: match.memory.title,
+        purpose: 'Surface time-bounded project facts that may expire or be invalidated later',
+        content: [
+          match.memory.summary,
+          match.memory.factKey ? `Fact Key: ${match.memory.factKey}` : '',
+          match.memory.validFrom ? `Valid From: ${match.memory.validFrom}` : '',
+          match.memory.validUntil ? `Valid Until: ${match.memory.validUntil}` : '',
+        ].filter(Boolean).join('\n'),
+        priority: 'medium',
+        pinned: false,
+        expandable: true,
+        memoryKind: 'episodic',
+        provenance: [{ source: 'long-term-memory', ref: match.memory.id }],
+        freshness: {
+          lastVerifiedAt: match.memory.lastVerifiedAt || match.memory.updatedAt,
+          stale: match.memory.status !== 'active',
+        },
+      });
+      continue;
+    }
+
     blocks.push({
       id: `ltm:${match.memory.id}`,
       type: 'repo-rules',
@@ -1509,6 +1670,7 @@ function buildContextBlocks(pack: ContextPack, resultCard: RetrievalResultCard):
       provenance: [{ source: 'long-term-memory', ref: match.memory.id }],
       freshness: {
         lastVerifiedAt: match.memory.lastVerifiedAt || match.memory.updatedAt,
+        stale: match.memory.status !== 'active',
       },
     });
   }
@@ -1622,6 +1784,10 @@ function buildCheckpointCandidate(
     phase: 'overview',
     summary: resultCard.reasoning[0] || informationRequest,
     activeBlockIds: contextBlocks.filter((block) => block.pinned).map((block) => block.id),
+    supportingRefs: contextBlocks
+      .filter((block) => block.provenance.some((item) => item.source === 'evidence'))
+      .map((block) => block.id)
+      .slice(0, 20),
     exploredRefs: contextBlocks.flatMap((block) => block.provenance.map((item) => item.ref)).slice(0, 20),
     keyFindings: resultCard.reasoning.slice(0, 5),
     unresolvedQuestions: [],

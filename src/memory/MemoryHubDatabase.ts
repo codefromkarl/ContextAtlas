@@ -39,6 +39,7 @@ export interface FeatureMemoryRow {
   dependencies: string; // JSON
   data_flow: string;
   key_patterns: string; // JSON
+  evidence_refs?: string; // JSON
   memory_type: 'local' | 'shared' | 'pattern' | 'framework';
   confirmation_status?: 'suggested' | 'agent-inferred' | 'human-confirmed';
   review_status?: 'verified' | 'needs-review';
@@ -131,6 +132,7 @@ export class MemoryHubDatabase {
         dependencies TEXT DEFAULT '{}',
         data_flow TEXT DEFAULT '',
         key_patterns TEXT DEFAULT '[]',
+        evidence_refs TEXT DEFAULT '[]',
         memory_type TEXT DEFAULT 'local' CHECK(memory_type IN ('local', 'shared', 'pattern', 'framework')),
         confirmation_status TEXT DEFAULT 'human-confirmed' CHECK(confirmation_status IN ('suggested', 'agent-inferred', 'human-confirmed')),
         review_status TEXT DEFAULT 'verified' CHECK(review_status IN ('verified', 'needs-review')),
@@ -236,6 +238,11 @@ export class MemoryHubDatabase {
     }
     try {
       this.db.exec(`ALTER TABLE feature_memories ADD COLUMN key_patterns TEXT DEFAULT '[]'`);
+    } catch {
+      // column exists
+    }
+    try {
+      this.db.exec(`ALTER TABLE feature_memories ADD COLUMN evidence_refs TEXT DEFAULT '[]'`);
     } catch {
       // column exists
     }
@@ -595,6 +602,7 @@ export class MemoryHubDatabase {
     dependencies?: { imports?: string[]; external?: string[] };
     data_flow?: string;
     key_patterns?: string[];
+    evidence_refs?: string[];
     memory_type?: 'local' | 'shared' | 'pattern' | 'framework';
     confirmation_status?: 'suggested' | 'agent-inferred' | 'human-confirmed';
     review_status?: 'verified' | 'needs-review';
@@ -607,11 +615,11 @@ export class MemoryHubDatabase {
       INSERT INTO feature_memories (
         project_id, name, responsibility, location_dir,
         location_files, api_exports, api_endpoints, dependencies, data_flow, key_patterns,
-        memory_type, confirmation_status, review_status, review_reason, review_marked_at, snapshot_id, updated_at
+        evidence_refs, memory_type, confirmation_status, review_status, review_reason, review_marked_at, snapshot_id, updated_at
       ) VALUES (
         @project_id, @name, @responsibility, @location_dir,
         @location_files, @api_exports, @api_endpoints, @dependencies, @data_flow, @key_patterns,
-        @memory_type, @confirmation_status, @review_status, @review_reason, @review_marked_at, @snapshot_id, COALESCE(@updated_at, datetime('now'))
+        @evidence_refs, @memory_type, @confirmation_status, @review_status, @review_reason, @review_marked_at, @snapshot_id, COALESCE(@updated_at, datetime('now'))
       )
       ON CONFLICT(project_id, name) DO UPDATE SET
         responsibility = @responsibility,
@@ -622,6 +630,7 @@ export class MemoryHubDatabase {
         dependencies = @dependencies,
         data_flow = @data_flow,
         key_patterns = @key_patterns,
+        evidence_refs = @evidence_refs,
         memory_type = @memory_type,
         confirmation_status = @confirmation_status,
         review_status = @review_status,
@@ -642,6 +651,7 @@ export class MemoryHubDatabase {
       dependencies: JSON.stringify(memory.dependencies || {}),
       data_flow: memory.data_flow || '',
       key_patterns: JSON.stringify(memory.key_patterns || []),
+      evidence_refs: JSON.stringify(memory.evidence_refs || []),
       memory_type: memory.memory_type || 'local',
       confirmation_status: memory.confirmation_status || 'human-confirmed',
       review_status: memory.review_status || 'verified',

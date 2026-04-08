@@ -34,10 +34,10 @@
 
 ### Phase 3 - 证据回链与时态主路径
 
-- [ ] 让 retrieval 主路径把 `evidence` 与 `temporal-fact` 作为显式上下文块处理
-- [ ] 让 checkpoint / handoff 能解析并携带 `supportingRefs`
-- [ ] 为 feature memory / decision record 的 `evidenceRefs` 建立自动回链解析
-- [ ] 补充 retrieval / handoff / persistence 测试
+- [x] 让 retrieval 主路径把 `evidence` 与 `temporal-fact` 作为显式上下文块处理
+- [x] 让 checkpoint / handoff 能解析并携带 `supportingRefs`
+- [x] 为 feature memory / decision record 的 `evidenceRefs` 建立自动回链解析
+- [x] 补充 retrieval / handoff / persistence 测试
 
 ### Phase 4 - Agent Diary 生命周期接入
 
@@ -65,7 +65,7 @@
 - Phase 0: done
 - Phase 1: done
 - Phase 2: done
-- Phase 3: pending
+- Phase 3: done
 - Phase 4: pending
 - Phase 5: pending
 - Phase 6: pending

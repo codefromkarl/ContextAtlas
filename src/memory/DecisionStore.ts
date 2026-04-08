@@ -20,6 +20,7 @@ export class DecisionStore {
       context: decision.context,
       alternatives: decision.alternatives,
       consequences: decision.consequences,
+      evidenceRefs: decision.evidenceRefs,
       date: decision.date,
       reviewer: decision.reviewer,
     });
@@ -69,6 +70,7 @@ export class DecisionStore {
       alternatives: this.parseAlternatives(contextPayload.alternatives),
       rationale: String(row.rationale ?? ''),
       consequences: this.parseStringArray(contextPayload.consequences),
+      evidenceRefs: this.parseStringArray(contextPayload.evidenceRefs),
       status: (row.status as DecisionRecord['status']) || 'accepted',
     };
   }

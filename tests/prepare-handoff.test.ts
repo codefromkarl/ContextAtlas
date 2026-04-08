@@ -45,6 +45,7 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
       },
       dataFlow: 'SearchService data flow',
       keyPatterns: ['searchservice', 'search'],
+      evidenceRefs: ['evidence:evidence-feature'],
       lastUpdated: new Date('2026-04-07T10:00:00.000Z').toISOString(),
       confirmationStatus: 'human-confirmed',
     });
@@ -56,6 +57,30 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
       tags: ['handoff'],
       scope: 'project',
       source: 'user-explicit',
+      confidence: 0.9,
+      durability: 'stable',
+      provenance: ['prepare-handoff.test'],
+    });
+    await store.appendLongTermMemoryItem({
+      id: 'evidence-1',
+      type: 'evidence',
+      title: 'Index benchmark evidence',
+      summary: 'Direct SiliconFlow indexing completed faster than the local gateway path.',
+      tags: ['benchmark'],
+      scope: 'project',
+      source: 'tool-result',
+      confidence: 0.95,
+      durability: 'stable',
+      provenance: ['prepare-handoff.test'],
+    });
+    await store.appendLongTermMemoryItem({
+      id: 'evidence-feature',
+      type: 'evidence',
+      title: 'Feature evidence',
+      summary: 'SearchService memory is backed by an incident review note.',
+      tags: ['feature-evidence'],
+      scope: 'project',
+      source: 'tool-result',
       confidence: 0.9,
       durability: 'stable',
       provenance: ['prepare-handoff.test'],
@@ -76,11 +101,12 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
         'block:overview',
       ],
       exploredRefs: ['src/search/SearchService.ts:L1-L30'],
+      supportingRefs: ['evidence:evidence-1'],
       keyFindings: ['SearchService is the main orchestration entry'],
       unresolvedQuestions: ['How to persist handoff state?'],
       nextSteps: ['Inspect MemoryStore'],
       format: 'json',
-    });
+    } as any);
 
     const created = JSON.parse(createResponse.content[0].text);
 
@@ -98,13 +124,15 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
     assert.ok(payload.contextBlocks.some((block: { type: string; id: string }) => block.type === 'module-summary' && block.id === 'memory:searchservice'));
     assert.ok(payload.contextBlocks.some((block: { type: string; id: string }) => block.type === 'module-summary' && block.id === 'feature:SearchService'));
     assert.ok(payload.contextBlocks.some((block: { type: string; id: string }) => block.type === 'repo-rules' && block.id === 'long-term:reference:handoff-ref'));
+    assert.ok(payload.contextBlocks.some((block: { type: string; id: string }) => block.type === 'repo-rules' && block.id === 'long-term:evidence:evidence-1'));
+    assert.ok(payload.contextBlocks.some((block: { type: string; id: string }) => block.type === 'repo-rules' && block.id === 'long-term:evidence:evidence-feature'));
     assert.ok(payload.contextBlocks.some((block: { type: string }) => block.type === 'code-evidence'));
     assert.ok(payload.contextBlocks.some((block: { type: string; id: string }) => block.type === 'open-questions' && block.id === 'task:open-questions'));
     assert.equal(payload.handoffSummary.goal, 'Understand retrieval path');
     assert.equal(payload.handoffSummary.phase, 'overview');
     assert.equal(payload.handoffSummary.unresolvedQuestionCount, 1);
     assert.equal(payload.handoffSummary.nextStepCount, 1);
-    assert.equal(payload.handoffSummary.resolvedBlockCount, 8);
+    assert.equal(payload.handoffSummary.resolvedBlockCount, 10);
     assert.deepEqual(payload.handoffSummary.unresolvedBlockIds, ['block:overview']);
     assert.deepEqual(payload.handoffSummary.referencedBlockIds, [
       'memory:searchservice',
@@ -113,6 +141,7 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
       'task:open-questions',
       'code:src/search/SearchService.ts:L1-L30',
       'block:overview',
+      'evidence:evidence-1',
       `checkpoint-block:${created.checkpoint.id}`,
     ]);
     assert.deepEqual(payload.referencedBlockIds, [
@@ -122,6 +151,7 @@ test('prepare_handoff packages checkpoint handoff and resume bundles', async () 
       'task:open-questions',
       'code:src/search/SearchService.ts:L1-L30',
       'block:overview',
+      'evidence:evidence-1',
       `checkpoint-block:${created.checkpoint.id}`,
     ]);
     assert.deepEqual(payload.unresolvedBlockIds, ['block:overview']);

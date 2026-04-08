@@ -137,6 +137,7 @@
 
 - [Iteration 2 记忆治理边界设计（2026-04-08）](./ITERATION_2_MEMORY_GOVERNANCE_DESIGN_2026_04_08.md)
 - [Iteration 3 治理能力实现记录（2026-04-08）](./ITERATION_3_GOVERNANCE_IMPLEMENTATION_2026_04_08.md)
+- [Iteration 4 团队级验收报告（2026-04-08）](./ITERATION_4_TEAM_ACCEPTANCE_REPORT_2026_04_08.md)
 
 ### 6. 共享与个人记忆分层
 
@@ -166,9 +167,9 @@
 
 ### 10. 团队级验收闭环
 
-- [ ] 验证产品可稳定处理 repo 日常变化，尽量不依赖人工全量重建
-- [ ] 让管理者可见“是否在用、哪里不准、哪里在坏”
-- [ ] 验证团队共享 memory 后不会互相污染
+- [x] 验证产品可稳定处理 repo 日常变化，尽量不依赖人工全量重建
+- [x] 让管理者可见“是否在用、哪里不准、哪里在坏”
+- [x] 验证团队共享 memory 后不会互相污染
 
 ---
 

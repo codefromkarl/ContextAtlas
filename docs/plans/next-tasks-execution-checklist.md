@@ -226,6 +226,7 @@
 - `contextatlas ops:metrics` 已补充治理策略分布与长期记忆 scope 分布
 - `contextatlas health:full` 已在 per-project summary 中展示策略模式、changed files、churn、cost 与 triggers
 - `contextatlas alert:eval` 已并入 `memoryHealth` 指标，catalog inconsistency / orphaned feature memory 现在会直接参与告警评估
+- `contextatlas alert:eval --stale-days <days>` 与 `contextatlas ops:summary --stale-days <days>` 已共享同一套 stale-memory 告警口径
 - `release smoke` 已覆盖：
   - `contextatlas index:diagnose --json`
   - `contextatlas ops:summary --json`

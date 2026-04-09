@@ -298,6 +298,7 @@ contextatlas ops:metrics --days 7 --stale-days 30
 
 # 告警评估
 contextatlas alert:eval
+contextatlas alert:eval --stale-days 30
 contextatlas alert:eval --json
 
 # 告警配置
@@ -333,6 +334,7 @@ contextatlas alert:config --reset
 - orphaned feature memory 比例
 - 长期记忆 `project` / `global-user` scope 总量
 - 当前索引策略摘要是否已经下沉到团队摘要
+- `--stale-days` 指定的记忆 stale 阈值也会直接传递给告警评估，保证与 `alert:eval` 的风险判断一致
 
 `contextatlas alert:eval` 当前除了索引队列、daemon、检索异常外，也会覆盖治理相关信号，例如：
 
@@ -340,6 +342,8 @@ contextatlas alert:config --reset
 - `memory.orphanedRate`
 - `memory.staleRate`
 - `memory.expiredRate`
+
+`contextatlas alert:eval --stale-days <days>` 现在会与 `ops:summary --stale-days <days>` 复用同一套告警指标构造逻辑，适合在值班排查时用同一个阈值先看摘要，再单独核对告警文本。
 
 `contextatlas health:full` 的文本报告现在会在项目摘要中直接展示当前策略摘要，包括：
 

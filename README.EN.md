@@ -36,7 +36,7 @@
 - `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
 - `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
 - `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
-- `2026-04-09`: added churn / cost-aware index planning, moved long-term memory into dedicated tables + FTS5, and finished default-path hardening, threshold configuration, and doc sync.
+- `2026-04-09`: added churn / cost-aware index planning, moved long-term memory into dedicated tables + FTS5, and finished default-path hardening, threshold configuration, ops alert threshold alignment, and doc sync.
 
 ## Contents
 
@@ -415,7 +415,7 @@ contextatlas ops:metrics --days 7 --stale-days 30
 contextatlas health:check
 contextatlas index:plan /path/to/repo
 contextatlas index:diagnose
-contextatlas alert:eval
+contextatlas alert:eval --stale-days 30
 ```
 
 ## Architecture overview

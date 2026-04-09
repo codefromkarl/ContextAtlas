@@ -480,6 +480,7 @@ contextatlas index:update /path/to/repo
 
 # 评估告警
 contextatlas alert:eval
+contextatlas alert:eval --stale-days 30
 
 # 分析文本存储冗余
 contextatlas storage:analyze --project-id <projectId>
@@ -502,6 +503,8 @@ contextatlas daemon once
 contextatlas task:status
 contextatlas task:inspect <taskId>
 ```
+
+运维排查时，建议把 `ops:summary --stale-days <days>` 与 `alert:eval --stale-days <days>` 配套使用。两者现在共享同一套 memory health 告警口径，便于先看团队摘要，再下钻单独告警结果，而不会因为 stale 阈值不一致造成判断漂移。
 
 ### 数据目录
 

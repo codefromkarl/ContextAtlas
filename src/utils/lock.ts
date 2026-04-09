@@ -19,6 +19,18 @@ interface LockInfo {
   operation: string;
 }
 
+function getErrnoCode(error: unknown): string | undefined {
+  return error && typeof error === 'object'
+    ? (typeof Reflect.get(error, 'code') === 'string' ? String(Reflect.get(error, 'code')) : undefined)
+    : undefined;
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  return error && typeof error === 'object'
+    ? (typeof Reflect.get(error, 'message') === 'string' ? String(Reflect.get(error, 'message')) : undefined)
+    : undefined;
+}
+
 /**
  * 获取锁文件年龄（毫秒）
  */
@@ -59,8 +71,7 @@ function isLockValid(lockPath: string): boolean {
       process.kill(lockInfo.pid, 0); // 发送信号 0 只检查进程是否存在
       return true;
     } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      if (error.code === 'EPERM') {
+      if (getErrnoCode(err) === 'EPERM') {
         // 没权限发信号但进程存在，视为锁仍有效
         return true;
       }
@@ -73,8 +84,7 @@ function isLockValid(lockPath: string): boolean {
       // 刚创建的锁可能尚未写完，短暂视为有效，避免竞态误删
       return true;
     }
-    const error = err as { message?: string };
-    logger.debug({ error: error.message }, '读取锁文件失败');
+    logger.debug({ error: getErrorMessage(err) }, '读取锁文件失败');
     return false;
   }
 }
@@ -116,27 +126,24 @@ async function acquireLock(
       logger.debug({ projectId: projectId.slice(0, 10), operation }, '获取锁成功');
       return true;
     } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-
       // 锁已存在：检查是否为失效锁，若失效则移除后重试
-      if (error.code === 'EEXIST') {
+      if (getErrnoCode(err) === 'EEXIST') {
         if (!isLockValid(lockPath)) {
           try {
             fs.unlinkSync(lockPath);
             logger.warn({ projectId: projectId.slice(0, 10) }, '移除失效锁');
             continue;
           } catch (unlinkErr) {
-            const unlinkError = unlinkErr as NodeJS.ErrnoException;
             // 可能是并发下其他进程已删除，忽略
-            if (unlinkError.code !== 'ENOENT') {
-              logger.debug({ error: unlinkError.message }, '移除失效锁失败，重试中...');
+            if (getErrnoCode(unlinkErr) !== 'ENOENT') {
+              logger.debug({ error: getErrorMessage(unlinkErr) }, '移除失效锁失败，重试中...');
             }
           }
         } else {
           logger.debug({ projectId: projectId.slice(0, 10) }, '等待锁释放...');
         }
       } else {
-        logger.debug({ error: error.message }, '获取锁失败，重试中...');
+        logger.debug({ error: getErrorMessage(err) }, '获取锁失败，重试中...');
       }
     }
 
@@ -172,8 +179,7 @@ function releaseLock(projectId: string): void {
       logger.warn({ ownPid: process.pid, lockPid: lockInfo.pid }, '尝试释放非自己持有的锁');
     }
   } catch (err) {
-    const error = err as { message?: string };
-    logger.debug({ error: error.message }, '释放锁时出错');
+    logger.debug({ error: getErrorMessage(err) }, '释放锁时出错');
   }
 }
 

@@ -86,6 +86,17 @@ export interface IndexUpdateStrategyConfig {
   minChangedFilesForEscalation: number;
 }
 
+function clampIntegerConfig(
+  value: number,
+  fallback: number,
+  options: { min: number; max: number },
+): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(options.max, Math.max(options.min, value));
+}
+
 // API 配置获取
 
 /**
@@ -177,10 +188,10 @@ export function getEmbeddingConfig(): EmbeddingConfig {
     apiKey,
     baseUrl,
     model,
-    maxConcurrency: Number.isNaN(maxConcurrency) ? 4 : Math.max(1, maxConcurrency),
-    batchSize: Number.isNaN(batchSize) ? 20 : Math.max(1, batchSize),
-    globalMinIntervalMs: Number.isNaN(globalMinIntervalMs) ? 200 : Math.max(0, globalMinIntervalMs),
-    dimensions: Number.isNaN(dimensions) ? 1024 : dimensions,
+    maxConcurrency: clampIntegerConfig(maxConcurrency, 4, { min: 1, max: 50 }),
+    batchSize: clampIntegerConfig(batchSize, 20, { min: 1, max: 100 }),
+    globalMinIntervalMs: clampIntegerConfig(globalMinIntervalMs, 200, { min: 0, max: 60_000 }),
+    dimensions: clampIntegerConfig(dimensions, 1024, { min: 64, max: 4096 }),
   };
 }
 

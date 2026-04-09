@@ -13,6 +13,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import pLimit from 'p-limit';
 import { type EmbeddingConfig, getEmbeddingConfig } from '../config.js';
 import { resolveBaseDir } from '../runtimePaths.js';
 import { logger } from '../utils/logger.js';
@@ -158,57 +159,27 @@ class ProgressTracker {
 }
 
 const BASE_DIR = resolveBaseDir();
-const GLOBAL_RATE_LIMIT_LOCK = path.join(BASE_DIR, 'embedding.rate.lock');
+const GLOBAL_RATE_LIMIT_LOCK_DIR = path.join(BASE_DIR, 'embedding.rate.lock.d');
 const GLOBAL_RATE_LIMIT_STATE = path.join(BASE_DIR, 'embedding.rate.json');
 const GLOBAL_RATE_LIMIT_CHECK_INTERVAL_MS = 25;
 const GLOBAL_RATE_LIMIT_LOCK_TIMEOUT_MS = 10000;
 const GLOBAL_RATE_LIMIT_LOCK_WRITE_GRACE_MS = 2000;
+let globalRateSlotQueue: Promise<void> = Promise.resolve();
 
 interface GlobalRateState {
   nextAllowedAt: number;
 }
 
-interface GlobalRateLockInfo {
-  pid: number;
-  at: number;
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    return error.code === 'EPERM';
-  }
-}
-
 function removeStaleGlobalRateLock(): void {
   try {
-    const raw = fs.readFileSync(GLOBAL_RATE_LIMIT_LOCK, 'utf-8');
-    const info = JSON.parse(raw) as Partial<GlobalRateLockInfo>;
-    const pid = Number(info.pid);
-
-    if (Number.isFinite(pid) && pid > 0) {
-      if (!isProcessAlive(pid)) {
-        fs.unlinkSync(GLOBAL_RATE_LIMIT_LOCK);
-        logger.warn({ pid }, '移除失效全局速率锁');
-      }
-      return;
-    }
-  } catch {
-    // 读取或解析失败时，按文件年龄兜底处理
-  }
-
-  try {
-    const stat = fs.statSync(GLOBAL_RATE_LIMIT_LOCK);
+    const stat = fs.statSync(GLOBAL_RATE_LIMIT_LOCK_DIR);
     const ageMs = Date.now() - stat.mtimeMs;
     if (ageMs > GLOBAL_RATE_LIMIT_LOCK_WRITE_GRACE_MS) {
-      fs.unlinkSync(GLOBAL_RATE_LIMIT_LOCK);
+      fs.rmSync(GLOBAL_RATE_LIMIT_LOCK_DIR, { recursive: true, force: true });
       logger.warn({ ageMs }, '移除异常全局速率锁');
     }
   } catch {
-    // 文件可能已被其他进程删除，忽略
+    // 锁目录可能已被其他进程删除，忽略
   }
 }
 
@@ -217,11 +188,7 @@ async function acquireGlobalRateLock(): Promise<boolean> {
   while (Date.now() - start < GLOBAL_RATE_LIMIT_LOCK_TIMEOUT_MS) {
     try {
       fs.mkdirSync(BASE_DIR, { recursive: true });
-      fs.writeFileSync(
-        GLOBAL_RATE_LIMIT_LOCK,
-        JSON.stringify({ pid: process.pid, at: Date.now() }),
-        { flag: 'wx' },
-      );
+      fs.mkdirSync(GLOBAL_RATE_LIMIT_LOCK_DIR);
       return true;
     } catch (err) {
       const error = err as NodeJS.ErrnoException;
@@ -243,7 +210,7 @@ async function acquireGlobalRateLock(): Promise<boolean> {
 
 function releaseGlobalRateLock(): void {
   try {
-    fs.unlinkSync(GLOBAL_RATE_LIMIT_LOCK);
+    fs.rmdirSync(GLOBAL_RATE_LIMIT_LOCK_DIR);
   } catch (err) {
     const error = err as NodeJS.ErrnoException;
     if (error.code !== 'ENOENT') {
@@ -252,7 +219,7 @@ function releaseGlobalRateLock(): void {
   }
 }
 
-async function acquireGlobalRateSlot(minIntervalMs: number): Promise<void> {
+async function acquireGlobalRateSlotInner(minIntervalMs: number): Promise<void> {
   if (minIntervalMs <= 0) return;
 
   const locked = await acquireGlobalRateLock();
@@ -287,6 +254,14 @@ async function acquireGlobalRateSlot(minIntervalMs: number): Promise<void> {
   if (waitMs > 0) {
     await sleep(waitMs);
   }
+}
+
+async function acquireGlobalRateSlot(minIntervalMs: number): Promise<void> {
+  if (minIntervalMs <= 0) return;
+
+  const queued = globalRateSlotQueue.then(() => acquireGlobalRateSlotInner(minIntervalMs));
+  globalRateSlotQueue = queued.catch(() => {});
+  await queued;
 }
 
 /**
@@ -507,13 +482,13 @@ export class EmbeddingClient {
 
     // 创建进度追踪器（传入外部回调）
     const progress = new ProgressTracker(batches.length, onProgress);
+    const limit = pLimit(this.config.maxConcurrency);
+    const batchTasks = batches.map((batch, batchIndex) =>
+      limit(() => this.processWithRateLimit(batch, batchIndex * batchSize, progress)),
+    );
 
     // 使用速率限制控制器处理各批次
-    const batchResults = await Promise.all(
-      batches.map((batch, batchIndex) =>
-        this.processWithRateLimit(batch, batchIndex * batchSize, progress),
-      ),
-    );
+    const batchResults = await Promise.all(batchTasks);
 
     // 输出完成统计
     progress.complete();

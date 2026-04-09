@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -228,6 +229,96 @@ test('getIndexUpdateStrategyConfig returns defaults and tolerates invalid env va
       }
     }
   }
+});
+
+test('getEmbeddingConfig clamps unreasonable numeric env values into safe ranges', () => {
+  const originalEnv = {
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    EMBEDDINGS_MAX_CONCURRENCY: process.env.EMBEDDINGS_MAX_CONCURRENCY,
+    EMBEDDINGS_BATCH_SIZE: process.env.EMBEDDINGS_BATCH_SIZE,
+    EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS: process.env.EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS,
+    EMBEDDINGS_DIMENSIONS: process.env.EMBEDDINGS_DIMENSIONS,
+  };
+
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'https://example.com/embed';
+  process.env.EMBEDDINGS_MODEL = 'test-model';
+  process.env.EMBEDDINGS_MAX_CONCURRENCY = '10000';
+  process.env.EMBEDDINGS_BATCH_SIZE = '999';
+  process.env.EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS = '-3';
+  process.env.EMBEDDINGS_DIMENSIONS = '1';
+
+  try {
+    const config = getEmbeddingConfig();
+    assert.equal(config.maxConcurrency, 50);
+    assert.equal(config.batchSize, 100);
+    assert.equal(config.globalMinIntervalMs, 0);
+    assert.equal(config.dimensions, 64);
+  } finally {
+    restoreEnv(originalEnv);
+  }
+});
+
+test('initDb records schema migrations for fresh databases', async () => {
+  await withTempRepo(async (repoRoot) => {
+    const projectId = generateProjectId(repoRoot);
+    const db = initDb(projectId);
+
+    try {
+      const migration = db
+        .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+        .get('20260409_add_vector_index_hash_to_files') as { version: string } | undefined;
+      const columns = db.prepare('PRAGMA table_info(files)').all() as Array<{ name: string }>;
+
+      assert.equal(migration?.version, '20260409_add_vector_index_hash_to_files');
+      assert.ok(columns.some((column) => column.name === 'vector_index_hash'));
+    } finally {
+      db.close();
+    }
+  });
+});
+
+test('initDb upgrades legacy files table and backfills migration record', async () => {
+  await withTempRepo(async (repoRoot) => {
+    const projectId = generateProjectId(repoRoot);
+    const { dbPath } = resolveIndexPaths(projectId, {
+      baseDir: process.env.CONTEXTATLAS_BASE_DIR,
+    });
+
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE files (
+        path TEXT PRIMARY KEY,
+        hash TEXT NOT NULL,
+        mtime INTEGER NOT NULL,
+        size INTEGER NOT NULL,
+        content TEXT,
+        language TEXT NOT NULL
+      );
+      CREATE TABLE metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+    legacyDb.close();
+
+    const db = initDb(projectId);
+
+    try {
+      const columns = db.prepare('PRAGMA table_info(files)').all() as Array<{ name: string }>;
+      const migration = db
+        .prepare('SELECT version FROM schema_migrations WHERE version = ?')
+        .get('20260409_add_vector_index_hash_to_files') as { version: string } | undefined;
+
+      assert.ok(columns.some((column) => column.name === 'vector_index_hash'));
+      assert.equal(migration?.version, '20260409_add_vector_index_hash_to_files');
+    } finally {
+      db.close();
+    }
+  });
 });
 
 test('getIndexUpdateStrategyDiagnostics returns the parsed threshold values', () => {

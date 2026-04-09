@@ -212,10 +212,10 @@
 ### 第三批迭代
 
 1. [x] 索引健康面板
-2. [ ] 增量更新策略
+2. [x] 增量更新策略
 3. [x] 发布门禁与 smoke gate
 4. [x] 团队级指标
-5. [ ] shared / personal memory 分层
+5. [x] shared / personal memory 分层
 
 ---
 

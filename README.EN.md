@@ -376,6 +376,7 @@ contextatlas start /path/to/repo
 contextatlas index /path/to/repo
 contextatlas index --force
 contextatlas index:plan /path/to/repo --json
+contextatlas index:diagnose --json
 contextatlas daemon start
 contextatlas search --repo-path /path/to/repo --information-request "Where is the database connection logic?"
 ```
@@ -413,6 +414,7 @@ contextatlas ops:summary
 contextatlas ops:metrics --days 7 --stale-days 30
 contextatlas health:check
 contextatlas index:plan /path/to/repo
+contextatlas index:diagnose
 contextatlas alert:eval
 ```
 

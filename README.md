@@ -159,6 +159,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 - `INDEX_UPDATE_CHURN_THRESHOLD`：改动文件占比达到阈值时，`index:plan` / `index:update` 更倾向直接建议 `full`
 - `INDEX_UPDATE_COST_RATIO_THRESHOLD`：估算增量处理成本接近全量时触发 `full`
 - `INDEX_UPDATE_MIN_FILES` / `INDEX_UPDATE_MIN_CHANGED_FILES`：只有仓库规模和改动规模都达到门槛时，才启用上述升级策略
+- `contextatlas index:diagnose`：直接回显当前阈值和升级判定配置，适合排查“为什么升级成 full / 为什么仍保持 incremental”
 
 > `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
 

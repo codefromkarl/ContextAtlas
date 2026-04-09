@@ -84,6 +84,12 @@ contextatlas daemon start
 contextatlas index:plan /path/to/repo --json
 ```
 
+如果你想进一步确认当前阈值配置以及“为什么会升级成 `full` / 为什么仍保持 `incremental`”，可以直接看：
+
+```bash
+contextatlas index:diagnose --json
+```
+
 如果索引已经入队但你想知道系统卡在哪，可以直接看：
 
 ```bash

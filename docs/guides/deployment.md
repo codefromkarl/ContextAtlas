@@ -474,6 +474,8 @@ contextatlas ops:metrics --days 7 --stale-days 30
 # 更新策略与影响范围分析
 contextatlas index:plan /path/to/repo
 contextatlas index:plan /path/to/repo --json
+contextatlas index:diagnose
+contextatlas index:diagnose --json
 contextatlas index:update /path/to/repo
 
 # 评估告警
@@ -550,6 +552,7 @@ contextatlas task:inspect <taskId>
 
 # 判断是否应走增量还是全量
 contextatlas index:plan /path/to/repo --json
+contextatlas index:diagnose --json
 
 # 自动按当前状态触发更新
 contextatlas index:update /path/to/repo
@@ -595,6 +598,7 @@ contextatlas task:status --project-id <projectId>
 
 # 分析是否该增量更新 / 全量重建
 contextatlas index:plan /path/to/repo --json
+contextatlas index:diagnose --json
 
 # 重新索引
 contextatlas index:update /path/to/repo

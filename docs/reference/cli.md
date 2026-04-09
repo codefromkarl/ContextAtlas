@@ -28,6 +28,8 @@ contextatlas index [path]
 contextatlas index --force          # 强制全量索引
 contextatlas index:plan [path]      # 分析应走全量还是增量，并显示受影响模块
 contextatlas index:plan [path] --json
+contextatlas index:diagnose         # 回显当前索引升级阈值与升级判定配置
+contextatlas index:diagnose --json
 contextatlas index:update [path]    # 按当前仓库变化自动入队 full / incremental 索引任务
 contextatlas index:update [path] --json
 
@@ -88,6 +90,14 @@ contextatlas search \
 - 无变化时明确返回“不入队”
 - 文本和 JSON 输出都会显示计划结论以及是否复用了已有队列任务
 - `full` / schema drift 场景会额外提示需要“广泛复核”的 feature memories（`broad-review`）
+
+`contextatlas index:diagnose` 会直接回显当前阈值配置，适合排查“为什么升级成 full / 为什么仍保持 incremental”：
+
+- `churnThreshold`
+- `costThresholdRatio`
+- `minFilesForEscalation`
+- `minChangedFilesForEscalation`
+- 对应环境变量键名，便于直接修改 `.env`
 
 索引策略相关环境变量：
 
@@ -305,6 +315,8 @@ contextatlas alert:config --reset
 - memory stale 比例
 - 查询延迟
 - 索引失败率
+- 治理策略分布（profile mode / shared memory / personal memory）
+- 长期记忆 scope 分布（project / global-user）
 - 仓库质量分布（repo quality distribution）
 - 模块质量分布（module quality distribution）
 
@@ -314,6 +326,28 @@ contextatlas alert:config --reset
 - 与模块绑定的反馈信号（如 `memory-stale` / `wrong-module` / `not-helpful`）
 
 用于识别需要优先复核的 feature memories。
+
+`contextatlas ops:summary` 现在会在团队值班摘要里额外给出治理分区，快速汇总：
+
+- catalog 是否一致
+- orphaned feature memory 比例
+- 长期记忆 `project` / `global-user` scope 总量
+- 当前索引策略摘要是否已经下沉到团队摘要
+
+`contextatlas alert:eval` 当前除了索引队列、daemon、检索异常外，也会覆盖治理相关信号，例如：
+
+- `memory.catalogInconsistent`
+- `memory.orphanedRate`
+- `memory.staleRate`
+- `memory.expiredRate`
+
+`contextatlas health:full` 的文本报告现在会在项目摘要中直接展示当前策略摘要，包括：
+
+- 当前建议模式：`none / incremental / full`
+- `changedFiles`
+- `churnRatio`
+- `incrementalCostRatio`
+- `fullRebuildTriggers`
 
 默认 `contextatlas search` / MCP `codebase-retrieval` 结果卡片现在会固定补充：
 

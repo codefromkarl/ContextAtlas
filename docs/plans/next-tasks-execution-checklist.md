@@ -127,6 +127,25 @@
 
 详细记录：见 [Iteration 1 验收报告（2026-04-08）](../archive/iterations/2026-04-08/iteration-1-acceptance-report.md)
 
+### 5.1 发布门禁回归修复（2026-04-09）
+
+- [x] 把 `src/scanner/index.ts` 重新纳入 `build` / `build:release` / `dev` 的 tsup 入口
+- [x] 为打包脚本补回归测试，避免再次漏掉 `scanner` 独立产物
+- [x] 让 `crawler` 的 dist 测试同时兼容 `dist/scanner/index.js` 与旧 `dist/scanner-*.js` 命名
+- [x] 重新验证 `pnpm test` 与 `pnpm release:gate`
+
+验收记录：
+
+- 根因：`tests/crawler.test.mjs` 依赖 dist 中可直接 import 的 scanner 入口，而 `package.json` 的 tsup 入口曾遗漏 `src/scanner/index.ts`
+- 修复：
+  - `package.json` 中 `build` / `build:release` / `dev` 已纳入 `src/scanner/index.ts`
+  - `tests/package-scripts.test.ts` 新增对 scanner 构建入口的回归保护
+  - `tests/crawler.test.mjs` 现在优先加载 `dist/scanner/index.js`，并兼容旧的平铺命名
+- 验证：
+  - `pnpm build`
+  - `pnpm test`
+  - `pnpm release:gate`
+
 ---
 
 ## 三、P1：补团队治理与产品边界
@@ -194,6 +213,32 @@
 ## 五、P2：继续完善 Embedding Gateway
 
 目标：在当前“可稳定使用”的基础上继续补性能与观测。
+
+### 12.1 控制面观测补充（2026-04-09）
+
+- [x] 为索引阈值补独立 CLI 诊断输出 / 当前值回显
+- [x] 把长期记忆治理指标纳入团队看板
+- [x] 把策略摘要接入 `health:full` 项目摘要
+
+验收记录：
+
+- `contextatlas index:diagnose` 已可输出当前 churn / cost / min-files 阈值及对应环境变量键名
+- `contextatlas ops:metrics` 已补充治理策略分布与长期记忆 scope 分布
+- `contextatlas health:full` 已在 per-project summary 中展示策略模式、changed files、churn、cost 与 triggers
+- `contextatlas alert:eval` 已并入 `memoryHealth` 指标，catalog inconsistency / orphaned feature memory 现在会直接参与告警评估
+- `release smoke` 已覆盖：
+  - `contextatlas index:diagnose --json`
+  - `contextatlas ops:summary --json`
+  - `contextatlas ops:metrics --json`
+  - `contextatlas alert:eval --json`
+  - 且已引入 `seed-memory-governance` 场景化种子步骤，用于复现 feature / catalog 不一致、orphaned memory 与 stale memory
+- 对应回归覆盖已补到：
+  - `tests/index-plan.test.ts`
+  - `tests/cli-registration.test.ts`
+  - `tests/ops-metrics.test.ts`
+  - `tests/index-strategy-ops.test.ts`
+  - `tests/release-smoke.test.ts`
+  - `tests/release-gate.test.ts`
 
 ### 11. 两级缓存
 

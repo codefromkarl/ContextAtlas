@@ -132,6 +132,7 @@ Initialize the config directory and example environment file first:
 
 ```bash
 contextatlas init
+contextatlas setup:local
 ```
 
 Default config file location:
@@ -166,6 +167,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 - `INDEX_UPDATE_MIN_FILES` / `INDEX_UPDATE_MIN_CHANGED_FILES`: require both repo size and change size to clear a minimum bar before escalation is allowed
 
 > `init` writes an editable example `.env`, including default SiliconFlow endpoints and recommended model settings.
+> `setup:local` also wires Claude / Codex / Gemini MCP configs, prompt docs, and the Codex ContextAtlas skill in one step.
 
 ## Quick start
 

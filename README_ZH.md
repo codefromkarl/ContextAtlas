@@ -132,6 +132,7 @@ npm install -g @codefromkarl/context-atlas
 
 ```bash
 contextatlas init
+contextatlas setup:local
 ```
 
 默认配置文件位置：
@@ -167,6 +168,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 - `contextatlas index:diagnose`：直接回显当前阈值和升级判定配置，适合排查“为什么升级成 full / 为什么仍保持 incremental”
 
 > `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
+> `setup:local` 会继续把 Claude / Codex / Gemini 所需的 MCP 配置、提示词文档和 Codex skill 一起写好。
 
 更多配置与部署细节见 [部署手册](./docs/guides/deployment.md) 和 [CLI 文档](./docs/reference/cli.md)。
 

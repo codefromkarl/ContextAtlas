@@ -5,9 +5,25 @@
 ```bash
 npm install -g @codefromkarl/context-atlas
 contextatlas init
+contextatlas setup:local
 ```
 
 配置文件位于 `~/.contextatlas/.env`，详见 [README.md](../../README.md#配置)。
+
+`contextatlas setup:local` 会幂等写入本地接入所需文件：
+
+- `~/.contextatlas/.env`
+- `~/.claude/mcp.json`
+- Claude Desktop 配置
+  Linux: `~/.config/Claude/claude_desktop_config.json`
+  macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+  Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- `~/.gemini/settings.json`
+- `~/.codex/config.toml`
+- `~/.claude/CLAUDE.md` / `~/Claude.md`（择一）
+- `~/.codex/AGENTS.md` / `~/.codex/AGENT.md`（择一）
+- `~/.gemini/GEMINI.md`
+- `~/.codex/skills/contextatlas-mcp/SKILL.md`
 
 产品身份映射：
 

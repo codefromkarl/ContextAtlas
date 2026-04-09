@@ -44,7 +44,8 @@
     "verify:delivery": "node --import tsx ./.autoresearch/remaining-acceptance-failures.mts && pnpm build && pnpm test && pnpm test:dist",
     "release:gate": "node --import tsx scripts/release-gate.ts",
     "smoke:release": "node --import tsx scripts/release-smoke.ts",
-    "ci:verify": "pnpm release:gate"
+    "ci:verify": "pnpm release:gate",
+    "setup:local": "node --import tsx scripts/setup-local.ts"
   },
   "dependencies": {
     "@keqingmoe/tree-sitter": "^0.26.2",

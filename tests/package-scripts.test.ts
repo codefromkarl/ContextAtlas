@@ -178,3 +178,15 @@ test('package.json exposes a delivery full pipeline script', () => {
   assert.match(script, /pnpm verify:delivery/);
   assert.match(script, /pnpm delivery:all/);
 });
+
+test('package.json exposes a one-command local setup script', () => {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'),
+  ) as {
+    scripts?: Record<string, string>;
+  };
+
+  const script = pkg.scripts?.['setup:local'];
+  assert.ok(script);
+  assert.match(script, /scripts\/setup-local\.ts/);
+});

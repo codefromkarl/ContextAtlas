@@ -5,6 +5,36 @@ import type { MemoryHealthReport } from './memoryHealth.js';
 import { formatMemoryHealthReport } from './memoryHealth.js';
 import { formatAlertReport } from './alertEngine.js';
 
+export function collectProjectOperationalIssues(input: {
+  snapshot: IndexHealthReport['snapshots'][number];
+  memoryIssues?: string[];
+}): string[] {
+  const issues: string[] = [];
+  const { snapshot, memoryIssues = [] } = input;
+
+  if (!snapshot.hasCurrentSnapshot) issues.push('missing-current-snapshot');
+  if (snapshot.dbIntegrity === 'corrupted') issues.push('corrupted-db');
+  if (snapshot.hasIndexDb && !snapshot.hasVectorIndex && snapshot.fileCount > 0) {
+    issues.push('missing-vector-index');
+  }
+  if (
+    snapshot.vectorChunkCount > 0 &&
+    (!snapshot.hasChunksFts || snapshot.chunkFtsCount === 0)
+  ) {
+    issues.push('missing-chunk-fts');
+  }
+  if (
+    snapshot.vectorChunkCount > 0 &&
+    snapshot.chunkFtsCoverage !== null &&
+    snapshot.chunkFtsCoverage < 0.95
+  ) {
+    issues.push('degraded-chunk-fts-coverage');
+  }
+
+  issues.push(...memoryIssues);
+  return issues.filter((issue, index, array) => array.indexOf(issue) === index);
+}
+
 function formatStrategySummaryLine(
   strategySummary: NonNullable<IndexHealthReport['snapshots'][number]['strategySummary']>,
 ): string {
@@ -13,6 +43,21 @@ function formatStrategySummaryLine(
       ? ` triggers=${strategySummary.signals.fullRebuildTriggers.join(',')}`
       : '';
   return `Strategy: ${strategySummary.mode} (changed=${strategySummary.signals.changedFiles}, churn=${(strategySummary.signals.churnRatio * 100).toFixed(1)}%, cost=${(strategySummary.signals.incrementalCostRatio * 100).toFixed(1)}%)${triggers}`;
+}
+
+export function buildAlertEvaluationMetrics(input: {
+  indexHealth: IndexHealthReport;
+  memoryHealth: MemoryHealthReport;
+}): Record<string, unknown> {
+  return {
+    ...input.indexHealth,
+    memory: {
+      staleRate: input.memoryHealth.longTermFreshness.staleRate,
+      expiredRate: input.memoryHealth.longTermFreshness.expiredRate,
+      orphanedRate: input.memoryHealth.featureMemoryHealth.orphanedRate,
+      catalogInconsistent: !input.memoryHealth.catalogConsistency.isConsistent,
+    },
+  };
 }
 
 export function buildHealthFullReport(input: {
@@ -45,27 +90,10 @@ export function buildHealthFullReport(input: {
         lines.push(`  ${formatStrategySummaryLine(snapshot.strategySummary)}`);
       }
 
-      const issues: string[] = [];
-      if (!snapshot.hasCurrentSnapshot) issues.push('missing-current-snapshot');
-      if (snapshot.dbIntegrity === 'corrupted') issues.push('corrupted-db');
-      if (snapshot.hasIndexDb && !snapshot.hasVectorIndex && snapshot.fileCount > 0) {
-        issues.push('missing-vector-index');
-      }
-      if (
-        snapshot.vectorChunkCount > 0 &&
-        (!snapshot.hasChunksFts || snapshot.chunkFtsCount === 0)
-      ) {
-        issues.push('missing-chunk-fts');
-      } else if (
-        snapshot.vectorChunkCount > 0 &&
-        snapshot.chunkFtsCoverage !== null &&
-        snapshot.chunkFtsCoverage < 0.95
-      ) {
-        issues.push('degraded-chunk-fts-coverage');
-      }
-      if (memoryScore && memoryScore.issues.length > 0) {
-        issues.push(...memoryScore.issues);
-      }
+      const issues = collectProjectOperationalIssues({
+        snapshot,
+        memoryIssues: memoryScore?.issues || [],
+      });
 
       if (issues.length > 0) {
         lines.push(`  issues: ${issues.join(', ')}`);

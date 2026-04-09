@@ -9,20 +9,13 @@ export function registerOpsAlertCommands(cli: CommandRegistrar): void {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
       const { evaluateAlerts, formatAlertReport } = await import('../../monitoring/alertEngine.js');
+      const { buildAlertEvaluationMetrics } = await import('../../monitoring/healthFull.js');
       try {
         const [indexHealth, memoryHealth] = await Promise.all([
           analyzeIndexHealth(),
           analyzeMemoryHealth(),
         ]);
-        const result = evaluateAlerts({
-          ...indexHealth,
-          memory: {
-            staleRate: memoryHealth.longTermFreshness.staleRate,
-            expiredRate: memoryHealth.longTermFreshness.expiredRate,
-            orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
-            catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
-          },
-        } as unknown as Record<string, unknown>);
+        const result = evaluateAlerts(buildAlertEvaluationMetrics({ indexHealth, memoryHealth }));
         if (options.json) {
           writeJson(result);
           return;

@@ -2,6 +2,7 @@ import type { AlertEvaluationResult } from './alertEngine.js';
 import type { IndexHealthReport, IndexStrategySummary } from './indexHealth.js';
 import type { MemoryHealthReport } from './memoryHealth.js';
 import type { IndexOptimizationReport } from '../usage/usageAnalysis.js';
+import { collectProjectOperationalIssues } from './healthFull.js';
 
 export interface OpsPrioritizedAction {
   id: string;
@@ -78,6 +79,9 @@ export function summarizeOpsSnapshot(input: {
   const prioritizedActions = synthesizeOpsActions(input);
   const representativeStrategy = input.indexHealth.snapshots.find((snapshot) => snapshot.strategySummary)
     ?.strategySummary;
+  const projectScoresById = new Map(
+    input.memoryHealth.projectScores.map((project) => [project.projectId, project]),
+  );
   const longTermScopes = input.memoryHealth.longTermFreshness.byScope || ({} as NonNullable<
     MemoryHealthReport['longTermFreshness']['byScope']
   >);
@@ -96,29 +100,23 @@ export function summarizeOpsSnapshot(input: {
     topIssues,
     topActions,
     prioritizedActions,
-    projectViews: input.indexHealth.snapshots.map((snapshot) => ({
-      projectId: snapshot.projectId,
-      currentSnapshotId: snapshot.currentSnapshotId,
-      lastSuccessfulAt: snapshot.lastSuccessfulAt,
-      lastSuccessfulScope: snapshot.lastSuccessfulScope,
-      latestTaskRepoPath: snapshot.latestTaskRepoPath,
-      strategySummary: snapshot.strategySummary,
-      issues: [
-        !snapshot.hasCurrentSnapshot ? 'missing-current-snapshot' : '',
-        snapshot.dbIntegrity === 'corrupted' ? 'corrupted-db' : '',
-        snapshot.hasIndexDb && !snapshot.hasVectorIndex && snapshot.fileCount > 0
-          ? 'missing-vector-index'
-          : '',
-        snapshot.vectorChunkCount > 0 && (!snapshot.hasChunksFts || snapshot.chunkFtsCount === 0)
-          ? 'missing-chunk-fts'
-          : '',
-        snapshot.vectorChunkCount > 0
-        && snapshot.chunkFtsCoverage !== null
-        && snapshot.chunkFtsCoverage < 0.95
-          ? 'degraded-chunk-fts-coverage'
-          : '',
-      ].filter(Boolean),
-    })),
+    projectViews: input.indexHealth.snapshots.map((snapshot) => {
+      const projectScore = projectScoresById.get(snapshot.projectId);
+      const issues = collectProjectOperationalIssues({
+        snapshot,
+        memoryIssues: projectScore?.issues || [],
+      });
+
+      return {
+        projectId: snapshot.projectId,
+        currentSnapshotId: snapshot.currentSnapshotId,
+        lastSuccessfulAt: snapshot.lastSuccessfulAt,
+        lastSuccessfulScope: snapshot.lastSuccessfulScope,
+        latestTaskRepoPath: snapshot.latestTaskRepoPath,
+        strategySummary: snapshot.strategySummary,
+        issues,
+      };
+    }),
     sections: {
       index: `status=${input.indexHealth.overall.status} queued=${input.indexHealth.queue.queued} failed=${input.indexHealth.queue.failed} latestScope=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulScope)?.lastSuccessfulScope || 'unknown'} lastSuccess=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulAt)?.lastSuccessfulAt || 'n/a'}${representativeStrategy ? ` plan=${formatStrategySummaryInline(representativeStrategy)}` : ''}`,
       memory: `status=${input.memoryHealth.overall.status} staleRate=${Math.round(input.memoryHealth.longTermFreshness.staleRate * 100)}%`,

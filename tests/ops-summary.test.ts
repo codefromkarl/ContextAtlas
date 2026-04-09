@@ -338,3 +338,126 @@ test('ops:summary prioritizes catalog rebuild before stale memory pruning when b
   assert.match(text, /contextatlas memory:prune-long-term --include-stale --apply/);
   assert.match(text, /contextatlas ops:apply rebuild-memory-catalog/);
 });
+
+test('summarizeOpsSnapshot carries project-level memory governance issues into project views', () => {
+  const summary = summarizeOpsSnapshot({
+    indexHealth: {
+      queue: {
+        queued: 0,
+        running: 0,
+        failed: 0,
+        oldestRunningAgeMs: null,
+        oldestRunningAgeHuman: null,
+        stuckRunning: [],
+        recentFailures: [],
+      },
+      daemon: {
+        isRunning: true,
+        pid: 123,
+        lockFileAge: null,
+        queuePollingActive: true,
+      },
+      snapshots: [
+        {
+          projectId: 'repo',
+          currentSnapshotId: 'snap-1',
+          lastSuccessfulAt: '2026-04-09T12:00:00.000Z',
+          lastSuccessfulScope: 'incremental',
+          latestTaskRepoPath: '/tmp/repo',
+          strategySummary: null,
+          hasCurrentSnapshot: true,
+          dbIntegrity: 'ok',
+          hasIndexDb: true,
+          hasVectorIndex: true,
+          fileCount: 10,
+          vectorChunkCount: 12,
+          hasChunksFts: false,
+          chunkFtsCount: 0,
+          chunkFtsCoverage: 0,
+        },
+      ],
+      overall: {
+        status: 'degraded',
+        issues: [],
+        recommendations: [],
+        repairPlan: {
+          autoFixable: [],
+          manual: [],
+        },
+      },
+    } as any,
+    memoryHealth: {
+      overall: {
+        status: 'degraded',
+        issues: [],
+        recommendations: [],
+      },
+      longTermFreshness: {
+        total: 1,
+        active: 1,
+        stale: 0,
+        expired: 0,
+        activeRate: 1,
+        staleRate: 0,
+        expiredRate: 0,
+        byType: {} as any,
+        byScope: {
+          project: { total: 1, active: 1, stale: 0, expired: 0 },
+          'global-user': { total: 0, active: 0, stale: 0, expired: 0 },
+        },
+      },
+      featureMemoryHealth: {
+        total: 2,
+        withValidPaths: 1,
+        withOrphanedPaths: 1,
+        orphanedRate: 0.5,
+        avgKeyPatterns: 1,
+        avgExports: 1,
+        emptyResponsibilityCount: 0,
+      },
+      catalogConsistency: {
+        isConsistent: false,
+        missingFromCatalog: ['repo:searchservice'],
+        staleInCatalog: [],
+        totalFeatures: 2,
+        totalCatalogEntries: 1,
+      },
+      projectScores: [
+        {
+          projectId: 'repo',
+          projectName: 'repo',
+          featureCount: 2,
+          longTermCount: 1,
+          freshnessScore: 40,
+          catalogConsistent: false,
+          issues: ['功能记忆孤立路径比例: 50%', 'catalog 缺失 1 个模块'],
+        },
+      ],
+    } as any,
+    usageReport: {
+      summary: {
+        indexing: {
+          queryBeforeIndexRate: 0,
+          avgExecutionDurationMs: 0,
+        },
+      },
+      actions: [],
+    } as any,
+    alertResult: {
+      triggered: [],
+      resolved: [],
+      active: [],
+    } as any,
+  });
+
+  assert.ok(summary.projectViews[0]?.issues.includes('missing-chunk-fts'));
+  assert.ok(summary.projectViews[0]?.issues.includes('degraded-chunk-fts-coverage'));
+  assert.ok(summary.projectViews[0]?.issues.includes('功能记忆孤立路径比例: 50%'));
+  assert.ok(summary.projectViews[0]?.issues.includes('catalog 缺失 1 个模块'));
+
+  const text = formatOpsSummaryReport(summary);
+  assert.match(text, /missing-chunk-fts/);
+  assert.match(text, /degraded-chunk-fts-coverage/);
+  assert.match(text, /功能记忆孤立路径比例: 50%/);
+  assert.match(text, /catalog 缺失 1 个模块/);
+});

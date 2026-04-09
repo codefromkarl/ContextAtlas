@@ -90,7 +90,9 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
       const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
-      const { buildHealthFullReport } = await import('../../monitoring/healthFull.js');
+      const { buildAlertEvaluationMetrics, buildHealthFullReport } = await import(
+        '../../monitoring/healthFull.js'
+      );
 
       try {
         const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
@@ -102,17 +104,9 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
           }),
         ]);
 
-        const combinedMetrics: Record<string, unknown> = {
-          ...indexHealth,
-          memory: {
-            staleRate: memoryHealth.longTermFreshness.staleRate,
-            expiredRate: memoryHealth.longTermFreshness.expiredRate,
-            orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
-            catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
-          },
-        };
-
-        const alertResult = evaluateAlerts(combinedMetrics);
+        const alertResult = evaluateAlerts(
+          buildAlertEvaluationMetrics({ indexHealth, memoryHealth }),
+        );
 
         if (options.json) {
           writeJson({

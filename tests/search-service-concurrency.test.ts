@@ -112,7 +112,7 @@ test('buildContextPack 并发执行时不会让 query-aware config 互相串扰'
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    const secondResult = await service.buildContextPack('用户认证流程是如何实现的？');
+    const secondResult = await service.buildContextPack('authentication retry safeguards');
 
     assert.equal(secondResult.debug?.retrievalStats?.queryIntent, 'balanced');
     assert.equal(secondResult.debug?.wVec, 0.6);

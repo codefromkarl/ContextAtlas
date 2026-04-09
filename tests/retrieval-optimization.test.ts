@@ -242,8 +242,12 @@ test('classifyQueryIntent 对代码味较强的短查询判定为 symbol lookup'
   assert.equal(classifyQueryIntent('AuthService.login'), 'symbol_lookup');
 });
 
-test('classifyQueryIntent 对自然语言流程问题保持 balanced', () => {
-  assert.equal(classifyQueryIntent('用户认证流程是如何实现的？'), 'balanced');
+test('classifyQueryIntent 对自然语言流程问题判定为 conceptual', () => {
+  assert.equal(classifyQueryIntent('用户认证流程是如何实现的？'), 'conceptual');
+});
+
+test('classifyQueryIntent 对路径定位问题判定为 navigation', () => {
+  assert.equal(classifyQueryIntent('src/search/SearchService.ts buildContextPack'), 'navigation');
 });
 
 test('deriveQueryAwareSearchConfig 会为 symbol lookup 提高词法权重并收缩 rerank', () => {

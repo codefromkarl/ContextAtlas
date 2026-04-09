@@ -326,6 +326,10 @@ export class HybridRecallEngine {
     }
 
     const queryTokens = this.extractQueryTokensFn(query);
+    const filePaths = Array.from(new Set(fileResults.map((result) => result.path)));
+    const chunksMap = await this.vectorStore?.getFilesChunks(filePaths);
+    if (!chunksMap) return [];
+
     logger.debug(
       {
         fileCount: fileResults.length,
@@ -341,8 +345,8 @@ export class HybridRecallEngine {
     for (const { path: filePath, score: fileScore } of fileResults) {
       if (totalChunks >= this.config.lexTotalChunks) break;
 
-      const chunks = await this.vectorStore?.getFileChunks(filePath);
-      if (!chunks || chunks.length === 0) continue;
+      const chunks = chunksMap.get(filePath) ?? [];
+      if (chunks.length === 0) continue;
 
       const scoredChunks = chunks.map((chunk) => ({
         chunk,

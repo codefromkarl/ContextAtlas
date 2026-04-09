@@ -127,7 +127,7 @@ export interface Segment {
 }
 
 export type LexicalStrategy = 'chunks_fts' | 'files_fts' | 'none';
-export type QueryIntent = 'balanced' | 'symbol_lookup';
+export type QueryIntent = 'balanced' | 'symbol_lookup' | 'navigation' | 'conceptual';
 
 export interface RetrievalStats {
   queryIntent: QueryIntent;

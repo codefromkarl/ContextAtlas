@@ -305,8 +305,6 @@ export class Indexer {
             chunk_index: chunkIdx,
             vector: embeddings[globalIdx],
             display_code: chunk.displayCode,
-            // Embedding 已完成；在线查询链路不再读取 vector_text，避免持久化重复正文。
-            vector_text: '',
             language: chunk.metadata.language,
             breadcrumb: chunk.metadata.contextPath.join(' > '),
             start_index: chunk.metadata.startIndex,
@@ -494,7 +492,8 @@ export class Indexer {
 // 工厂函数
 // ===========================================
 
-const indexers = new Map<string, Indexer>();
+const MAX_CACHED_INDEXERS = 16;
+const indexers: Map<string, Indexer> = new Map();
 
 function buildIndexerKey(projectId: string, snapshotId?: string | null): string {
   const suffix = snapshotId === undefined ? '__current__' : snapshotId === null ? '__legacy__' : snapshotId;
@@ -511,11 +510,22 @@ export async function getIndexer(
 ): Promise<Indexer> {
   const key = buildIndexerKey(projectId, snapshotId);
   let indexer = indexers.get(key);
-  if (!indexer) {
-    indexer = new Indexer(projectId, vectorDim, snapshotId);
-    await indexer.init();
+  if (indexer) {
+    indexers.delete(key);
     indexers.set(key, indexer);
+    return indexer;
   }
+
+  indexer = new Indexer(projectId, vectorDim, snapshotId);
+  await indexer.init();
+  indexers.set(key, indexer);
+
+  while (indexers.size > MAX_CACHED_INDEXERS) {
+    const oldestKey = indexers.keys().next().value;
+    if (!oldestKey || oldestKey === key) break;
+    indexers.delete(oldestKey);
+  }
+
   return indexer;
 }
 

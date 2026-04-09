@@ -18,7 +18,8 @@ import {
   setStoredIndexContentSchemaVersion,
   setStoredEmbeddingDimensions,
 } from '../db/index.js';
-import { closeAllIndexers, getIndexer } from '../indexer/index.js';
+import { getIndexer } from '../indexer/index.js';
+import { closeAllCachedResources } from '../runtime/closeAllCachedResources.js';
 import {
   commitSnapshot,
   ensureSnapshotArtifacts,
@@ -27,7 +28,6 @@ import {
   validateSnapshot,
 } from '../storage/layout.js';
 import { logger } from '../utils/logger.js';
-import { closeAllVectorStores } from '../vectorStore/index.js';
 import type { IncrementalExecutionHint } from '../indexing/types.js';
 import { crawl } from './crawler.js';
 import { initFilter } from './filter.js';
@@ -404,8 +404,7 @@ async function scanWithIncrementalHint(
     return stats;
   } finally {
     closeDb(db);
-    closeAllIndexers();
-    await closeAllVectorStores();
+    await closeAllCachedResources();
   }
 }
 
@@ -514,11 +513,21 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
       };
     }
 
-    const processBatchSize = 100;
+    const processingBatchSize = 100;
+    const processingBatches: string[][] = [];
+    for (let i = 0; i < filePaths.length; i += processingBatchSize) {
+      processingBatches.push(filePaths.slice(i, i + processingBatchSize));
+    }
+
     let hasReportedVectorStage = false;
-    for (let i = 0; i < filePaths.length; i += processBatchSize) {
-      const batch = filePaths.slice(i, i + processBatchSize);
-      const batchResults = await processFiles(rootPath, batch, knownFiles);
+    let pendingBatchResults =
+      processingBatches.length > 0 ? processFiles(rootPath, processingBatches[0], knownFiles) : null;
+
+    for (let batchIndex = 0; batchIndex < processingBatches.length; batchIndex++) {
+      const batch = processingBatches[batchIndex];
+      const batchResults = await pendingBatchResults!;
+      const nextBatch = processingBatches[batchIndex + 1];
+      pendingBatchResults = nextBatch ? processFiles(rootPath, nextBatch, knownFiles) : null;
       const summary = summarizeProcessResults(batchResults);
 
       if (summary.toAdd.length > 0) {
@@ -676,8 +685,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
   } finally {
     // 确保关闭所有连接
     closeDb(db);
-    closeAllIndexers();
-    await closeAllVectorStores();
+    await closeAllCachedResources();
   }
 }
 

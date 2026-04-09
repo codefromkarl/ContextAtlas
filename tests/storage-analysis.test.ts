@@ -142,7 +142,7 @@ test('Indexer 写入 LanceDB 时裁掉 vector_text，仅保留 display_code', as
 
   assert.equal(chunks.length, 1);
   assert.equal(chunks[0]?.display_code, 'export const a = 1;');
-  assert.equal(chunks[0]?.vector_text, '');
+  assert.equal(chunks[0]?.vector_text, undefined);
 
   db.close();
   await closeAllVectorStores();

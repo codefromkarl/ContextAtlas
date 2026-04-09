@@ -55,6 +55,84 @@ export function generateProjectId(projectPath: string): string {
   return deriveStableProjectId(normalizeProjectPath(projectPath));
 }
 
+const SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH = '20260409_add_vector_index_hash_to_files';
+
+function readStringField(row: unknown, key: string): string | undefined {
+  if (!row || typeof row !== 'object') {
+    return undefined;
+  }
+  const value = Reflect.get(row, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNumberField(row: unknown, key: string): number | undefined {
+  if (!row || typeof row !== 'object') {
+    return undefined;
+  }
+  const value = Reflect.get(row, key);
+  return typeof value === 'number' ? value : undefined;
+}
+
+function ensureBaseSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS files (
+      path TEXT PRIMARY KEY,
+      hash TEXT NOT NULL,
+      mtime INTEGER NOT NULL,
+      size INTEGER NOT NULL,
+      content TEXT,
+      language TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash);
+    CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    )
+  `);
+}
+
+function hasColumn(db: Database.Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some((row) => readStringField(row, 'name') === column);
+}
+
+function hasAppliedMigration(db: Database.Database, version: string): boolean {
+  const row = db.prepare('SELECT 1 FROM schema_migrations WHERE version = ?').get(version);
+  return readNumberField(row, '1') === 1;
+}
+
+function recordSchemaMigration(db: Database.Database, version: string): void {
+  db.prepare(
+    `
+      INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+      VALUES (?, ?)
+    `,
+  ).run(version, new Date().toISOString());
+}
+
+function applySchemaMigrations(db: Database.Database): void {
+  if (!hasAppliedMigration(db, SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH)) {
+    if (!hasColumn(db, 'files', 'vector_index_hash')) {
+      db.exec(`ALTER TABLE files ADD COLUMN ${'vector_index_hash'} TEXT`);
+    }
+    recordSchemaMigration(db, SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH);
+  }
+}
+
 /**
  * 初始化数据库连接
  * @param projectId 项目 ID
@@ -72,39 +150,8 @@ export function initDb(projectId: string, snapshotId?: string | null): Database.
   db.pragma('busy_timeout = 5000');
   db.pragma('journal_mode = WAL');
 
-  // 创建 files 表
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS files (
-      path TEXT PRIMARY KEY,
-      hash TEXT NOT NULL,
-      mtime INTEGER NOT NULL,
-      size INTEGER NOT NULL,
-      content TEXT,
-      language TEXT NOT NULL,
-      vector_index_hash TEXT
-    )
-  `);
-
-  // 迁移：如果表已存在但缺少 vector_index_hash 列，添加它
-  try {
-    db.exec('ALTER TABLE files ADD COLUMN vector_index_hash TEXT');
-  } catch {
-    // 列已存在，忽略错误
-  }
-
-  // 创建索引
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash);
-    CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime);
-  `);
-
-  // 创建 metadata 表（存储项目级配置）
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS metadata (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
+  ensureBaseSchema(db);
+  applySchemaMigrations(db);
 
   // 初始化 FTS 表（词法搜索支持）
   initFilesFts(db);
@@ -126,23 +173,25 @@ export function closeDb(db: Database.Database): void {
 export function getAllFileMeta(
   db: Database.Database,
 ): Map<string, Pick<FileMeta, 'mtime' | 'hash' | 'size' | 'vectorIndexHash'>> {
-  const rows = db
-    .prepare('SELECT path, hash, mtime, size, vector_index_hash FROM files')
-    .all() as Array<{
-    path: string;
-    hash: string;
-    mtime: number;
-    size: number;
-    vector_index_hash: string | null;
-  }>;
+  const rows = db.prepare('SELECT path, hash, mtime, size, vector_index_hash FROM files').all();
 
   const map = new Map();
   for (const row of rows) {
-    map.set(row.path, {
-      mtime: row.mtime,
-      hash: row.hash,
-      size: row.size,
-      vectorIndexHash: row.vector_index_hash,
+    const filePath = readStringField(row, 'path');
+    const hash = readStringField(row, 'hash');
+    const mtime = readNumberField(row, 'mtime');
+    const size = readNumberField(row, 'size');
+
+    if (!filePath || !hash || mtime === undefined || size === undefined) {
+      continue;
+    }
+
+    const vectorIndexHash = row && typeof row === 'object' ? Reflect.get(row, 'vector_index_hash') : undefined;
+    map.set(filePath, {
+      mtime,
+      hash,
+      size,
+      vectorIndexHash: typeof vectorIndexHash === 'string' ? vectorIndexHash : null,
     });
   }
   return map;
@@ -155,8 +204,10 @@ export function getAllFileMeta(
 export function getFilesNeedingVectorIndex(db: Database.Database): string[] {
   const rows = db
     .prepare('SELECT path FROM files WHERE vector_index_hash IS NULL OR vector_index_hash != hash')
-    .all() as Array<{ path: string }>;
-  return rows.map((r) => r.path);
+    .all();
+  return rows
+    .map((row) => readStringField(row, 'path'))
+    .filter((path): path is string => Boolean(path));
 }
 
 /**
@@ -251,8 +302,10 @@ export function batchUpdateMtime(
  * 获取所有已索引的文件路径
  */
 export function getAllPaths(db: Database.Database): string[] {
-  const rows = db.prepare('SELECT path FROM files').all() as Array<{ path: string }>;
-  return rows.map((r) => r.path);
+  const rows = db.prepare('SELECT path FROM files').all();
+  return rows
+    .map((row) => readStringField(row, 'path'))
+    .filter((path): path is string => Boolean(path));
 }
 
 /**
@@ -293,10 +346,8 @@ const METADATA_KEY_INDEX_CONTENT_SCHEMA_VERSION = 'index_content_schema_version'
  * 获取 metadata 值
  */
 function getMetadata(db: Database.Database, key: string): string | null {
-  const row = db.prepare('SELECT value FROM metadata WHERE key = ?').get(key) as
-    | { value: string }
-    | undefined;
-  return row?.value ?? null;
+  const row = db.prepare('SELECT value FROM metadata WHERE key = ?').get(key);
+  return readStringField(row, 'value') ?? null;
 }
 
 /**

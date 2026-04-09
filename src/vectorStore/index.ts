@@ -31,7 +31,7 @@ export interface ChunkRecord {
   /** 展示用代码 */
   display_code: string;
   /** 向量化文本（用于生成 embedding） */
-  vector_text: string;
+  vector_text?: string;
   /** 语言 */
   language: string;
   /** 面包屑路径 */
@@ -329,17 +329,27 @@ export class VectorStore {
       };
     }
 
-    const rows = await this.table.query().toArray();
+    const totalRows = await this.table.countRows();
+    const batchSize = 1000;
     let displayCodeBytes = 0;
     let vectorTextBytes = 0;
 
-    for (const row of rows as ChunkRecord[]) {
-      displayCodeBytes += Buffer.byteLength(row.display_code || '', 'utf8');
-      vectorTextBytes += Buffer.byteLength(row.vector_text || '', 'utf8');
+    for (let offset = 0; offset < totalRows; offset += batchSize) {
+      const rows = await this.table
+        .query()
+        .select(['display_code', 'vector_text'])
+        .limit(batchSize)
+        .offset(offset)
+        .toArray();
+
+      for (const row of rows as Array<Pick<ChunkRecord, 'display_code' | 'vector_text'>>) {
+        displayCodeBytes += Buffer.byteLength(row.display_code || '', 'utf8');
+        vectorTextBytes += Buffer.byteLength(row.vector_text || '', 'utf8');
+      }
     }
 
     return {
-      rows: rows.length,
+      rows: totalRows,
       displayCodeBytes,
       vectorTextBytes,
     };
@@ -386,7 +396,8 @@ export class VectorStore {
 // 工厂函数
 // ===========================================
 
-const vectorStores = new Map<string, VectorStore>();
+const MAX_CACHED_VECTOR_STORES = 16;
+const vectorStores: Map<string, VectorStore> = new Map();
 
 function buildStoreKey(projectId: string, snapshotId?: string | null): string {
   const suffix = snapshotId === undefined ? '__current__' : snapshotId === null ? '__legacy__' : snapshotId;
@@ -403,11 +414,25 @@ export async function getVectorStore(
 ): Promise<VectorStore> {
   const key = buildStoreKey(projectId, snapshotId);
   let store = vectorStores.get(key);
-  if (!store) {
-    store = new VectorStore(projectId, vectorDim, snapshotId);
-    await store.init();
+  if (store) {
+    vectorStores.delete(key);
     vectorStores.set(key, store);
+    return store;
   }
+
+  store = new VectorStore(projectId, vectorDim, snapshotId);
+  await store.init();
+  vectorStores.set(key, store);
+
+  while (vectorStores.size > MAX_CACHED_VECTOR_STORES) {
+    const oldestKey = vectorStores.keys().next().value;
+    if (!oldestKey || oldestKey === key) break;
+
+    const oldestStore = vectorStores.get(oldestKey);
+    vectorStores.delete(oldestKey);
+    await oldestStore?.close();
+  }
+
   return store;
 }
 

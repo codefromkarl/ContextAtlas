@@ -1,7 +1,7 @@
 <h1 align="center">ContextAtlas</h1>
 
 <p align="center">
-  <strong>为 AI Agent 提供稳定、可复用、可观测的代码上下文基础设施</strong>
+  <strong>Stable, reusable, and observable code context infrastructure for AI agents</strong>
 </p>
 
 <p align="center">
@@ -17,12 +17,12 @@
 </p>
 
 <p align="center">
-  <a href="./README.EN.md">English</a> ·
-  <a href="./docs/README.md">文档总览</a> ·
-  <a href="./docs/guides/first-use.md">首次使用</a> ·
-  <a href="./docs/changelog/2026-04-09.md">2026-04-09 更新</a> ·
-  <a href="./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md">2026-04-09 交付索引</a> ·
-  <a href="./docs/guides/deployment.md">部署手册</a> ·
+  <a href="./README_ZH.md">简体中文</a> ·
+  <a href="./docs/README.md">Docs Index</a> ·
+  <a href="./docs/guides/first-use.md">First Use</a> ·
+  <a href="./docs/changelog/2026-04-09.md">2026-04-09 Update</a> ·
+  <a href="./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md">2026-04-09 Delivery</a> ·
+  <a href="./docs/guides/deployment.md">Deployment</a> ·
   <a href="./docs/reference/cli.md">CLI</a> ·
   <a href="./docs/reference/mcp.md">MCP</a>
 </p>
@@ -31,111 +31,182 @@
   <img src="https://raw.githubusercontent.com/codefromkarl/ContextAtlas/main/docs/architecture/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
-## 更新记录
+**ContextAtlas** is an open-source context infrastructure for AI coding agents — providing hybrid code retrieval, project memory, and retrieval observability as a CLI, MCP server, or embeddable library. It combines tree-sitter semantic chunking, LanceDB vector search, SQLite FTS5 full-text search, and token-aware context packing to deliver structured, high-quality code context to tools like Claude Code, Codex, and custom agent workflows.
 
-- `2026-04-06`：收口默认主路径、记忆治理与运维观测，让首次接入、反馈闭环和健康检查更清晰。
-- `2026-04-07`：围绕索引链路完成轻量计划、快照复制优化、队列可观测、fallback 稳定性和性能基准建设。
-- `2026-04-08`：新增 embedding gateway、本地缓存与多上游切换能力，并补齐 Hugging Face 接入与 MCP 上下文生命周期工具。
-- `2026-04-09`：为索引计划增加 churn / cost 策略、把长期记忆迁到独立表 + FTS5，并完成默认路径硬化、阈值配置化、运维告警口径对齐与文档同步。
+## Updates
 
-## 目录
+- `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
+- `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
+- `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
+- `2026-04-09`: added churn / cost-aware index planning, moved long-term memory into dedicated tables + FTS5, and finished default-path hardening, threshold configuration, ops alert threshold alignment, and doc sync.
 
-- [为什么需要 ContextAtlas](#为什么需要-contextatlas)
-- [适合什么场景](#适合什么场景)
-- [核心能力](#核心能力)
-- [安装](#安装)
-- [快速开始](#快速开始)
-- [接入方式](#接入方式)
-- [文档导航](#文档导航)
-- [友情链接](#友情链接)
+## Contents
+
+- [Why ContextAtlas](#why-contextatlas)
+- [Where it fits](#where-it-fits)
+- [Core capabilities](#core-capabilities)
+- [Quick highlights](#quick-highlights)
+- [Positioning](#positioning)
+- [Tech stack](#tech-stack)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Quick start](#quick-start)
+- [Integration modes](#integration-modes)
+- [Usage flow](#usage-flow)
+- [Common commands](#common-commands)
+- [Architecture overview](#architecture-overview)
+- [Project structure](#project-structure)
+- [Notes](#notes)
+- [Current limitations](#current-limitations)
+- [Documentation map](#documentation-map)
+- [Contributing](#contributing)
+- [Development](#development)
+- [Friendly links](#friendly-links)
 - [License](#license)
 
-ContextAtlas 不是单一的“代码搜索工具”。它解决的是更实际的工程问题：
+ContextAtlas is not just a code search tool. It addresses a more practical engineering problem:
 
-- agent 能不能在大仓库里更快找到正确代码
-- agent 能不能把项目理解沉淀下来，而不是每次重读整个仓库
-- 检索、索引和记忆系统本身能不能被观测、优化和治理
+- can an agent find the right code faster in a large repository?
+- can repository understanding be persisted instead of rediscovered every session?
+- can retrieval, indexing, and memory quality be observed and improved over time?
 
-如果你正在构建 Claude Code、MCP 客户端或自定义 agent workflow，ContextAtlas 提供的是一层 **context infrastructure**：检索、记忆、上下文打包和观测。
+If you are building Claude Code workflows, MCP clients, or custom agent systems, ContextAtlas provides a **context infrastructure layer**: retrieval, memory, context packing, and observability.
 
-## 为什么需要 ContextAtlas
+## Why ContextAtlas
 
-在真实项目里，AI agent 失败往往不是因为“模型不够聪明”，而是因为上下文系统不可靠：
+In real projects, agent failures are often not caused by a weak model. They come from weak context systems:
 
-- 找不到真正相关的代码
-- 找到的是碎片，缺少依赖和上下文
-- 同一个模块反复理解，无法沉淀稳定知识
-- 索引过期、检索退化、预算耗尽却没有观测信号
+- the relevant code is not found
+- the returned code is too fragmented and lacks surrounding context
+- the same module has to be re-understood again and again
+- indexes become stale, retrieval quality degrades, and token budgets get exhausted without clear signals
 
-ContextAtlas 把这些问题拆成一套可组合的基础能力：
+ContextAtlas turns this into a composable set of capabilities:
 
-- **找**：混合检索找到相关实现
-- **补**：图扩展和 token packing 补足局部上下文
-- **存**：项目记忆、长期记忆、跨项目 Hub 沉淀知识
-- **看**：索引健康、检索 telemetry、usage 和 alert 让系统可观测
+- **Find**: hybrid retrieval narrows down the relevant implementation
+- **Expand**: graph expansion and token packing turn hits into usable local context
+- **Store**: project memory, long-term memory, and a cross-project hub preserve knowledge
+- **Observe**: health checks, telemetry, usage analysis, and alerts make the system diagnosable
 
-## 适合什么场景
+## Where it fits
 
-- 作为 coding agent 的仓库检索后端
-- 作为 MCP server，为外部客户端提供代码检索和记忆工具
-- 作为本地 CLI / skill backend，嵌入脚本、CI 或 agent workflow
-- 作为跨项目知识中枢，复用模块职责、决策记录和协作经验
+- As a repository retrieval backend for coding agents
+- As an MCP server for external clients that need code retrieval and memory tools
+- As a local CLI / skill backend for scripts, CI, and workflow automation
+- As a cross-project knowledge layer for reusable module knowledge and decision history
 
-## 核心能力
+## Core capabilities
 
-| 能力 | 说明 |
+| Capability | Description |
 |------|------|
-| **Hybrid Retrieval** | 向量召回 + FTS 词法召回 + RRF 融合 + rerank |
-| **Context Expansion** | 基于邻居、breadcrumb、import 的局部上下文扩展 |
-| **Token-aware Packing** | 在有限 token 预算内优先保留高价值上下文 |
-| **Project Memory** | Feature Memory、Decision Record、Project Profile |
-| **Long-term Memory** | 保存无法从代码稳定推导的规则、偏好、外部参考 |
-| **Cross-project Hub** | 跨仓库共享模块记忆、依赖链和关系图谱 |
-| **Async Indexing** | SQLite 队列 + daemon 消费 + 快照原子切换 |
-| **Observability** | retrieval monitor、usage report、index health、memory health、alert evaluation |
+| **Hybrid Retrieval** | Vector recall + FTS lexical recall + RRF fusion + rerank |
+| **Context Expansion** | Local context expansion based on neighbors, breadcrumbs, and imports |
+| **Token-aware Packing** | Keeps the highest-value context inside a limited token budget |
+| **Project Memory** | Feature Memory, Decision Record, and Project Profile |
+| **Long-term Memory** | Rules, preferences, and external references that cannot be derived reliably from code |
+| **Cross-project Hub** | Reuse module memories, dependency chains, and relations across repositories |
+| **Async Indexing** | SQLite queue + daemon consumer + atomic snapshot switch |
+| **Observability** | Retrieval monitor, usage report, index health, memory health, and alert evaluation |
 
-## 技术栈
+## Quick highlights
+
+### 1. It does more than search code
+
+ContextAtlas does not aim to return “the most similar snippet.” It assembles a usable context pack through:
+
+- vector recall
+- FTS recall
+- RRF fusion
+- rerank
+- graph expansion
+- token-aware packing
+
+### 2. Repository understanding can be persisted
+
+In addition to retrieval, ContextAtlas supports:
+
+- Feature Memory: module responsibilities, files, dependencies, and data flow
+- Decision Record: architecture decisions and rationale
+- Project Profile: tech stack, structure, and conventions
+- Long-term Memory: preferences, rules, and external references
+
+### 3. The retrieval system itself is observable
+
+You can inspect more than just search results:
+
+- whether the index is healthy
+- whether retrieval quality is degrading
+- whether long-term memories are stale or expired
+- whether usage patterns suggest a rebuild or incremental indexing
+
+### 4. It works both as CLI and MCP Server
+
+The same capabilities can be used:
+
+- directly from local shell commands, scripts, and skills
+- through MCP tools in Claude Desktop or other MCP clients
+
+## Positioning
+
+**ContextAtlas is a context infrastructure layer for AI agents.**
+
+It answers this question:
+
+> When an upstream agent starts working, how can it reliably get high-value, low-noise, reusable code context and repository knowledge?
+
+It does **not** handle:
+
+- agent reasoning itself
+- workflow orchestration / planning
+- full verification harness responsibilities
+- browser, terminal, or business API actions
+
+In short, ContextAtlas decides **what context to provide**, not **how the task should be executed**.
+
+For a fuller architecture explanation, see [ContextAtlas engineering positioning](./docs/architecture/harness-engineering.md).
+
+## Tech stack
 
 - **TypeScript / Node.js 20+**
-- **Tree-sitter**：语义分片
-- **SQLite + FTS5**：元数据、检索、队列、memory hub
-- **LanceDB**：向量存储
-- **Model Context Protocol SDK**：MCP server
+- **Tree-sitter** for semantic chunking
+- **SQLite + FTS5** for metadata, retrieval, queues, and memory hub storage
+- **LanceDB** for vector storage
+- **Model Context Protocol SDK** for MCP integration
 
-## 安装
+## Installation
 
 ```bash
 npm install -g @codefromkarl/context-atlas
 ```
 
-产品身份映射：
+Product identity mapping:
 
-- 仓库名：`ContextAtlas`
-- npm 包名：`@codefromkarl/context-atlas`
-- CLI 命令：`contextatlas`
+- Repository: `ContextAtlas`
+- npm package: `@codefromkarl/context-atlas`
+- CLI command: `contextatlas`
 
-可执行命令：
+Available commands:
 
 - `contextatlas`
-- `cw`（短别名）
+- `cw` (short alias)
 
-文档默认统一使用 `contextatlas`，`cw` 保留为兼容短别名。
+The docs use `contextatlas` as the primary command name. `cw` remains as a compatibility alias.
 
-## 配置
+## Configuration
 
-先初始化配置目录和示例环境变量：
+Initialize the config directory and example environment file first:
 
 ```bash
 contextatlas init
 ```
 
-默认配置文件位置：
+Default config file location:
 
 ```bash
 ~/.contextatlas/.env
 ```
 
-至少需要配置：
+Minimum required configuration:
 
 ```bash
 EMBEDDINGS_API_KEY=
@@ -147,7 +218,7 @@ RERANK_BASE_URL=
 RERANK_MODEL=
 ```
 
-索引更新策略还支持以下可选参数：
+Index update planning also supports these optional knobs:
 
 ```bash
 INDEX_UPDATE_CHURN_THRESHOLD=0.35
@@ -156,90 +227,87 @@ INDEX_UPDATE_MIN_FILES=8
 INDEX_UPDATE_MIN_CHANGED_FILES=5
 ```
 
-- `INDEX_UPDATE_CHURN_THRESHOLD`：改动文件占比达到阈值时，`index:plan` / `index:update` 更倾向直接建议 `full`
-- `INDEX_UPDATE_COST_RATIO_THRESHOLD`：估算增量处理成本接近全量时触发 `full`
-- `INDEX_UPDATE_MIN_FILES` / `INDEX_UPDATE_MIN_CHANGED_FILES`：只有仓库规模和改动规模都达到门槛时，才启用上述升级策略
-- `contextatlas index:diagnose`：直接回显当前阈值和升级判定配置，适合排查“为什么升级成 full / 为什么仍保持 incremental”
+- `INDEX_UPDATE_CHURN_THRESHOLD`: when the changed-file ratio crosses this value, `index:plan` / `index:update` will favor `full`
+- `INDEX_UPDATE_COST_RATIO_THRESHOLD`: triggers `full` when the estimated incremental cost is close to a full rebuild
+- `INDEX_UPDATE_MIN_FILES` / `INDEX_UPDATE_MIN_CHANGED_FILES`: require both repo size and change size to clear a minimum bar before escalation is allowed
 
-> `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
+> `init` writes an editable example `.env`, including default SiliconFlow endpoints and recommended model settings.
 
-更多配置与部署细节见 [部署手册](./docs/guides/deployment.md) 和 [CLI 文档](./docs/reference/cli.md)。
+## Quick start
 
-## 快速开始
+If you are onboarding for the first time, start with the [First use guide](./docs/guides/first-use.md).
 
-如果你是第一次接入，先看 [首次使用](./docs/guides/first-use.md)。
-
-### 1）确认主路径入口
+### 1) Confirm the default entry flow
 
 ```bash
 contextatlas start /path/to/repo
 ```
 
-### 2）初始化并填写 API 配置
+### 2) Initialize and fill in API settings
 
 ```bash
 contextatlas init
-# 编辑 ~/.contextatlas/.env
+# edit ~/.contextatlas/.env
 ```
 
-### 3）索引仓库
+### 3) Index a repository
 
 ```bash
 contextatlas index /path/to/repo
 ```
 
-### 4）本地检索
+### 4) Run local retrieval
 
 ```bash
 contextatlas search \
   --repo-path /path/to/repo \
-  --information-request "用户认证流程是如何实现的？"
+  --information-request "How is the authentication flow implemented?"
 ```
 
-### 5）启动守护进程（推荐）
+### 5) Start the daemon (recommended)
 
 ```bash
 contextatlas daemon start
 ```
 
-### 6）作为 MCP Server 暴露给客户端
+### 6) Expose it as an MCP server
 
 ```bash
 contextatlas mcp
 ```
 
-## 接入方式
+## Integration modes
 
-### 1. 作为本地 CLI / Skill Backend
+### 1. As a local CLI / skill backend
 
-适合：
+Useful for:
 
-- 自定义 agent skills
-- shell workflow / CI 脚本
-- 本地调试与检索分析
+- custom agent skills
+- shell workflows and CI scripts
+- local debugging and retrieval analysis
 
-示例：
+Example:
 
 ```bash
-# 检索
-contextatlas search --repo-path /path/to/repo --information-request "支付重试策略在哪里实现？"
+# retrieval
+contextatlas search --repo-path /path/to/repo --information-request "Where is the payment retry policy implemented?"
 
-# 项目记忆
+# project memory
 contextatlas memory:find "search"
 contextatlas decision:list
 
-# 健康检查
+# health
 contextatlas health:full
 ```
 
-### 2. 作为 MCP Server
+### 2. As an MCP server
 
-适合：
+Useful for:
 
-- 支持 MCP 的桌面客户端
-- 需要以标准 tool 调用 ContextAtlas 能力的 agent 系统
+- desktop clients that support MCP
+- agent systems that need standard tool-based access to ContextAtlas capabilities
 
-Claude Desktop 配置示例：
+Claude Desktop configuration example:
 
 ```json
 {
@@ -252,70 +320,224 @@ Claude Desktop 配置示例：
 }
 ```
 
-ContextAtlas 的 MCP 工具覆盖：
+ContextAtlas MCP tools cover:
 
-- 代码检索
-- 项目记忆
-- 长期记忆
-- 跨项目 Hub
-- 自动记录与建议写回
+- code retrieval
+- project memory
+- long-term memory
+- cross-project hub operations
+- auto-recording and memory suggestion flows
 
-## 常用命令
-
-```bash
-contextatlas init
-contextatlas start /path/to/repo
-contextatlas index /path/to/repo
-contextatlas daemon start
-contextatlas search --repo-path /path/to/repo --information-request "数据库连接逻辑"
-contextatlas mcp
-```
-
-更完整的命令分类、参数和运维命令见 [CLI 命令参考](./docs/reference/cli.md)。
-
-## 架构概览
+## Usage flow
 
 ```text
-索引：Crawler / Scanner → Chunking → Indexing → Vector / SQLite Storage
-检索：Vector + FTS Recall → RRF → Rerank → Graph Expansion → Context Packing
-记忆：Project Memory / Long-term Memory / Hub → CLI / MCP Tools
+1. init
+   ↓
+2. index
+   ↓
+3. search / MCP retrieval
+   ↓
+4. understand code and dependencies
+   ↓
+5. record project memory / long-term memory (optional)
+   ↓
+6. continuously observe health / monitor / usage signals
 ```
 
-ContextAtlas 更关注“给 agent 什么上下文”，而不是“替 agent 完成任务决策”。更完整的边界说明见 [仓库定位](./docs/architecture/repository-positioning.md) 和 [工程定位文档](./docs/architecture/harness-engineering.md)。
+A typical workflow looks like this:
 
-## 文档导航
+1. run `contextatlas init`
+2. run `contextatlas index /path/to/repo`
+3. use `contextatlas search` or MCP tools to retrieve code and memory
+4. record stable module knowledge, decisions, or long-term memory after the task
+5. periodically run `health:full`, `monitor:retrieval`, `usage:index-report`, and `memory:health`
 
-| 文档 | 用途 |
+### Recommended CLAUDE.md startup rules
+
+If you use ContextAtlas inside Claude Code or other session-based agent workflows, add a rule like this to `CLAUDE.md`:
+
+```md
+At the beginning of every conversation:
+1. Query project memory first (for example via `project-memory-hub` / `memory-load` / `find_memory`)
+2. Immediately run repository indexing (`contextatlas index /path/to/repo`)
+3. Only then start retrieval, analysis, and implementation
+```
+
+Why this helps:
+
+- it loads existing project knowledge before broad exploration
+- it reduces the chance of working against stale retrieval data after repository changes
+- it makes later planning and implementation depend on fresher context
+
+## Common commands
+
+### Retrieval and indexing
+
+```bash
+contextatlas start /path/to/repo
+contextatlas index /path/to/repo
+contextatlas index --force
+contextatlas index:plan /path/to/repo --json
+contextatlas index:diagnose --json
+contextatlas daemon start
+contextatlas search --repo-path /path/to/repo --information-request "Where is the database connection logic?"
+```
+
+### Project memory and long-term memory
+
+```bash
+contextatlas memory:find "auth"
+contextatlas memory:record "Auth Module" --desc "User authentication module" --dir "src/auth"
+contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
+contextatlas memory:list
+contextatlas memory:prune-long-term --include-stale
+contextatlas decision:list
+contextatlas profile:show
+```
+
+`contextatlas start` now gives the default loop directly: `Connect Repo → Check Index Status → Ask → Review Result → Give Feedback / Save Memory`. Retrieval result cards also surface source hierarchy, freshness/conflict/confidence signals, and concrete follow-up commands.
+
+Index health checks now also show the latest successful indexing time and the latest execution mode for each project, so it is clearer whether a repository is staying healthy through incremental updates or falling back to rebuild-heavy recovery.
+
+### Cross-project hub
+
+```bash
+contextatlas hub:list-projects
+contextatlas hub:search --category search
+contextatlas hub:deps <projectId> <moduleName>
+```
+
+### Observability and operations
+
+```bash
+contextatlas monitor:retrieval --days 7
+contextatlas usage:index-report --days 7
+contextatlas ops:summary
+contextatlas ops:metrics --days 7 --stale-days 30
+contextatlas health:check
+contextatlas index:plan /path/to/repo
+contextatlas index:diagnose
+contextatlas alert:eval --stale-days 30
+```
+
+## Architecture overview
+
+### Retrieval path
+
+```text
+User question
+  → vector recall
+  → FTS lexical recall
+  → RRF fusion
+  → rerank
+  → graph expansion
+  → token-aware packing
+  → structured context output
+```
+
+In the current implementation, `SearchService` is mostly an orchestration facade instead of a single all-in-one engine:
+
+- `HybridRecallEngine` handles vector + lexical recall, FTS fallback, and RRF fusion
+- `RerankPolicy` owns rerank pool selection and Smart TopK cutoff
+- `SnippetExtractor` builds rerank text and hit-centered snippets
+- `GraphExpander` and `ContextPacker` still own expansion and packing
+
+### Indexing path
+
+```text
+File changes
+  → scanner/ detects changes
+  → chunking/ semantic chunking
+  → indexer/ embedding + vector store write
+  → storage/ atomic snapshot switch
+  → indexing/ queue state update
+```
+
+### Memory path
+
+```text
+Feature / Decision / Profile / Long-term write
+  → MemoryStore facade
+  → bootstrap project initialization and compatibility import
+  → focused sub-stores persist and sync data
+  → Memory Hub / Router / retrieval tools read it back
+```
+
+The current `memory/` boundaries are:
+
+- `MemoryStore` stays as the stable facade for CLI, MCP, and monitoring
+- `MemoryStoreBootstrap` handles read-only/writable initialization, project registration, and compatibility import
+- `ProjectMetaStore` owns checkpoints, catalog, profile, and global memory
+- `FeatureMemoryRepository` and `FeatureMemoryCatalogCoordinator` own feature memory persistence and catalog sync
+- `DecisionStore` owns decision-record mapping and persistence
+- `LongTermMemoryService` owns append/find/status/prune logic for long-term memory
+
+## Project structure
+
+```text
+src/
+├── api/                  # Embedding / Rerank / Unicode handling
+├── chunking/             # Tree-sitter semantic chunking
+├── db/                   # SQLite + FTS + file metadata
+├── indexer/              # Vector indexing orchestration
+├── indexing/             # Index queue and daemon
+├── mcp/                  # MCP server and tool definitions
+├── memory/               # MemoryStore facade + bootstrap + sub-stores + cross-project hub
+├── monitoring/           # Retrieval monitoring / health / alerts
+├── scanner/              # File discovery and incremental scanning
+├── search/               # SearchService facade + recall / rerank / snippet / expand / pack submodules
+├── storage/              # Snapshot layout and atomic switching
+├── usage/                # Usage tracking and optimization analysis
+└── vectorStore/          # LanceDB vector storage
+```
+
+## Notes
+
+- **The first full index may take time**: index once, then keep incremental updates warm with the daemon
+- **Do not store code-derivable facts in long-term memory**: use it for rules, preferences, external references, and non-code state
+- **MCP and CLI are complementary**: MCP is better for tool integration, CLI is better for scripts, skills, and manual debugging
+- **Make health checks routine**: when results get worse, check index, memory, and retrieval metrics before blaming the model
+
+## Current limitations
+
+- no multi-tenant or permission isolation yet
+- memory write quality still depends on upstream workflow discipline
+- no conflict detection in the cross-project hub yet
+- automatic incremental indexing still relies on the daemon or external scheduling
+- no unified confidence score interface for retrieval results yet
+
+## Documentation map
+
+| Document | Purpose |
 |------|------|
-| [文档总览](./docs/README.md) | 文档目录统一入口，区分稳定文档、计划、更新日志和归档材料 |
-| [首次使用](./docs/guides/first-use.md) | 10 分钟跑通默认闭环，先理解包名、CLI 名和第一条查询 |
-| [2026-04-07 更新总结](./docs/changelog/2026-04-07.md) | 索引 7 个阶段优化总结，覆盖轻量计划、快照复制、健康修复、队列可观测性、fallback、存储裁剪与 benchmark |
-| [部署手册](./docs/guides/deployment.md) | 安装、部署场景、MCP 集成、运维建议 |
-| [CLI 命令参考](./docs/reference/cli.md) | 所有 CLI 命令的分类说明和示例 |
-| [MCP 工具参考](./docs/reference/mcp.md) | MCP 工具总览、参数和调用顺序 |
-| [项目记忆详解](./docs/project/project-memory.md) | Feature Memory、Decision Record、Catalog 路由 |
-| [仓库定位](./docs/architecture/repository-positioning.md) | 仓库角色、设计思路、系统边界 |
-| [工程定位文档](./docs/architecture/harness-engineering.md) | ContextAtlas 在 harness engineering 中的定位 |
-| [产品路线图](./docs/product/roadmap.md) | 后续版本规划和演进方向 |
-| [后续任务执行清单](./docs/plans/next-tasks-execution-checklist.md) | 将当前未完全关闭的后续事项整理为可执行任务板 |
-| [迭代执行计划（2026-04-08）](./docs/archive/iterations/2026-04-08/iteration-plan.md) | 按迭代批次拆分后续任务，便于直接排期执行 |
+| [Docs index](./docs/README.md) | Unified entry for stable docs, plans, changelog, and archived delivery material |
+| [First use guide](./docs/guides/first-use.md) | Fast onboarding path for the default `contextatlas` loop |
+| [2026-04-06 update summary](./docs/changelog/2026-04-06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
+| [2026-04-07 update summary](./docs/changelog/2026-04-07.md) | Summary of the seven indexing phases covering lightweight planning, snapshot copy reduction, health repair, observability, fallback hardening, storage trimming, and benchmarks |
+| [Deployment guide](./docs/guides/deployment.md) | Installation, deployment patterns, MCP integration, operations |
+| [CLI reference](./docs/reference/cli.md) | CLI commands, categories, and examples |
+| [MCP reference](./docs/reference/mcp.md) | MCP tools, parameters, and calling patterns |
+| [Project memory guide](./docs/project/project-memory.md) | Feature Memory, Decision Record, and Catalog routing |
+| [Repository positioning](./docs/architecture/repository-positioning.md) | Repository role, design thinking, and system boundaries |
+| [Engineering positioning](./docs/architecture/harness-engineering.md) | Where ContextAtlas fits in harness engineering |
+| [Product roadmap](./docs/product/roadmap.md) | Future versions and product direction |
 
-## 贡献
+## Contributing
 
-欢迎通过以下方式参与改进 ContextAtlas：
+Ways to improve ContextAtlas:
 
-- 提交 issue 报告 bug 或文档问题
-- 提交 PR 修复检索、记忆、监控或文档问题
-- 补充真实使用场景、部署经验和 benchmark 数据
-- 改进 README、CLI 文档和 MCP 工具示例
+- open issues for bugs or documentation gaps
+- submit PRs for retrieval, memory, monitoring, or documentation improvements
+- contribute real-world usage patterns, deployment notes, and benchmark data
+- improve README, CLI docs, and MCP examples
 
-如果你准备提交代码，建议先：
+Before submitting code, it helps to:
 
-1. 运行 `pnpm build` 确认可以构建
-2. 确认命令示例、README 和文档与当前实现一致
-3. 尽量把功能、文档和运维说明一起补齐
+1. run `pnpm build` and make sure the repo still builds
+2. keep command examples, README, and docs aligned with the implementation
+3. update functionality, documentation, and operational notes together when possible
 
-## 开发
+## Development
 
 ```bash
 pnpm build
@@ -324,7 +546,7 @@ pnpm dev
 node dist/index.js
 ```
 
-## 友情链接
+## Friendly links
 
 https://linux.do/
 

@@ -1,0 +1,96 @@
+name: Bug Report
+description: Report a problem or bug in ContextAtlas
+title: "[Bug]: "
+labels:
+  - "bug"
+  - "needs-triage"
+body:
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: "When I try to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Please provide numbered steps to reproduce the bug.
+      placeholder: |
+        1. Run 'contextatlas search...'
+        2. Click on...
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+      placeholder: "I expected to see..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened (include error messages if applicable).
+      placeholder: "Instead, I got this error:..."
+    validations:
+      required: true
+
+  - type: input
+    id: contextatlas-version
+    attributes:
+      label: ContextAtlas Version
+      description: What version of ContextAtlas are you using? Run 'contextatlas --version'
+      placeholder: "1.0.0"
+    validations:
+      required: false
+
+  - type: input
+    id: nodejs-version
+    attributes:
+      label: Node.js Version
+      description: What version of Node.js are you using? Run 'node --version'
+      placeholder: "v20.0.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: false
+
+  - type: dropdown
+    id: usage-mode
+    attributes:
+      label: Usage Mode
+      description: How are you using ContextAtlas?
+      options:
+        - CLI
+        - MCP Server
+        - Both
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information, logs, or screenshots about the bug.
+      placeholder: "Here are the logs..."
+    validations:
+      required: false

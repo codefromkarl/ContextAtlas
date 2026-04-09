@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for ContextAtlas
+title: "[Feature]: "
+labels:
+  - "enhancement"
+  - "needs-triage"
+body:
+  - type: textarea
+    id: problem-description
+    attributes:
+      label: Problem Description
+      description: What problem or use case does this feature address?
+      placeholder: "I'm trying to accomplish..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How do you envision this feature working?
+      placeholder: "I think it would be great if..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives-considered
+    attributes:
+      label: Alternatives Considered
+      description: What alternative approaches or workarounds have you considered?
+      placeholder: "I've tried..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: use-case-context
+    attributes:
+      label: Use Case Context
+      description: Please provide context about your specific use case and how this feature would benefit you or other users.
+      placeholder: "This would help me to..."
+    validations:
+      required: false

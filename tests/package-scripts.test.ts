@@ -18,6 +18,37 @@ test('package.json exposes a delivery verification script', () => {
   assert.match(script, /remaining-acceptance-failures/);
   assert.match(script, /pnpm build/);
   assert.match(script, /pnpm test/);
+  assert.match(script, /pnpm test:dist/);
+});
+
+test('package.json build scripts compile the scanner bundle required by dist smoke tests', () => {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'),
+  ) as {
+    scripts?: Record<string, string>;
+  };
+
+  const buildScript = pkg.scripts?.build;
+  const buildReleaseScript = pkg.scripts?.['build:release'];
+  assert.ok(buildScript);
+  assert.ok(buildReleaseScript);
+  assert.match(buildScript, /src\/scanner\/index\.ts/);
+  assert.match(buildReleaseScript, /src\/scanner\/index\.ts/);
+});
+
+test('package.json splits source and dist test entrypoints explicitly', () => {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'),
+  ) as {
+    scripts?: Record<string, string>;
+  };
+
+  const testScript = pkg.scripts?.test;
+  const distScript = pkg.scripts?.['test:dist'];
+  assert.ok(testScript);
+  assert.ok(distScript);
+  assert.match(testScript, /scripts\/run-tests\.mjs source/);
+  assert.match(distScript, /scripts\/run-tests\.mjs dist/);
 });
 
 test('package.json exposes a fast delivery artifact verification script', () => {

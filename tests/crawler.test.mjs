@@ -5,17 +5,26 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-async function loadScanFromDist() {
-  const distDir = path.resolve(process.cwd(), 'dist');
-  const scannerBundle = fs
-    .readdirSync(distDir)
-    .find((fileName) => /^scanner-.*\.js$/.test(fileName));
+const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 
-  if (!scannerBundle) {
-    throw new Error('未找到 dist/scanner-*.js，请先执行 pnpm build');
+async function loadScanFromDist() {
+  const distDir = path.join(REPO_ROOT, 'dist');
+  const scannerEntry = path.join(distDir, 'scanner', 'index.js');
+  const legacyScannerBundle = fs
+    .readdirSync(distDir)
+    .find((entry) => /^scanner-.*\.js$/.test(entry));
+
+  const scannerModulePath = fs.existsSync(scannerEntry)
+    ? scannerEntry
+    : legacyScannerBundle
+      ? path.join(distDir, legacyScannerBundle)
+      : null;
+
+  if (!scannerModulePath) {
+    throw new Error('未找到 dist/scanner/index.js 或 dist/scanner-*.js，请先执行 pnpm build');
   }
 
-  const mod = await import(pathToFileURL(path.join(distDir, scannerBundle)).href);
+  const mod = await import(pathToFileURL(scannerModulePath).href);
   return mod.scan;
 }
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { buildReleaseSmokePlan, validateSmokeResult, type SmokeStep } from './smoke.js';
 
 export interface ReleaseGateStageResult {
-  stage: 'build' | 'test' | 'smoke';
+  stage: 'build' | 'test' | 'test-dist' | 'smoke';
   ok: boolean;
   durationMs: number;
   command: string[];
@@ -61,8 +61,25 @@ export function runReleaseGate(input: {
   });
   if (test.exitCode !== 0) return { ok: false, stages };
 
+  const testDist = runReleaseCommand(['pnpm', 'test:dist'], repoRoot, baseEnv);
+  stages.push({
+    stage: 'test-dist',
+    ok: testDist.exitCode === 0,
+    durationMs: testDist.durationMs,
+    command: ['pnpm', 'test:dist'],
+    error: testDist.exitCode === 0 ? undefined : testDist.stderr || testDist.stdout,
+  });
+  if (testDist.exitCode !== 0) return { ok: false, stages };
+
   const smokePlan = buildReleaseSmokePlan({ cliEntry, fixtureRepoPath });
-  const smokeStage = runSmokeStage(smokePlan, repoRoot, baseEnv);
+  const smokeEnv =
+    baseEnv?.CONTEXTATLAS_BASE_DIR
+      ? {
+          ...baseEnv,
+          CONTEXTATLAS_BASE_DIR: path.join(baseEnv.CONTEXTATLAS_BASE_DIR, 'smoke'),
+        }
+      : baseEnv;
+  const smokeStage = runSmokeStage(smokePlan, repoRoot, smokeEnv);
   stages.push(smokeStage);
 
   return {

@@ -23,11 +23,12 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --sourcemap --clean",
-    "build:release": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --clean",
-    "dev": "tsup src/index.ts src/mcp/main.ts --format esm --dts --out-dir dist --sourcemap --watch",
+    "build": "tsup src/index.ts src/mcp/main.ts src/scanner/index.ts --format esm --dts --out-dir dist --sourcemap --clean",
+    "build:release": "tsup src/index.ts src/mcp/main.ts src/scanner/index.ts --format esm --dts --out-dir dist --clean",
+    "dev": "tsup src/index.ts src/mcp/main.ts src/scanner/index.ts --format esm --dts --out-dir dist --sourcemap --watch",
     "fmt": "biome check --write ./src",
-    "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
+    "test": "node scripts/run-tests.mjs source",
+    "test:dist": "node scripts/run-tests.mjs dist",
     "delivery:all": "pnpm verify:delivery:artifacts && pnpm delivery:manifest && pnpm delivery:bundle && pnpm delivery:pr && pnpm delivery:team-update && pnpm delivery:runbook",
     "delivery:bundle": "cat ./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md",
     "delivery:commit-message": "cat ./docs/archive/deliveries/2026-04-09-index-and-memory/commit-message.md",
@@ -40,7 +41,7 @@
     "delivery:team-update": "cat ./docs/archive/deliveries/2026-04-09-index-and-memory/team-update-message.md",
     "delivery:full": "pnpm verify:delivery && pnpm delivery:all",
     "verify:delivery:artifacts": "node --import tsx --test tests/delivery-manifest.test.ts tests/delivery-readme-links.test.ts tests/package-scripts.test.ts",
-    "verify:delivery": "node --import tsx ./.autoresearch/remaining-acceptance-failures.mts && pnpm build && pnpm test",
+    "verify:delivery": "node --import tsx ./.autoresearch/remaining-acceptance-failures.mts && pnpm build && pnpm test && pnpm test:dist",
     "release:gate": "node --import tsx scripts/release-gate.ts",
     "smoke:release": "node --import tsx scripts/release-smoke.ts",
     "ci:verify": "pnpm release:gate"

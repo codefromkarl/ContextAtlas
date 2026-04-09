@@ -2,6 +2,7 @@ import { classifyQueryIntent, deriveQueryAwareSearchConfig } from './QueryIntent
 import type {
   QueryIntent,
   ResultStats,
+  RetrievalStats,
   ScoredChunk,
   SearchConfig,
   SearchResultMode,
@@ -73,5 +74,21 @@ export function buildResultStats({
     blockBudgetExhausted: packStats.blockBudgetExhausted,
     filesConsidered: packStats.filesConsidered,
     filesIncluded: packStats.filesIncluded,
+  };
+}
+
+export function buildRetrievalStats(input: {
+  queryIntent: QueryIntent;
+  retrievedStats: Omit<RetrievalStats, 'queryIntent' | 'topMCount' | 'rerankedCount'>;
+  topMCount: number;
+  rerankInputCount: number;
+  rerankedCount: number;
+}): RetrievalStats {
+  return {
+    queryIntent: input.queryIntent,
+    ...input.retrievedStats,
+    topMCount: input.topMCount,
+    rerankInputCount: input.rerankInputCount,
+    rerankedCount: input.rerankedCount,
   };
 }

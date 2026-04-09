@@ -1,23 +1,19 @@
 import type Database from 'better-sqlite3';
-import { getRerankerClient, type RerankUsage } from '../api/reranker.js';
-import { logger } from '../utils/logger.js';
 import type { Indexer } from '../indexer/index.js';
 import type { VectorStore } from '../vectorStore/index.js';
 import { ContextPacker } from './ContextPacker.js';
-import { getGraphExpander } from './GraphExpander.js';
 import { HybridRecallEngine } from './HybridRecallEngine.js';
+import type { SearchPipelineCallbacks } from './SearchPipelineCallbacks.js';
 import {
   buildContextRequest,
+  buildRetrievalStats,
   buildResultStats,
   type BuildContextPackOptions,
 } from './SearchPipelineSupport.js';
-import { applySmartCutoff, selectRerankPoolCandidates } from './RerankPolicy.js';
-import { buildRerankText } from './SnippetExtractor.js';
+import { applySmartCutoff } from './RerankPolicy.js';
 import type {
   ContextPack,
-  ExpansionCandidate,
   RetrievalStats,
-  ScoredChunk,
   SearchConfig,
 } from './types.js';
 
@@ -31,22 +27,7 @@ export interface SearchRuntimeContext {
   db: Database.Database | null;
 }
 
-export interface SearchPipelineCallbacks {
-  rerank?: (
-    query: string,
-    candidates: ScoredChunk[],
-    config: SearchConfig,
-  ) => Promise<{ chunks: ScoredChunk[]; usage?: RerankUsage; inputCount: number }>;
-  expand?: (
-    seeds: ScoredChunk[],
-    queryTokens: Set<string> | undefined,
-    config: SearchConfig,
-  ) => Promise<{
-    chunks: ScoredChunk[];
-    explorationCandidates: ExpansionCandidate[];
-    nextInspectionSuggestions: string[];
-  }>;
-}
+export type { SearchPipelineCallbacks } from './SearchPipelineCallbacks.js';
 
 export async function buildContextPackFromRuntime(
   runtime: SearchRuntimeContext,
@@ -81,9 +62,10 @@ export async function buildContextPackFromRuntime(
   const topMCount = topM.length;
 
   onStage?.('rerank');
-  const reranked = await (callbacks.rerank
-    ? callbacks.rerank(query, topM, request.activeConfig)
-    : rerankCandidates(query, topM, request.activeConfig, extractQueryTokens));
+  if (!callbacks.rerank) {
+    throw new Error('Search pipeline rerank callback is not configured');
+  }
+  const reranked = await callbacks.rerank(query, topM, request.activeConfig);
   timingMs.rerank = Date.now() - t0;
 
   t0 = Date.now();
@@ -93,9 +75,10 @@ export async function buildContextPackFromRuntime(
   t0 = Date.now();
   onStage?.('expand');
   const queryTokens = extractQueryTokens(query);
-  const expandedResult = await (callbacks.expand
-    ? callbacks.expand(seeds, queryTokens, request.activeConfig)
-    : expandSeeds(runtime.projectId, runtime.snapshotId, seeds, queryTokens, request.activeConfig));
+  if (!callbacks.expand) {
+    throw new Error('Search pipeline expand callback is not configured');
+  }
+  const expandedResult = await callbacks.expand(seeds, queryTokens, request.activeConfig);
   const expanded = Array.isArray(expandedResult) ? expandedResult : expandedResult.chunks;
   timingMs.expand = Date.now() - t0;
 
@@ -107,13 +90,13 @@ export async function buildContextPackFromRuntime(
   const files = packResult.files;
   timingMs.pack = Date.now() - t0;
 
-  const retrievalStats: RetrievalStats = {
+  const retrievalStats = buildRetrievalStats({
     queryIntent: request.queryIntent,
-    ...retrieved.stats,
+    retrievedStats: retrieved.stats,
     topMCount,
     rerankInputCount: reranked.inputCount,
     rerankedCount: reranked.chunks.length,
-  };
+  });
   const resultStats = buildResultStats({
     seeds,
     expanded,
@@ -137,83 +120,5 @@ export async function buildContextPackFromRuntime(
       resultStats,
       rerankUsage: reranked.usage,
     },
-  };
-}
-
-async function rerankCandidates(
-  query: string,
-  candidates: ScoredChunk[],
-  config: SearchConfig,
-  extractQueryTokens: (query: string) => Set<string>,
-): Promise<{ chunks: ScoredChunk[]; usage?: RerankUsage; inputCount: number }> {
-  if (candidates.length === 0) {
-    return { chunks: [], inputCount: 0 };
-  }
-
-  const reranker = getRerankerClient();
-  const queryTokens = extractQueryTokens(query);
-  const rerankPool = selectRerankPoolCandidates(candidates, config);
-
-  const textExtractor = (chunk: ScoredChunk): string =>
-    buildRerankText(
-      {
-        breadcrumb: chunk.record.breadcrumb,
-        displayCode: chunk.record.display_code,
-      },
-      queryTokens,
-      {
-        maxBreadcrumbChars: config.maxBreadcrumbChars,
-        maxRerankChars: config.maxRerankChars,
-        headRatio: config.headRatio,
-      },
-    );
-
-  const reranked = await reranker.rerankWithDataDetailed(query, rerankPool, textExtractor, {
-    topN: config.rerankTopN,
-  });
-
-  return {
-    chunks: reranked.results
-      .filter((result) => result.data !== undefined)
-      .map((result) => ({
-        ...(result.data as ScoredChunk),
-        score: result.score,
-      })),
-    usage: reranked.usage,
-    inputCount: rerankPool.length,
-  };
-}
-
-async function expandSeeds(
-  projectId: string,
-  snapshotId: string | null | undefined,
-  seeds: ScoredChunk[],
-  queryTokens: Set<string> | undefined,
-  config: SearchConfig,
-): Promise<{
-  chunks: ScoredChunk[];
-  explorationCandidates: ExpansionCandidate[];
-  nextInspectionSuggestions: string[];
-}> {
-  if (seeds.length === 0) {
-    return {
-      chunks: [],
-      explorationCandidates: [],
-      nextInspectionSuggestions: [],
-    };
-  }
-
-  const expander = await getGraphExpander(projectId, config, snapshotId);
-  const { chunks, stats, explorationCandidates, nextInspectionSuggestions } = await expander.expand(
-    seeds,
-    queryTokens,
-  );
-
-  logger.debug(stats, '上下文扩展统计');
-
-  return {
-    chunks,
-    explorationCandidates,
-    nextInspectionSuggestions,
   };
 }

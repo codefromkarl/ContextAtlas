@@ -52,6 +52,20 @@ function extractProgressToken(rawToken: unknown): string | number | undefined {
   return typeof rawToken === 'string' || typeof rawToken === 'number' ? rawToken : undefined;
 }
 
+function readErrorDetails(err: unknown): { message?: string; stack?: string } {
+  if (!err || typeof err !== 'object') {
+    return {};
+  }
+
+  const message = Reflect.get(err, 'message');
+  const stack = Reflect.get(err, 'stack');
+
+  return {
+    message: typeof message === 'string' ? message : undefined,
+    stack: typeof stack === 'string' ? stack : undefined,
+  };
+}
+
 function createProgressReporter(extra: CallToolExtraLike): DispatcherProgressCallback | undefined {
   const progressToken = extractProgressToken(extra._meta?.progressToken);
   if (progressToken === undefined) {
@@ -70,7 +84,8 @@ function createProgressReporter(extra: CallToolExtraLike): DispatcherProgressCal
         },
       });
     } catch (err) {
-      logger.debug({ error: (err as Error).message }, '发送进度通知失败');
+      const { message } = readErrorDetails(err);
+      logger.debug({ error: message }, '发送进度通知失败');
     }
   };
 }
@@ -115,7 +130,7 @@ export function createCallToolHandler(options: CreateCallToolHandlerOptions) {
       await recordGenericToolUsage('success');
       return validateToolTextResponse(result);
     } catch (err) {
-      const error = err as { message?: string; stack?: string };
+      const error = readErrorDetails(err);
       await recordGenericToolUsage('error', error.message);
       logger.error({ error: error.message, stack: error.stack, tool: name }, '工具调用失败');
       if (err instanceof ZodError) {

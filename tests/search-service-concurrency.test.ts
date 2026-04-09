@@ -30,7 +30,15 @@ function createChunk(score = 0.9) {
 }
 
 test('buildContextPack 并发执行时不会让 query-aware config 互相串扰', async () => {
-  const service = new SearchService('proj', process.cwd());
+  const service = new SearchService('proj', process.cwd(), undefined, undefined, {
+    callbacksFactory: () => ({
+      rerank: async (_query: string, candidates: unknown[]) => ({
+        chunks: candidates,
+        inputCount: candidates.length,
+      }),
+      expand: async () => [],
+    }),
+  });
   const originalPackWithStats = ContextPacker.prototype.packWithStats;
   const originalHybridRetrieve = HybridRecallEngine.prototype.hybridRetrieve;
   const blockedChunk = createChunk(0.95);
@@ -100,12 +108,6 @@ test('buildContextPack 并发执行时不会让 query-aware config 互相串扰'
         },
       };
     };
-    (service as any).rerank = async (_query: string, candidates: unknown[]) => ({
-      chunks: candidates,
-      inputCount: candidates.length,
-    });
-    (service as any).expand = async () => [];
-
     const firstCall = service.buildContextPack('SearchService buildContextPack', undefined, {
       technicalTerms: ['SearchService'],
     });

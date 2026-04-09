@@ -71,14 +71,10 @@ test('analyzeStorageRedundancy quantifies sqlite/fts/vector text payloads', asyn
   assert.ok(report.sqlite.filesFts.contentBytes > 0);
   assert.ok(report.sqlite.chunksFts.contentBytes > 0);
   assert.ok(report.vectorStore.displayCodeBytes > 0);
-  assert.ok(report.vectorStore.vectorTextBytes > 0);
-  assert.ok(report.recommendations.some((item) => item.id === 'trim-vector-text'));
 
   const text = formatStorageRedundancyReport(report);
   assert.match(text, /Storage Redundancy Report/);
-  assert.match(text, /vector_text/);
   assert.match(text, /display_code/);
-  assert.match(text, /trim-vector-text/);
 
   db.close();
   await closeAllVectorStores();
@@ -142,7 +138,7 @@ test('Indexer 写入 LanceDB 时裁掉 vector_text，仅保留 display_code', as
 
   assert.equal(chunks.length, 1);
   assert.equal(chunks[0]?.display_code, 'export const a = 1;');
-  assert.equal(chunks[0]?.vector_text, undefined);
+  assert.equal('vector_text' in (chunks[0] ?? {}), false);
 
   db.close();
   await closeAllVectorStores();

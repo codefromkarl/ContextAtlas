@@ -30,8 +30,6 @@ export interface ChunkRecord {
   vector: number[];
   /** 展示用代码 */
   display_code: string;
-  /** 向量化文本（用于生成 embedding） */
-  vector_text?: string;
   /** 语言 */
   language: string;
   /** 面包屑路径 */
@@ -319,39 +317,34 @@ export class VectorStore {
   async analyzeTextPayloads(): Promise<{
     rows: number;
     displayCodeBytes: number;
-    vectorTextBytes: number;
   }> {
     if (!this.table) {
       return {
         rows: 0,
         displayCodeBytes: 0,
-        vectorTextBytes: 0,
       };
     }
 
     const totalRows = await this.table.countRows();
     const batchSize = 1000;
     let displayCodeBytes = 0;
-    let vectorTextBytes = 0;
 
     for (let offset = 0; offset < totalRows; offset += batchSize) {
       const rows = await this.table
         .query()
-        .select(['display_code', 'vector_text'])
+        .select(['display_code'])
         .limit(batchSize)
         .offset(offset)
         .toArray();
 
-      for (const row of rows as Array<Pick<ChunkRecord, 'display_code' | 'vector_text'>>) {
+      for (const row of rows as Array<Pick<ChunkRecord, 'display_code'>>) {
         displayCodeBytes += Buffer.byteLength(row.display_code || '', 'utf8');
-        vectorTextBytes += Buffer.byteLength(row.vector_text || '', 'utf8');
       }
     }
 
     return {
       rows: totalRows,
       displayCodeBytes,
-      vectorTextBytes,
     };
   }
 

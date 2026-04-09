@@ -34,11 +34,30 @@ function createChunk(filePath: string, chunkIndex: number, start: number, end: n
 }
 
 test('buildContextPack respects responseMode and carries progressive retrieval metadata', async () => {
-  const service = new SearchService('proj', process.cwd());
-  const originalPackWithStats = ContextPacker.prototype.packWithStats;
-  const originalHybridRetrieve = HybridRecallEngine.prototype.hybridRetrieve;
   const seed = createChunk('src/search/SearchService.ts', 0, 0, 10, 0.95);
   const expanded = createChunk('src/search/GraphExpander.ts', 1, 11, 25, 0.7);
+  const service = new SearchService('proj', process.cwd(), undefined, undefined, {
+    callbacksFactory: () => ({
+      rerank: async (_query: string, candidates: unknown[]) => ({
+        chunks: candidates,
+        inputCount: candidates.length,
+      }),
+      expand: async () => ({
+        chunks: [expanded],
+        explorationCandidates: [
+          {
+            filePath: 'src/search/GraphExpander.ts',
+            source: 'import',
+            reason: 'expanded via import',
+            priority: 'high',
+          },
+        ],
+        nextInspectionSuggestions: ['Inspect src/search/GraphExpander.ts (expanded via import)'],
+      }),
+    }),
+  });
+  const originalPackWithStats = ContextPacker.prototype.packWithStats;
+  const originalHybridRetrieve = HybridRecallEngine.prototype.hybridRetrieve;
   const packedChunkCounts: number[] = [];
 
   try {
@@ -84,24 +103,6 @@ test('buildContextPack respects responseMode and carries progressive retrieval m
         },
       };
     };
-
-    (service as any).rerank = async (_query: string, candidates: unknown[]) => ({
-      chunks: candidates,
-      inputCount: candidates.length,
-    });
-    (service as any).expand = async () => ({
-      chunks: [expanded],
-      explorationCandidates: [
-        {
-          filePath: 'src/search/GraphExpander.ts',
-          source: 'import',
-          reason: 'expanded via import',
-          priority: 'high',
-        },
-      ],
-      nextInspectionSuggestions: ['Inspect src/search/GraphExpander.ts (expanded via import)'],
-    });
-
     const overview = await service.buildContextPack('trace retrieval flow', undefined, {
       responseMode: 'overview',
     });

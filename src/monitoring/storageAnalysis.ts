@@ -30,7 +30,6 @@ export interface StorageRedundancyReport {
   vectorStore: {
     rows: number;
     displayCodeBytes: number;
-    vectorTextBytes: number;
   };
   duplicatedTextBytes: number;
   recommendations: Array<{
@@ -99,17 +98,9 @@ export async function analyzeStorageRedundancy(options: {
       files.contentBytes
       + filesFts.contentBytes
       + chunksFts.contentBytes
-      + vectorStats.displayCodeBytes
-      + vectorStats.vectorTextBytes;
+      + vectorStats.displayCodeBytes;
 
     const recommendations: StorageRedundancyReport['recommendations'] = [];
-    if (vectorStats.vectorTextBytes > 0) {
-      recommendations.push({
-        id: 'trim-vector-text',
-        severity: 'high',
-        message: 'vector_text 仅用于索引时生成 embedding，可优先停止持久化以减少 LanceDB 冗余。',
-      });
-    }
     if (files.contentBytes > 0) {
       recommendations.push({
         id: 'keep-files-content-for-online-read-paths',
@@ -169,7 +160,6 @@ export function formatStorageRedundancyReport(report: StorageRedundancyReport): 
   lines.push('');
   lines.push('Vector Payloads:');
   lines.push(`  - display_code: rows=${report.vectorStore.rows} bytes=${formatBytes(report.vectorStore.displayCodeBytes)}`);
-  lines.push(`  - vector_text: rows=${report.vectorStore.rows} bytes=${formatBytes(report.vectorStore.vectorTextBytes)}`);
   lines.push('');
   lines.push(`Duplicated Text Footprint: ${formatBytes(report.duplicatedTextBytes)}`);
   lines.push('');

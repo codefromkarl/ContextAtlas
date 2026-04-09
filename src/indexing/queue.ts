@@ -7,6 +7,7 @@ import { expandHome, resolveBaseDir } from '../runtimePaths.js';
 import type {
   EnqueueIndexTaskInput,
   EnqueueIndexTaskResult,
+  IncrementalHintEntry,
   IncrementalExecutionHint,
   IndexTask,
   IndexTaskScope,
@@ -20,6 +21,81 @@ const TASK_STATUS_DONE = 'done';
 const TASK_STATUS_FAILED = 'failed';
 const TASK_STATUS_CANCELED = 'canceled';
 const require = createRequire(import.meta.url);
+
+function readStringField(row: unknown, key: string): string | undefined {
+  if (!row || typeof row !== 'object') {
+    return undefined;
+  }
+  const value = Reflect.get(row, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNumberField(row: unknown, key: string): number | undefined {
+  if (!row || typeof row !== 'object') {
+    return undefined;
+  }
+  const value = Reflect.get(row, key);
+  return typeof value === 'number' ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+function toIncrementalHintEntry(row: unknown): IncrementalHintEntry | null {
+  const relPath = readStringField(row, 'relPath');
+  const mtime = readNumberField(row, 'mtime');
+  const size = readNumberField(row, 'size');
+  if (!relPath || mtime === undefined || size === undefined) {
+    return null;
+  }
+  return { relPath, mtime, size };
+}
+
+function normalizeExecutionHint(parsed: unknown): IncrementalExecutionHint | null {
+  if (!isRecord(parsed)) {
+    return null;
+  }
+
+  const generatedAt = readNumberField(parsed, 'generatedAt');
+  const ttlMs = readNumberField(parsed, 'ttlMs');
+  const changeSummary = Reflect.get(parsed, 'changeSummary');
+  const candidates = Reflect.get(parsed, 'candidates');
+  const deletedPaths = Reflect.get(parsed, 'deletedPaths');
+  const healingPaths = Reflect.get(parsed, 'healingPaths');
+
+  if (!isRecord(changeSummary) || generatedAt === undefined || ttlMs === undefined) {
+    return null;
+  }
+
+  const normalizedCandidates = Array.isArray(candidates)
+    ? candidates.map(toIncrementalHintEntry).filter((item): item is IncrementalHintEntry => item !== null)
+    : [];
+  const normalizedHealingPaths = Array.isArray(healingPaths)
+    ? healingPaths.map(toIncrementalHintEntry).filter((item): item is IncrementalHintEntry => item !== null)
+    : [];
+  const normalizedDeletedPaths = Array.isArray(deletedPaths)
+    ? deletedPaths.filter((item): item is string => typeof item === 'string')
+    : [];
+
+  return {
+    generatedAt,
+    ttlMs,
+    changeSummary: {
+      added: readNumberField(changeSummary, 'added') ?? 0,
+      modified: readNumberField(changeSummary, 'modified') ?? 0,
+      deleted: readNumberField(changeSummary, 'deleted') ?? 0,
+      unchangedNeedingVectorRepair: readNumberField(changeSummary, 'unchangedNeedingVectorRepair') ?? 0,
+      unchanged: readNumberField(changeSummary, 'unchanged') ?? 0,
+      skipped: readNumberField(changeSummary, 'skipped') ?? 0,
+      errors: readNumberField(changeSummary, 'errors') ?? 0,
+      totalFiles: readNumberField(changeSummary, 'totalFiles') ?? 0,
+    },
+    candidates: normalizedCandidates,
+    deletedPaths: normalizedDeletedPaths,
+    healingPaths: normalizedHealingPaths,
+  };
+}
 
 function getBaseDir(): string {
   return resolveBaseDir();
@@ -86,28 +162,40 @@ function parseExecutionHint(raw: unknown): IncrementalExecutionHint | null {
   }
 
   try {
-    return JSON.parse(raw) as IncrementalExecutionHint;
+    const parsed = JSON.parse(raw);
+    return normalizeExecutionHint(parsed);
   } catch {
     return null;
   }
 }
 
-function toTask(row: Record<string, unknown>): IndexTask {
+function toTask(row: unknown): IndexTask {
+  const scope = readStringField(row, 'scope');
+  const status = readStringField(row, 'status');
+  const normalizedScope: IndexTaskScope = scope === 'full' || scope === 'incremental' ? scope : 'incremental';
+  const normalizedStatus: IndexTask['status'] =
+    status === TASK_STATUS_QUEUED
+    || status === TASK_STATUS_RUNNING
+    || status === TASK_STATUS_DONE
+    || status === TASK_STATUS_FAILED
+    || status === TASK_STATUS_CANCELED
+      ? status
+      : TASK_STATUS_FAILED;
   return {
-    taskId: String(row.task_id),
-    projectId: String(row.project_id),
-    repoPath: String(row.repo_path),
-    scope: row.scope as IndexTaskScope,
-    status: row.status as IndexTask['status'],
-    priority: Number(row.priority),
-    dedupeKey: String(row.dedupe_key),
-    reason: (row.reason as string | null) ?? null,
-    requestedBy: (row.requested_by as string | null) ?? null,
-    createdAt: Number(row.created_at),
-    startedAt: (row.started_at as number | null) ?? null,
-    finishedAt: (row.finished_at as number | null) ?? null,
-    attempts: Number(row.attempts),
-    lastError: (row.last_error as string | null) ?? null,
+    taskId: readStringField(row, 'task_id') ?? '',
+    projectId: readStringField(row, 'project_id') ?? '',
+    repoPath: readStringField(row, 'repo_path') ?? '',
+    scope: normalizedScope,
+    status: normalizedStatus,
+    priority: readNumberField(row, 'priority') ?? 0,
+    dedupeKey: readStringField(row, 'dedupe_key') ?? '',
+    reason: readStringField(row, 'reason') ?? null,
+    requestedBy: readStringField(row, 'requested_by') ?? null,
+    createdAt: readNumberField(row, 'created_at') ?? 0,
+    startedAt: readNumberField(row, 'started_at') ?? null,
+    finishedAt: readNumberField(row, 'finished_at') ?? null,
+    attempts: readNumberField(row, 'attempts') ?? 0,
+    lastError: readStringField(row, 'last_error') ?? null,
     executionHint: parseExecutionHint(row.execution_hint_json),
   };
 }
@@ -128,9 +216,9 @@ function getTaskByDedupeKey(db: Database.Database, dedupeKey: string): IndexTask
       LIMIT 1
     `,
     )
-    .get(dedupeKey) as Record<string, unknown> | undefined;
+    .get(dedupeKey);
 
-  return row ? toTask(row) : null;
+  return isRecord(row) ? toTask(row) : null;
 }
 
 function safeRecordIndexUsage(input: IndexUsageInputLike): void {
@@ -260,10 +348,12 @@ function listTasksByStatus(
       ORDER BY ${options.orderBy}
       LIMIT ?
     `,
-  ).all(status, ...params) as Array<Record<string, unknown>>;
+  ).all(status, ...params);
 
-  return rows.map((row) => {
-    const task = toTask(row);
+  return rows
+    .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object'))
+    .map((row) => {
+      const task = toTask(row);
     const ageBase =
       task.status === TASK_STATUS_RUNNING
         ? task.startedAt
@@ -271,7 +361,7 @@ function listTasksByStatus(
           ? task.finishedAt
           : task.createdAt;
     return toTaskStatusEntry(task, ageBase ? Math.max(0, Date.now() - ageBase) : null);
-  });
+    });
 }
 
 export function getTaskStatusReport(
@@ -290,8 +380,8 @@ export function getTaskStatusReport(
     }
 
     const statusCounts = db
-      .prepare(`SELECT status, COUNT(*) as cnt FROM index_tasks ${projectWhere} GROUP BY status`)
-      .all(...params) as Array<{ status: string; cnt: number }>;
+      .prepare(`SELECT status, COUNT(*) AS cnt FROM index_tasks ${projectWhere} GROUP BY status`)
+      .all(...params);
 
     const counts: TaskStatusReport['counts'] = {
       total: 0,
@@ -303,8 +393,18 @@ export function getTaskStatusReport(
     };
 
     for (const row of statusCounts) {
-      counts[row.status as keyof TaskStatusReport['counts']] = row.cnt;
-      counts.total += row.cnt;
+      const status = readStringField(row, 'status');
+      const count = readNumberField(row, 'cnt') ?? 0;
+      if (
+        status === TASK_STATUS_QUEUED
+        || status === TASK_STATUS_RUNNING
+        || status === TASK_STATUS_DONE
+        || status === TASK_STATUS_FAILED
+        || status === TASK_STATUS_CANCELED
+      ) {
+        counts[status] = count;
+      }
+      counts.total += count;
     }
 
     const oldestQueued = db
@@ -317,7 +417,7 @@ export function getTaskStatusReport(
           LIMIT 1
         `,
       )
-      .get(...params) as { created_at: number } | undefined;
+      .get(...params);
 
     const oldestRunning = db
       .prepare(
@@ -330,10 +430,12 @@ export function getTaskStatusReport(
           LIMIT 1
         `,
       )
-      .get(...params) as { started_at: number } | undefined;
+      .get(...params);
 
-    const oldestQueuedAgeMs = oldestQueued ? Math.max(0, Date.now() - oldestQueued.created_at) : null;
-    const oldestRunningAgeMs = oldestRunning ? Math.max(0, Date.now() - oldestRunning.started_at) : null;
+    const oldestQueuedAt = readNumberField(oldestQueued, 'created_at');
+    const oldestRunningAt = readNumberField(oldestRunning, 'started_at');
+    const oldestQueuedAgeMs = oldestQueuedAt !== undefined ? Math.max(0, Date.now() - oldestQueuedAt) : null;
+    const oldestRunningAgeMs = oldestRunningAt !== undefined ? Math.max(0, Date.now() - oldestRunningAt) : null;
     const queued = listTasksByStatus(db, TASK_STATUS_QUEUED, {
       projectId: options.projectId,
       limit: options.limit,
@@ -544,8 +646,8 @@ export function getTaskById(taskId: string): IndexTask | null {
       LIMIT 1
     `,
       )
-      .get(taskId) as Record<string, unknown> | undefined;
-    return row ? toTask(row) : null;
+      .get(taskId);
+    return isRecord(row) ? toTask(row) : null;
   } finally {
     db.close();
   }
@@ -568,8 +670,8 @@ export function getActiveTask(projectId: string): IndexTask | null {
       LIMIT 1
     `,
       )
-      .get(projectId) as Record<string, unknown> | undefined;
-    return row ? toTask(row) : null;
+      .get(projectId);
+    return isRecord(row) ? toTask(row) : null;
   } finally {
     db.close();
   }
@@ -589,9 +691,10 @@ export function pickNextQueuedTask(_workerId?: string): IndexTask | null {
         LIMIT 1
       `,
         )
-        .get() as { task_id: string } | undefined;
+        .get();
 
-      if (!candidate) return null;
+      const candidateTaskId = readStringField(candidate, 'task_id');
+      if (!candidateTaskId) return null;
 
       const now = Date.now();
       const updated = db
@@ -606,7 +709,7 @@ export function pickNextQueuedTask(_workerId?: string): IndexTask | null {
           AND status = '${TASK_STATUS_QUEUED}'
       `,
         )
-        .run(now, candidate.task_id);
+        .run(now, candidateTaskId);
 
       if (updated.changes === 0) return null;
 
@@ -618,9 +721,9 @@ export function pickNextQueuedTask(_workerId?: string): IndexTask | null {
         WHERE task_id = ?
       `,
         )
-        .get(candidate.task_id) as Record<string, unknown> | undefined;
+        .get(candidateTaskId);
 
-      return row ? toTask(row) : null;
+      return isRecord(row) ? toTask(row) : null;
     });
 
     return transaction();

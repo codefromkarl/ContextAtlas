@@ -28,6 +28,7 @@
     "dev": "tsup src/index.ts src/mcp/main.ts src/scanner/index.ts --format esm --dts --out-dir dist --sourcemap --watch",
     "fmt": "biome check --write ./src",
     "test": "node scripts/run-tests.mjs source",
+    "test:mcp-stdio": "pnpm build && node --import tsx --test tests/mcp-stdio.test.ts",
     "test:dist": "node scripts/run-tests.mjs dist",
     "delivery:all": "pnpm verify:delivery:artifacts && pnpm delivery:manifest && pnpm delivery:bundle && pnpm delivery:pr && pnpm delivery:team-update && pnpm delivery:runbook",
     "delivery:bundle": "cat ./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md",

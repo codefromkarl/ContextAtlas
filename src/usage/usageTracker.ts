@@ -49,6 +49,64 @@ export interface IndexUsageRecord extends IndexUsageInput {
 type ToolUsageRow = Record<string, unknown>;
 type IndexUsageRow = Record<string, unknown>;
 
+const TOOL_USAGE_STATUS: ToolUsageRecord['status'][] = ['success', 'error'];
+const TOOL_INDEX_STATE: NonNullable<ToolUsageRecord['indexState']>[] = ['missing', 'ready', 'unknown'];
+const TOOL_INDEX_ACTION: NonNullable<ToolUsageRecord['indexAction']>[] = [
+  'none',
+  'enqueue_full',
+  'enqueue_incremental',
+  'index_required',
+  'queue_error',
+];
+const INDEX_USAGE_SCOPE: NonNullable<IndexUsageRecord['scope']>[] = ['full', 'incremental'];
+const INDEX_USAGE_PHASE: IndexUsageRecord['phase'][] = ['enqueue', 'execute'];
+const INDEX_USAGE_STATUS: IndexUsageRecord['status'][] = ['queued', 'running', 'done', 'failed', 'reused'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object';
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function toRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.flatMap((item) => (isRecord(item) ? [item] : [])) : [];
+}
+
+function readField(row: Record<string, unknown>, key: string): unknown {
+  return Reflect.get(row, key);
+}
+
+function readStringField(row: Record<string, unknown>, key: string): string | undefined {
+  const value = readField(row, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNumberField(row: Record<string, unknown>, key: string): number | undefined {
+  const value = readField(row, key);
+  return typeof value === 'number' ? value : undefined;
+}
+
+function readNullableStringField(row: Record<string, unknown>, key: string): string | undefined {
+  const value = readField(row, key);
+  return value === null ? undefined : typeof value === 'string' ? value : undefined;
+}
+
+function readNullableNumberField(row: Record<string, unknown>, key: string): number | undefined {
+  const value = readField(row, key);
+  return value === null ? undefined : typeof value === 'number' ? value : undefined;
+}
+
+function readEnumField<T extends string>(
+  row: Record<string, unknown>,
+  key: string,
+  allowed: readonly T[],
+): T | undefined {
+  const value = readField(row, key);
+  return typeof value === 'string' && allowed.some((item) => item === value) ? value : undefined;
+}
+
 function getBaseDir(): string {
   return resolveBaseDir();
 }
@@ -117,8 +175,8 @@ function openUsageDb(): Database.Database {
 }
 
 function ensureColumn(db: Database.Database, table: string, column: string, ddl: string): void {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  if (!rows.some((row) => row.name === column)) {
+  const rows = toRecordArray(db.prepare(`PRAGMA table_info(${table})`).all());
+  if (!rows.some((row) => readStringField(row, 'name') === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
   }
 }
@@ -191,23 +249,22 @@ export function recordIndexUsage(input: IndexUsageInput): void {
 export function listToolUsage(): ToolUsageRecord[] {
   const db = openUsageDb();
   try {
-    return (
-      db.prepare('SELECT * FROM tool_usage_events ORDER BY event_id ASC').all() as ToolUsageRow[]
-    ).map((row) => ({
-      eventId: Number(row.event_id),
-      timestamp: String(row.timestamp),
-      day: String(row.day),
-      source: String(row.source),
-      toolName: String(row.tool_name),
-      projectId: (row.project_id as string | null) ?? undefined,
-      repoPath: (row.repo_path as string | null) ?? undefined,
-      requestId: (row.request_id as string | null) ?? undefined,
-      status: row.status as ToolUsageRecord['status'],
-      durationMs: (row.duration_ms as number | null) ?? undefined,
-      queryLength: (row.query_length as number | null) ?? undefined,
-      indexState: (row.index_state as ToolUsageRecord['indexState'] | null) ?? undefined,
-      indexAction: (row.index_action as ToolUsageRecord['indexAction'] | null) ?? undefined,
-      error: (row.error as string | null) ?? undefined,
+    const rows = toRecordArray(db.prepare('SELECT * FROM tool_usage_events ORDER BY event_id ASC').all());
+    return rows.map((row) => ({
+      eventId: readNumberField(row, 'event_id') ?? 0,
+      timestamp: readStringField(row, 'timestamp') ?? '',
+      day: readStringField(row, 'day') ?? '',
+      source: readStringField(row, 'source') ?? '',
+      toolName: readStringField(row, 'tool_name') ?? '',
+      projectId: readNullableStringField(row, 'project_id'),
+      repoPath: readNullableStringField(row, 'repo_path'),
+      requestId: readNullableStringField(row, 'request_id'),
+      status: readEnumField(row, 'status', TOOL_USAGE_STATUS) ?? 'error',
+      durationMs: readNullableNumberField(row, 'duration_ms'),
+      queryLength: readNullableNumberField(row, 'query_length'),
+      indexState: readEnumField(row, 'index_state', TOOL_INDEX_STATE),
+      indexAction: readEnumField(row, 'index_action', TOOL_INDEX_ACTION),
+      error: readNullableStringField(row, 'error'),
     }));
   } finally {
     db.close();
@@ -230,27 +287,27 @@ export interface UsagePurgeResult {
 export function getUsageStats(): UsageDbStats {
   const db = openUsageDb();
   try {
-    const toolCount = (db.prepare('SELECT COUNT(*) as c FROM tool_usage_events').get() as { c: number }).c;
-    const indexCount = (db.prepare('SELECT COUNT(*) as c FROM index_usage_events').get() as { c: number }).c;
+    const toolCountRow = toRecord(db.prepare('SELECT COUNT(*) AS c FROM tool_usage_events').get()) ?? {};
+    const indexCountRow = toRecord(db.prepare('SELECT COUNT(*) AS c FROM index_usage_events').get()) ?? {};
 
     const toolDayRange = db.prepare(
-      'SELECT MIN(day) as min_day, MAX(day) as max_day FROM tool_usage_events',
-    ).get() as { min_day: string | null; max_day: string | null };
+      'SELECT MIN(day) AS min_day, MAX(day) AS max_day FROM tool_usage_events',
+    ).get();
 
     const indexDayRange = db.prepare(
-      'SELECT MIN(day) as min_day, MAX(day) as max_day FROM index_usage_events',
-    ).get() as { min_day: string | null; max_day: string | null };
+      'SELECT MIN(day) AS min_day, MAX(day) AS max_day FROM index_usage_events',
+    ).get();
 
     const allDays = [
-      toolDayRange.min_day,
-      toolDayRange.max_day,
-      indexDayRange.min_day,
-      indexDayRange.max_day,
+      readNullableStringField(toRecord(toolDayRange) ?? {}, 'min_day') ?? null,
+      readNullableStringField(toRecord(toolDayRange) ?? {}, 'max_day') ?? null,
+      readNullableStringField(toRecord(indexDayRange) ?? {}, 'min_day') ?? null,
+      readNullableStringField(toRecord(indexDayRange) ?? {}, 'max_day') ?? null,
     ].filter((d): d is string => d !== null).sort();
 
     return {
-      toolUsageCount: toolCount,
-      indexUsageCount: indexCount,
+      toolUsageCount: readNumberField(toolCountRow, 'c') ?? 0,
+      indexUsageCount: readNumberField(indexCountRow, 'c') ?? 0,
       oldestDay: allDays.length > 0 ? allDays[0] : null,
       newestDay: allDays.length > 0 ? allDays[allDays.length - 1] : null,
     };
@@ -286,25 +343,24 @@ export function purgeOldUsageEvents(maxAgeDays: number): UsagePurgeResult {
 export function listIndexUsage(): IndexUsageRecord[] {
   const db = openUsageDb();
   try {
-    return (
-      db.prepare('SELECT * FROM index_usage_events ORDER BY event_id ASC').all() as IndexUsageRow[]
-    ).map((row) => ({
-      eventId: Number(row.event_id),
-      timestamp: String(row.timestamp),
-      day: String(row.day),
-      projectId: (row.project_id as string | null) ?? undefined,
-      repoPath: (row.repo_path as string | null) ?? undefined,
-      taskId: (row.task_id as string | null) ?? undefined,
-      scope: (row.scope as IndexUsageRecord['scope'] | null) ?? undefined,
-      phase: row.phase as IndexUsageRecord['phase'],
-      status: row.status as IndexUsageRecord['status'],
-      requestedBy: (row.requested_by as string | null) ?? undefined,
+    const rows = toRecordArray(db.prepare('SELECT * FROM index_usage_events ORDER BY event_id ASC').all());
+    return rows.map((row) => ({
+      eventId: readNumberField(row, 'event_id') ?? 0,
+      timestamp: readStringField(row, 'timestamp') ?? '',
+      day: readStringField(row, 'day') ?? '',
+      projectId: readNullableStringField(row, 'project_id'),
+      repoPath: readNullableStringField(row, 'repo_path'),
+      taskId: readNullableStringField(row, 'task_id'),
+      scope: readEnumField(row, 'scope', INDEX_USAGE_SCOPE),
+      phase: readEnumField(row, 'phase', INDEX_USAGE_PHASE) ?? 'enqueue',
+      status: readEnumField(row, 'status', INDEX_USAGE_STATUS) ?? 'failed',
+      requestedBy: readNullableStringField(row, 'requested_by'),
       reusedExisting:
         row.reused_existing === null || row.reused_existing === undefined
           ? undefined
           : Number(row.reused_existing) === 1,
-      durationMs: (row.duration_ms as number | null) ?? undefined,
-      error: (row.error as string | null) ?? undefined,
+      durationMs: readNullableNumberField(row, 'duration_ms'),
+      error: readNullableStringField(row, 'error'),
     }));
   } finally {
     db.close();

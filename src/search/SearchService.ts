@@ -5,29 +5,30 @@
  */
 
 import type Database from 'better-sqlite3';
-import { getRerankerClient, type RerankUsage } from '../api/reranker.js';
 import { getEmbeddingConfig } from '../config.js';
 import { initDb } from '../db/index.js';
 import { getIndexer, type Indexer } from '../indexer/index.js';
-import { logger } from '../utils/logger.js';
 import { getVectorStore, type VectorStore } from '../vectorStore/index.js';
 import { createQueryTokenSet } from './SearchQueryTokens.js';
 import {
   buildContextPackFromRuntime,
-  type SearchPipelineCallbacks,
   type SearchProgressStage,
 } from './SearchPipeline.js';
+import { createSearchPipelineCallbacks } from './SearchPipelineCallbacks.js';
 import type { BuildContextPackOptions } from './SearchPipelineSupport.js';
 import { DEFAULT_CONFIG } from './config.js';
-import { getGraphExpander } from './GraphExpander.js';
 import { classifyQueryIntent, deriveQueryAwareSearchConfig } from './QueryIntentClassifier.js';
 import { applySmartCutoff, selectRerankPoolCandidates } from './RerankPolicy.js';
-import { buildRerankText } from './SnippetExtractor.js';
-import type { ContextPack, ExpansionCandidate, ScoredChunk, SearchConfig } from './types.js';
+import type { ContextPack, SearchConfig } from './types.js';
 import {
   initializeSearchDependencies,
   type SearchDependencyLoaders,
 } from './runtime/initializeSearchDependencies.js';
+import {
+  createSearchRuntimeContext,
+  type SearchRuntimeState,
+} from './runtime/SearchRuntimeProvider.js';
+import type { SearchPipelineCallbacks } from './SearchPipelineCallbacks.js';
 
 export type { BuildContextPackOptions } from './SearchPipelineSupport.js';
 export type { SearchProgressStage } from './SearchPipeline.js';
@@ -37,6 +38,14 @@ export {
   initializeSearchDependencies,
   type SearchDependencyLoaders,
 } from './runtime/initializeSearchDependencies.js';
+export {
+  createSearchRuntimeContext,
+  type SearchRuntimeState,
+} from './runtime/SearchRuntimeProvider.js';
+
+export interface SearchServiceDependencies {
+  callbacksFactory?: (state: SearchRuntimeState) => SearchPipelineCallbacks;
+}
 
 export class SearchService {
   private projectId: string;
@@ -45,16 +54,25 @@ export class SearchService {
   private vectorStore: VectorStore | null = null;
   private db: Database.Database | null = null;
   private config: SearchConfig;
+  private callbacksFactory: (state: SearchRuntimeState) => SearchPipelineCallbacks;
 
   constructor(
     projectId: string,
     _projectPath: string,
     config?: Partial<SearchConfig>,
     snapshotId?: string | null,
+    dependencies: SearchServiceDependencies = {},
   ) {
     this.projectId = projectId;
     this.snapshotId = snapshotId;
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.callbacksFactory = dependencies.callbacksFactory
+      ?? ((state) =>
+        createSearchPipelineCallbacks({
+          projectId: state.projectId,
+          snapshotId: state.snapshotId,
+          extractQueryTokens: createQueryTokenSet,
+        }));
   }
 
   async init(): Promise<void> {
@@ -74,99 +92,27 @@ export class SearchService {
     onStage?: (stage: SearchProgressStage) => void,
     options: BuildContextPackOptions = {},
   ): Promise<ContextPack> {
-    const callbacks: SearchPipelineCallbacks = {
-      rerank: (activeQuery, candidates, config) => this.rerank(activeQuery, candidates, config),
-      expand: (seeds, queryTokens, config) => this.expand(seeds, queryTokens, config),
-    };
+    const runtimeState = this.getRuntimeState();
 
     return buildContextPackFromRuntime(
-      {
-        projectId: this.projectId,
-        snapshotId: this.snapshotId,
-        indexer: this.indexer,
-        vectorStore: this.vectorStore,
-        db: this.db,
-      },
+      createSearchRuntimeContext(runtimeState),
       query,
       this.config,
       createQueryTokenSet,
       onStage,
       options,
-      callbacks,
+      this.callbacksFactory(runtimeState),
     );
   }
 
-  private async rerank(
-    query: string,
-    candidates: ScoredChunk[],
-    config: SearchConfig,
-  ): Promise<{ chunks: ScoredChunk[]; usage?: RerankUsage; inputCount: number }> {
-    if (candidates.length === 0) {
-      return { chunks: [], inputCount: 0 };
-    }
-
-    const reranker = getRerankerClient();
-    const queryTokens = createQueryTokenSet(query);
-    const rerankPool = selectRerankPoolCandidates(candidates, config);
-    const textExtractor = (chunk: ScoredChunk): string =>
-      buildRerankText(
-        {
-          breadcrumb: chunk.record.breadcrumb,
-          displayCode: chunk.record.display_code,
-        },
-        queryTokens,
-        {
-          maxBreadcrumbChars: config.maxBreadcrumbChars,
-          maxRerankChars: config.maxRerankChars,
-          headRatio: config.headRatio,
-        },
-      );
-
-    const reranked = await reranker.rerankWithDataDetailed(query, rerankPool, textExtractor, {
-      topN: config.rerankTopN,
-    });
-
+  private getRuntimeState(): SearchRuntimeState {
+    const { projectId, snapshotId, indexer, vectorStore, db } = this;
     return {
-      chunks: reranked.results
-        .filter((result) => result.data !== undefined)
-        .map((result) => ({
-          ...(result.data as ScoredChunk),
-          score: result.score,
-        })),
-      usage: reranked.usage,
-      inputCount: rerankPool.length,
-    };
-  }
-
-  private async expand(
-    seeds: ScoredChunk[],
-    queryTokens: Set<string> | undefined,
-    config: SearchConfig,
-  ): Promise<{
-    chunks: ScoredChunk[];
-    explorationCandidates: ExpansionCandidate[];
-    nextInspectionSuggestions: string[];
-  }> {
-    if (seeds.length === 0) {
-      return {
-        chunks: [],
-        explorationCandidates: [],
-        nextInspectionSuggestions: [],
-      };
-    }
-
-    const expander = await getGraphExpander(this.projectId, config, this.snapshotId);
-    const { chunks, stats, explorationCandidates, nextInspectionSuggestions } = await expander.expand(
-      seeds,
-      queryTokens,
-    );
-
-    logger.debug(stats, '上下文扩展统计');
-
-    return {
-      chunks,
-      explorationCandidates,
-      nextInspectionSuggestions,
+      projectId,
+      snapshotId,
+      indexer,
+      vectorStore,
+      db,
     };
   }
 

@@ -29,7 +29,11 @@ function createTempEnv(): { baseDir: string; projectDir: string; homeDir: string
 class McpStdIoClient {
   private readonly proc: ChildProcessWithoutNullStreams;
   private buffer = '';
-  private readonly pending = new Map<number, (value: JsonRpcResponse) => void>();
+  private stderrBuffer = '';
+  private readonly pending = new Map<
+    number,
+    { resolve: (value: JsonRpcResponse) => void; reject: (error: Error) => void }
+  >();
 
   constructor(projectDir: string, homeDir: string) {
     this.proc = spawn('node', [path.join(REPO_ROOT, 'dist/index.js'), 'mcp'], {
@@ -52,15 +56,32 @@ class McpStdIoClient {
         if (line) {
           const message = JSON.parse(line) as JsonRpcResponse;
           if (typeof message.id === 'number') {
-            const resolve = this.pending.get(message.id);
-            if (resolve) {
+            const pendingRequest = this.pending.get(message.id);
+            if (pendingRequest) {
               this.pending.delete(message.id);
-              resolve(message);
+              pendingRequest.resolve(message);
             }
           }
         }
         idx = this.buffer.indexOf('\n');
       }
+    });
+
+    this.proc.stderr.setEncoding('utf8');
+    this.proc.stderr.on('data', (chunk: string) => {
+      this.stderrBuffer += chunk;
+    });
+
+    this.proc.once('exit', (code, signal) => {
+      if (this.pending.size === 0) {
+        return;
+      }
+      const reason = `MCP stdio 进程已退出 code=${code ?? 'null'} signal=${signal ?? 'null'}`;
+      const details = this.stderrBuffer.trim();
+      for (const { reject } of this.pending.values()) {
+        reject(new Error(details ? `${reason}\n${details}` : reason));
+      }
+      this.pending.clear();
     });
   }
 
@@ -70,8 +91,8 @@ class McpStdIoClient {
     params: Record<string, unknown>,
   ): Promise<JsonRpcResponse> {
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
-    const result = new Promise<JsonRpcResponse>((resolve) => {
-      this.pending.set(id, resolve);
+    const result = new Promise<JsonRpcResponse>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
     });
     this.proc.stdin.write(`${payload}\n`);
     return result;
@@ -95,8 +116,21 @@ class McpStdIoClient {
     }
 
     await new Promise<void>((resolve) => {
-      this.proc.once('exit', () => resolve());
-      this.proc.kill('SIGTERM');
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+
+      const timer = setTimeout(() => {
+        this.proc.kill('SIGTERM');
+      }, 200);
+
+      this.proc.once('close', finish);
+      this.proc.once('exit', finish);
+      this.proc.stdin.end();
     });
   }
 }

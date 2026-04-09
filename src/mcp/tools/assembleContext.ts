@@ -488,13 +488,39 @@ async function invokeCodebaseRetrieval(
   repoPath: string,
   request: { information_request: string; technical_terms: string[] },
 ): Promise<{ payload: CodebaseRetrievalJsonPayload | null }> {
-  const response = await handleCodebaseRetrieval({
-    repo_path: repoPath,
-    information_request: request.information_request,
-    technical_terms: request.technical_terms.length > 0 ? request.technical_terms : undefined,
-    response_format: 'json',
-    response_mode: 'expanded',
-  });
+  let response;
+  try {
+    response = await handleCodebaseRetrieval({
+      repo_path: repoPath,
+      information_request: request.information_request,
+      technical_terms: request.technical_terms.length > 0 ? request.technical_terms : undefined,
+      response_format: 'json',
+      response_mode: 'expanded',
+    });
+  } catch (err) {
+    const error = err as { message?: string };
+    logger.warn(
+      {
+        repoPath,
+        request: request.information_request,
+        error: error.message,
+      },
+      'assemble_context 跳过抛错的 codebase-retrieval 调用',
+    );
+    return { payload: null };
+  }
+
+  if (response.isError) {
+    logger.warn(
+      {
+        repoPath,
+        request: request.information_request,
+        error: response.content[0]?.text,
+      },
+      'assemble_context 跳过失败的 codebase-retrieval 响应',
+    );
+    return { payload: null };
+  }
 
   return {
     payload: parseJsonContent<CodebaseRetrievalJsonPayload>(response.content[0]?.text ?? '', 'codebase-retrieval'),

@@ -85,6 +85,10 @@ function formatStageFailureMessage(stage: RetrievalProgressStage, message: strin
       : stage === 'done'
         ? 'completion'
         : stage;
+  const normalizedMessage = message.trim().toLowerCase();
+  if (normalizedMessage === 'fetch failed') {
+    return `${stageLabel} stage failed: network request failed (fetch failed)`;
+  }
   return `${stageLabel} stage failed: ${message}`;
 }
 

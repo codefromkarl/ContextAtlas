@@ -222,7 +222,7 @@ test('handleCodebaseRetrieval annotates retrieval-stage fetch failures', async (
           repo_path: repoDir,
           information_request: 'SearchService retrieval flow',
         }),
-      /retrieve stage failed: fetch failed/,
+      /retrieve stage failed: network request failed \(fetch failed\)/,
     );
   } finally {
     SearchService.prototype.init = originalInit;

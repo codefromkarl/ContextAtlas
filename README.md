@@ -280,12 +280,14 @@ ContextAtlas focuses on **what context to provide**, not how the task should be 
 |------|------|
 | [Docs index](./docs/README.md) | Unified entry for stable docs, plans, changelog, and archived delivery material |
 | [First use guide](./docs/guides/first-use.md) | Fast onboarding path for the default `contextatlas` loop |
+| [2026-04-09 update summary](./docs/changelog/2026-04-09.md) | Summary of index planning thresholds, long-term memory table split, and delivery sync |
 | [2026-04-06 update summary](./docs/changelog/2026-04-06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
 | [2026-04-07 update summary](./docs/changelog/2026-04-07.md) | Summary of the seven indexing phases covering lightweight planning, snapshot copy reduction, health repair, observability, fallback hardening, storage trimming, and benchmarks |
 | [Deployment guide](./docs/guides/deployment.md) | Installation, deployment patterns, MCP integration, operations |
 | [CLI reference](./docs/reference/cli.md) | CLI commands, categories, and examples |
 | [MCP reference](./docs/reference/mcp.md) | MCP tools, parameters, and calling patterns |
 | [Project memory guide](./docs/project/project-memory.md) | Feature Memory, Decision Record, and Catalog routing |
+| [Latest delivery bundle](./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md) | Bundled handoff package for the latest verified delivery |
 | [Repository positioning](./docs/architecture/repository-positioning.md) | Repository role, design thinking, and system boundaries |
 | [Engineering positioning](./docs/architecture/harness-engineering.md) | Where ContextAtlas fits in harness engineering |
 | [Product roadmap](./docs/product/roadmap.md) | Future versions and product direction |

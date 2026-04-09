@@ -174,6 +174,103 @@ test('handleCodebaseRetrieval completes success path with combined query telemet
   }
 });
 
+test('handleCodebaseRetrieval annotates retrieval-stage fetch failures', async () => {
+  const baseDir = createTempBaseDir();
+  const repoDir = path.join(baseDir, 'repo');
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  const previousEnv = {
+    CONTEXTATLAS_BASE_DIR: process.env.CONTEXTATLAS_BASE_DIR,
+    MCP_AUTO_INDEX: process.env.MCP_AUTO_INDEX,
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
+    RERANK_BASE_URL: process.env.RERANK_BASE_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+  };
+
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  process.env.MCP_AUTO_INDEX = 'false';
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
+  process.env.EMBEDDINGS_MODEL = 'test-embedding-model';
+  process.env.RERANK_API_KEY = 'test-key';
+  process.env.RERANK_BASE_URL = 'http://127.0.0.1/rerank';
+  process.env.RERANK_MODEL = 'test-rerank-model';
+
+  const projectId = generateProjectId(repoDir);
+  const db = initDb(projectId);
+  db.close();
+
+  const originalInit = SearchService.prototype.init;
+  const originalBuildContextPack = SearchService.prototype.buildContextPack;
+
+  SearchService.prototype.init = async function initMock(): Promise<void> {};
+  SearchService.prototype.buildContextPack = (async function buildContextPackMock(
+    _query,
+    onStage,
+  ) {
+    onStage?.('retrieve');
+    throw new TypeError('fetch failed');
+  }) as typeof SearchService.prototype.buildContextPack;
+
+  try {
+    await assert.rejects(
+      () =>
+        handleCodebaseRetrieval({
+          repo_path: repoDir,
+          information_request: 'SearchService retrieval flow',
+        }),
+      /retrieve stage failed: fetch failed/,
+    );
+  } finally {
+    SearchService.prototype.init = originalInit;
+    SearchService.prototype.buildContextPack = originalBuildContextPack;
+    if (previousEnv.CONTEXTATLAS_BASE_DIR === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousEnv.CONTEXTATLAS_BASE_DIR;
+    }
+    if (previousEnv.MCP_AUTO_INDEX === undefined) {
+      delete process.env.MCP_AUTO_INDEX;
+    } else {
+      process.env.MCP_AUTO_INDEX = previousEnv.MCP_AUTO_INDEX;
+    }
+    if (previousEnv.EMBEDDINGS_API_KEY === undefined) {
+      delete process.env.EMBEDDINGS_API_KEY;
+    } else {
+      process.env.EMBEDDINGS_API_KEY = previousEnv.EMBEDDINGS_API_KEY;
+    }
+    if (previousEnv.EMBEDDINGS_BASE_URL === undefined) {
+      delete process.env.EMBEDDINGS_BASE_URL;
+    } else {
+      process.env.EMBEDDINGS_BASE_URL = previousEnv.EMBEDDINGS_BASE_URL;
+    }
+    if (previousEnv.EMBEDDINGS_MODEL === undefined) {
+      delete process.env.EMBEDDINGS_MODEL;
+    } else {
+      process.env.EMBEDDINGS_MODEL = previousEnv.EMBEDDINGS_MODEL;
+    }
+    if (previousEnv.RERANK_API_KEY === undefined) {
+      delete process.env.RERANK_API_KEY;
+    } else {
+      process.env.RERANK_API_KEY = previousEnv.RERANK_API_KEY;
+    }
+    if (previousEnv.RERANK_BASE_URL === undefined) {
+      delete process.env.RERANK_BASE_URL;
+    } else {
+      process.env.RERANK_BASE_URL = previousEnv.RERANK_BASE_URL;
+    }
+    if (previousEnv.RERANK_MODEL === undefined) {
+      delete process.env.RERANK_MODEL;
+    } else {
+      process.env.RERANK_MODEL = previousEnv.RERANK_MODEL;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
 test('handleCodebaseRetrieval formats default result card with memory and decision context', async () => {
   const baseDir = createTempBaseDir();
   const repoDir = path.join(baseDir, 'repo');

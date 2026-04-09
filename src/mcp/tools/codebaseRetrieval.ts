@@ -78,6 +78,16 @@ const RETRIEVAL_PROGRESS_ORDER: RetrievalProgressStage[] = [
   'done',
 ];
 
+function formatStageFailureMessage(stage: RetrievalProgressStage, message: string): string {
+  const stageLabel =
+    stage === 'init'
+      ? 'initialization'
+      : stage === 'done'
+        ? 'completion'
+        : stage;
+  return `${stageLabel} stage failed: ${message}`;
+}
+
 interface ResultCardFeatureMemoryMatch {
   memory: FeatureMemory;
   score: number;
@@ -513,36 +523,46 @@ export async function handleCodebaseRetrieval(
 
   // 5. 创建 SearchService 实例
   reportProgress('init', '初始化检索服务');
+  let currentStage: RetrievalProgressStage = 'init';
   const snapshotId = resolveCurrentSnapshotId(projectId);
   const service = new SearchService(projectId, repo_path, undefined, snapshotId);
-  const initStart = Date.now();
-  await service.init();
-  const initMs = Date.now() - initStart;
-  logger.debug('SearchService 初始化完成');
+  let initMs = 0;
+  let contextPack: ContextPack;
+  let totalMs = 0;
+  try {
+    const initStart = Date.now();
+    await service.init();
+    initMs = Date.now() - initStart;
+    logger.debug('SearchService 初始化完成');
 
-  // 6. 执行搜索
-  const searchStart = Date.now();
-  const contextPack = await service.buildContextPack(
-    combinedQuery,
-    (stage) => {
-      if (stage === 'retrieve') {
-        reportProgress('retrieve', '执行混合召回');
-      } else if (stage === 'rerank') {
-        reportProgress('rerank', '执行精排');
-      } else if (stage === 'expand') {
-        reportProgress('expand', '执行上下文扩展');
-      } else if (stage === 'pack') {
-        reportProgress('pack', '执行上下文打包');
-      }
-    },
-    {
-      technicalTerms: technical_terms,
-      semanticQuery,
-      lexicalQuery,
-      responseMode: response_mode || 'expanded',
-    },
-  );
-  const totalMs = initMs + (Date.now() - searchStart);
+    // 6. 执行搜索
+    const searchStart = Date.now();
+    contextPack = await service.buildContextPack(
+      combinedQuery,
+      (stage) => {
+        currentStage = stage;
+        if (stage === 'retrieve') {
+          reportProgress('retrieve', '执行混合召回');
+        } else if (stage === 'rerank') {
+          reportProgress('rerank', '执行精排');
+        } else if (stage === 'expand') {
+          reportProgress('expand', '执行上下文扩展');
+        } else if (stage === 'pack') {
+          reportProgress('pack', '执行上下文打包');
+        }
+      },
+      {
+        technicalTerms: technical_terms,
+        semanticQuery,
+        lexicalQuery,
+        responseMode: response_mode || 'expanded',
+      },
+    );
+    totalMs = initMs + (Date.now() - searchStart);
+  } catch (err) {
+    const error = err as Error;
+    throw new Error(formatStageFailureMessage(currentStage, error.message), { cause: err });
+  }
   if (contextPack.debug) {
     contextPack.debug.timingMs.init = initMs;
   }

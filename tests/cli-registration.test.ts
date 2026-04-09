@@ -87,6 +87,10 @@ test('buildDefaultEnvContent emits SiliconFlow-first embedding gateway example',
 
   assert.match(content, /EMBEDDINGS_BASE_URL=https:\/\/api\.siliconflow\.cn\/v1\/embeddings/);
   assert.match(content, /EMBEDDINGS_MODEL=BAAI\/bge-m3/);
+  assert.match(content, /INDEX_UPDATE_CHURN_THRESHOLD=0\.35/);
+  assert.match(content, /INDEX_UPDATE_COST_RATIO_THRESHOLD=0\.65/);
+  assert.match(content, /INDEX_UPDATE_MIN_FILES=8/);
+  assert.match(content, /INDEX_UPDATE_MIN_CHANGED_FILES=5/);
   assert.match(content, /EMBEDDING_GATEWAY_VALIDATE_MODELS=BAAI\/bge-m3/);
   assert.match(content, /"name":"siliconflow-primary"/);
   assert.match(content, /"baseUrl":"https:\/\/api\.siliconflow\.cn\/v1\/embeddings"/);

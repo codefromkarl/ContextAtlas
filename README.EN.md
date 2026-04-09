@@ -19,6 +19,10 @@
 <p align="center">
   <a href="./README.md">简体中文</a> ·
   <a href="./docs/FIRST_USE.md">First Use</a> ·
+  <a href="./docs/UPDATE_2026_04_09.md">2026-04-09 Update</a> ·
+  <a href="./docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md">2026-04-09 Acceptance</a> ·
+  <a href="./docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md">2026-04-09 Handoff</a> ·
+  <a href="./docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md">2026-04-09 Delivery</a> ·
   <a href="./docs/UPDATE_2026_04_06.md">2026-04-06 Update</a> ·
   <a href="./docs/DEPLOYMENT.md">Deployment</a> ·
   <a href="./docs/CLI.md">CLI</a> ·
@@ -34,6 +38,7 @@
 - `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
 - `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
 - `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
+- `2026-04-09`: added churn / cost-aware index planning, moved long-term memory into dedicated tables + FTS5, and finished default-path hardening, threshold configuration, and doc sync.
 
 ## Contents
 
@@ -212,6 +217,19 @@ RERANK_API_KEY=
 RERANK_BASE_URL=
 RERANK_MODEL=
 ```
+
+Index update planning also supports these optional knobs:
+
+```bash
+INDEX_UPDATE_CHURN_THRESHOLD=0.35
+INDEX_UPDATE_COST_RATIO_THRESHOLD=0.65
+INDEX_UPDATE_MIN_FILES=8
+INDEX_UPDATE_MIN_CHANGED_FILES=5
+```
+
+- `INDEX_UPDATE_CHURN_THRESHOLD`: when the changed-file ratio crosses this value, `index:plan` / `index:update` will favor `full`
+- `INDEX_UPDATE_COST_RATIO_THRESHOLD`: triggers `full` when the estimated incremental cost is close to a full rebuild
+- `INDEX_UPDATE_MIN_FILES` / `INDEX_UPDATE_MIN_CHANGED_FILES`: require both repo size and change size to clear a minimum bar before escalation is allowed
 
 > `init` writes an editable example `.env`, including default SiliconFlow endpoints and recommended model settings.
 

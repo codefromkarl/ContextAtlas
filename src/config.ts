@@ -79,6 +79,13 @@ export interface RerankerConfig {
   topN: number;
 }
 
+export interface IndexUpdateStrategyConfig {
+  churnThreshold: number;
+  costThresholdRatio: number;
+  minFilesForEscalation: number;
+  minChangedFilesForEscalation: number;
+}
+
 // API 配置获取
 
 /**
@@ -202,6 +209,37 @@ export function getRerankerConfig(): RerankerConfig {
     baseUrl,
     model,
     topN: Number.isNaN(topN) ? 10 : topN,
+  };
+}
+
+export function getIndexUpdateStrategyConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): IndexUpdateStrategyConfig {
+  const churnThreshold = Number.parseFloat(env.INDEX_UPDATE_CHURN_THRESHOLD || '');
+  const costThresholdRatio = Number.parseFloat(env.INDEX_UPDATE_COST_RATIO_THRESHOLD || '');
+  const minFilesForEscalation = Number.parseInt(env.INDEX_UPDATE_MIN_FILES || '', 10);
+  const minChangedFilesForEscalation = Number.parseInt(
+    env.INDEX_UPDATE_MIN_CHANGED_FILES || '',
+    10,
+  );
+
+  return {
+    churnThreshold:
+      Number.isFinite(churnThreshold) && churnThreshold >= 0 && churnThreshold <= 1
+        ? churnThreshold
+        : 0.35,
+    costThresholdRatio:
+      Number.isFinite(costThresholdRatio) && costThresholdRatio >= 0 && costThresholdRatio <= 1
+        ? costThresholdRatio
+        : 0.65,
+    minFilesForEscalation:
+      Number.isFinite(minFilesForEscalation) && minFilesForEscalation >= 1
+        ? minFilesForEscalation
+        : 8,
+    minChangedFilesForEscalation:
+      Number.isFinite(minChangedFilesForEscalation) && minChangedFilesForEscalation >= 1
+        ? minChangedFilesForEscalation
+        : 5,
   };
 }
 

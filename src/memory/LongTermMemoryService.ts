@@ -8,7 +8,7 @@ import type {
   LongTermMemoryType,
   ResolvedLongTermMemoryItem,
 } from './types.js';
-import { MemoryHubDatabase } from './MemoryHubDatabase.js';
+import { MemoryHubDatabase, type LongTermMemoryRow } from './MemoryHubDatabase.js';
 
 const DEFAULT_GLOBAL_META_PREFIX = 'global:';
 const DEFAULT_LONG_TERM_MEMORY_STALE_DAYS = 30;
@@ -116,17 +116,11 @@ export class LongTermMemoryService {
       return [];
     }
 
-    const raw = this.hub.getProjectMeta(projectId, `${this.globalMetaPrefix}${type}`);
-    if (!raw) {
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as GlobalMemory;
-      return this.extractLongTermMemoryItems(parsed, type, scope);
-    } catch {
-      return [];
-    }
+    const persisted = this.hub
+      .listLongTermMemories(projectId, { types: [type], scope })
+      .map((row) => this.mapLongTermMemoryRow(row));
+    const legacy = this.readLegacyItems(projectId, type, scope);
+    return this.mergeLongTermMemoryItems(persisted, legacy);
   }
 
   async list(options?: {
@@ -178,23 +172,99 @@ export class LongTermMemoryService {
     },
   ): Promise<LongTermMemorySearchResult[]> {
     const queryLower = query.toLowerCase();
-    const items = await this.list({
-      types: options?.types,
-      scope: options?.scope,
-      includeExpired: options?.includeExpired,
-      staleDays: options?.staleDays,
-    });
-
     const results: LongTermMemorySearchResult[] = [];
-    for (const item of items) {
-      const { score, matchFields } = this.calculateLongTermMemoryScore(item, queryLower);
-      if (score > 0) {
-        results.push({ memory: item, score, matchFields });
+    const requestedTypes = options?.types?.length
+      ? options.types
+      : ([
+          'user',
+          'feedback',
+          'project-state',
+          'reference',
+          'journal',
+          'evidence',
+          'temporal-fact',
+        ] as LongTermMemoryType[]);
+    const requestedScopes = options?.scope
+      ? [options.scope]
+      : (['project', 'global-user'] as LongTermMemoryScope[]);
+    const limit = options?.limit ?? 20;
+
+    for (const scope of requestedScopes) {
+      const projectId = await this.resolveScopeProjectIdFn(scope, false);
+      if (!projectId) {
+        continue;
+      }
+
+      const persistedRows = this.hub.listLongTermMemories(projectId, {
+        types: requestedTypes,
+        scope,
+      });
+      const persisted = queryLower.trim().length > 0
+        ? this.hub.searchLongTermMemories(projectId, queryLower, {
+            types: requestedTypes,
+            scope,
+            limit: Math.max(limit * 2, 20),
+          })
+        : [];
+      const seen = new Set<string>();
+
+      for (const row of persisted) {
+        const resolved = this.resolveLongTermMemory(
+          this.mapLongTermMemoryRow(row),
+          options?.staleDays,
+        );
+        if (!options?.includeExpired && resolved.status === 'expired') {
+          continue;
+        }
+        const match = this.calculateLongTermMemoryScore(resolved, queryLower);
+        const score = Math.max(match.score + 50, 50);
+        results.push({
+          memory: resolved,
+          score,
+          matchFields: ['fts', ...match.matchFields],
+        });
+        seen.add(resolved.id);
+      }
+
+      for (const row of persistedRows) {
+        const resolved = this.resolveLongTermMemory(
+          this.mapLongTermMemoryRow(row),
+          options?.staleDays,
+        );
+        if (seen.has(resolved.id)) {
+          continue;
+        }
+        if (!options?.includeExpired && resolved.status === 'expired') {
+          continue;
+        }
+        const match = this.calculateLongTermMemoryScore(resolved, queryLower);
+        if (match.score > 0) {
+          results.push({
+            memory: resolved,
+            score: match.score,
+            matchFields: match.matchFields,
+          });
+          seen.add(resolved.id);
+        }
+      }
+
+      for (const type of requestedTypes) {
+        const legacy = this.readLegacyItems(projectId, type, scope)
+          .filter((item) => !seen.has(item.id))
+          .map((item) => this.resolveLongTermMemory(item, options?.staleDays));
+        for (const item of legacy) {
+          if (!options?.includeExpired && item.status === 'expired') {
+            continue;
+          }
+          const { score, matchFields } = this.calculateLongTermMemoryScore(item, queryLower);
+          if (score > 0) {
+            results.push({ memory: item, score, matchFields });
+          }
+        }
       }
     }
 
     const minScore = options?.minScore ?? 0;
-    const limit = options?.limit ?? 20;
 
     return results
       .filter((entry) => entry.score >= minScore)
@@ -336,20 +406,25 @@ export class LongTermMemoryService {
     if (!projectId) {
       throw new Error(`Unable to resolve project for long-term memory scope: ${scope}`);
     }
-    const data = { items };
-    const globalMemory: GlobalMemory = {
-      type,
-      data,
-      lastUpdated: new Date().toISOString(),
-    };
+    this.migrateLegacyItems(projectId, type, scope);
 
-    this.hub.setProjectMeta(
-      projectId,
-      `${this.globalMetaPrefix}${type}`,
-      JSON.stringify(globalMemory),
+    const existingIds = new Set(
+      this.hub.listLongTermMemories(projectId, { types: [type], scope }).map((item) => item.id),
     );
+    const nextIds = new Set(items.map((item) => item.id));
 
-    return `sqlite://memory-hub.db#project=${projectId}&meta=${this.globalMetaPrefix}${type}`;
+    for (const item of items) {
+      this.hub.saveLongTermMemory(this.toLongTermMemoryRecord(projectId, item));
+    }
+
+    for (const existingId of existingIds) {
+      if (!nextIds.has(existingId)) {
+        this.hub.deleteLongTermMemory(projectId, existingId);
+      }
+    }
+
+    this.hub.deleteProjectMeta(projectId, `${this.globalMetaPrefix}${type}`);
+    return `sqlite://memory-hub.db#project=${projectId}&long-term=${type}:${scope}`;
   }
 
   private extractLongTermMemoryItems(
@@ -399,6 +474,130 @@ export class LongTermMemoryService {
         },
       ];
     });
+  }
+
+  private readLegacyItems(
+    projectId: string,
+    type: LongTermMemoryType,
+    scope: LongTermMemoryScope,
+  ): LongTermMemoryItem[] {
+    const raw = this.hub.getProjectMeta(projectId, `${this.globalMetaPrefix}${type}`);
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as GlobalMemory;
+      return this.extractLongTermMemoryItems(parsed, type, scope);
+    } catch {
+      return [];
+    }
+  }
+
+  private migrateLegacyItems(
+    projectId: string,
+    type: LongTermMemoryType,
+    scope: LongTermMemoryScope,
+  ): void {
+    const legacyItems = this.readLegacyItems(projectId, type, scope);
+    if (legacyItems.length === 0) {
+      return;
+    }
+
+    for (const item of legacyItems) {
+      this.hub.saveLongTermMemory(this.toLongTermMemoryRecord(projectId, item));
+    }
+
+    this.hub.deleteProjectMeta(projectId, `${this.globalMetaPrefix}${type}`);
+  }
+
+  private mapLongTermMemoryRow(row: LongTermMemoryRow): LongTermMemoryItem {
+    return {
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      summary: row.summary,
+      why: row.why ?? undefined,
+      howToApply: row.how_to_apply ?? undefined,
+      tags: this.parseJsonArray(row.tags),
+      scope: row.scope,
+      source: row.source,
+      confidence: row.confidence,
+      links: this.parseJsonArray(row.links),
+      factKey: row.fact_key ?? undefined,
+      invalidates: this.parseJsonArray(row.invalidates),
+      invalidatedBy: row.invalidated_by ?? undefined,
+      durability: row.durability,
+      provenance: this.parseJsonArray(row.provenance),
+      validFrom: row.valid_from ?? undefined,
+      validUntil: row.valid_until ?? undefined,
+      lastVerifiedAt: row.last_verified_at ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private toLongTermMemoryRecord(
+    projectId: string,
+    item: LongTermMemoryItem,
+  ): Parameters<MemoryHubDatabase['saveLongTermMemory']>[0] {
+    return {
+      id: item.id,
+      project_id: projectId,
+      type: item.type,
+      scope: item.scope,
+      title: item.title,
+      summary: item.summary,
+      why: item.why,
+      how_to_apply: item.howToApply,
+      tags: item.tags,
+      source: item.source || 'user-explicit',
+      confidence: item.confidence,
+      links: item.links,
+      fact_key: item.factKey,
+      invalidates: item.invalidates,
+      invalidated_by: item.invalidatedBy,
+      durability: item.durability,
+      provenance: item.provenance,
+      valid_from: item.validFrom,
+      valid_until: item.validUntil,
+      last_verified_at: item.lastVerifiedAt,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+    };
+  }
+
+  private mergeLongTermMemoryItems(
+    primary: LongTermMemoryItem[],
+    secondary: LongTermMemoryItem[],
+  ): LongTermMemoryItem[] {
+    const merged = [...primary];
+    for (const candidate of secondary) {
+      if (
+        merged.some((existing) =>
+          existing.id === candidate.id || this.isSameLongTermMemory(existing, candidate),
+        )
+      ) {
+        continue;
+      }
+      merged.push(candidate);
+    }
+    return merged.sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
+  }
+
+  private parseJsonArray(input: string | null | undefined): string[] {
+    if (!input) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(input) as unknown;
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
   }
 
   private isSameLongTermMemory(a: LongTermMemoryItem, b: LongTermMemoryItem): boolean {

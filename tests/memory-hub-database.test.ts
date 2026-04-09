@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -175,4 +175,38 @@ test('saveMemory can overwrite an existing module without foreign key failure', 
       db.close();
     }
   });
+});
+
+test('MemoryHubDatabase resolves default db path at construction time and creates parent directory', () => {
+  const tempHome = mkdtempSync(path.join(os.tmpdir(), 'cw-memory-hub-home-'));
+  const nestedHome = path.join(tempHome, 'fake-home');
+  const previousHome = process.env.HOME;
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+
+  delete process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.HOME = nestedHome;
+
+  const db = new MemoryHubDatabase();
+  try {
+    const project = db.ensureProject({
+      path: '/tmp/contextatlas-default-home',
+      name: 'Default Home Project',
+    });
+
+    assert.ok(project);
+    assert.ok(existsSync(path.join(nestedHome, '.contextatlas', 'memory-hub.db')));
+  } finally {
+    db.close();
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    rmSync(tempHome, { recursive: true, force: true });
+  }
 });

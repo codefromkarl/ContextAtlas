@@ -73,6 +73,7 @@ contextatlas search \
 
 - `mode`: `none` / `incremental` / `full`
 - `reasons`: 触发当前模式的原因码和说明
+- `strategySignals`: 当前 changed files、churn、estimated incremental cost、阈值和触发器
 - `schemaStatus.snapshot`: 当前使用 `snapshot` 还是 `legacy` 布局，以及 `vectors.lance` 是否存在
 - `schemaStatus.embeddings`: 当前 embedding 维度与已存储维度是否兼容
 - `schemaStatus.contentSchema`: 当前 AST / semantic chunking 内容 schema 版本是否兼容
@@ -82,10 +83,18 @@ contextatlas search \
 `contextatlas index:update [path]` 会在 `index:plan` 的基础上直接执行日常触发策略：
 
 - repo 文件新增 / 修改 / 删除时自动入队 `incremental`
+- 当 churn 比例或估算增量成本超过阈值时，会直接建议 / 入队 `full`
 - embedding schema、AST/chunking content schema 或向量索引漂移时自动入队 `full`
 - 无变化时明确返回“不入队”
 - 文本和 JSON 输出都会显示计划结论以及是否复用了已有队列任务
 - `full` / schema drift 场景会额外提示需要“广泛复核”的 feature memories（`broad-review`）
+
+索引策略相关环境变量：
+
+- `INDEX_UPDATE_CHURN_THRESHOLD`
+- `INDEX_UPDATE_COST_RATIO_THRESHOLD`
+- `INDEX_UPDATE_MIN_FILES`
+- `INDEX_UPDATE_MIN_CHANGED_FILES`
 
 ## Embedding Gateway
 
@@ -143,6 +152,10 @@ contextatlas gateway:embeddings --no-coalesce-identical-requests
 
 常用环境变量：
 
+- `INDEX_UPDATE_CHURN_THRESHOLD`
+- `INDEX_UPDATE_COST_RATIO_THRESHOLD`
+- `INDEX_UPDATE_MIN_FILES`
+- `INDEX_UPDATE_MIN_CHANGED_FILES`
 - `EMBEDDING_GATEWAY_UPSTREAMS`
 - `EMBEDDING_GATEWAY_API_KEYS`
 - `EMBEDDING_GATEWAY_CACHE_TTL_MS`

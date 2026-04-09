@@ -116,7 +116,7 @@ export async function handleRecordLongTermMemory(
     howToApply: args.howToApply,
     tags: args.tags,
     scope: resolvedScope,
-    source: args.source,
+    source: args.source ?? 'user-explicit',
     confidence: args.confidence,
     links: args.links,
     durability: args.durability,

@@ -11,13 +11,17 @@
  * - shared_index: 共享索引（加速查询）
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { deriveStableProjectId, normalizeProjectPath } from '../db/index.js';
 import { resolveBaseDir } from '../runtimePaths.js';
 import { logger } from '../utils/logger.js';
+import type { LongTermMemoryScope, LongTermMemoryType } from './types.js';
 
-const DEFAULT_HUB_PATH = path.join(resolveBaseDir(), 'memory-hub.db');
+function resolveDefaultHubPath(): string {
+  return path.join(resolveBaseDir(), 'memory-hub.db');
+}
 
 export interface ProjectInfo {
   id: string;
@@ -71,6 +75,33 @@ export interface ProjectMetaRow {
   updated_at: string;
 }
 
+export interface LongTermMemoryRow {
+  rowid: number;
+  id: string;
+  project_id: string;
+  type: LongTermMemoryType;
+  scope: LongTermMemoryScope;
+  title: string;
+  summary: string;
+  why: string | null;
+  how_to_apply: string | null;
+  tags: string;
+  tags_text: string;
+  source: 'user-explicit' | 'agent-inferred' | 'tool-result';
+  confidence: number;
+  links: string;
+  fact_key: string | null;
+  invalidates: string;
+  invalidated_by: string | null;
+  durability: 'stable' | 'ephemeral';
+  provenance: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  last_verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectRepairReport {
   scannedProjects: number;
   repairedProjects: number;
@@ -98,7 +129,8 @@ export class MemoryHubDatabase {
   private db: Database.Database;
 
   constructor(dbPath?: string) {
-    this.dbPath = dbPath || DEFAULT_HUB_PATH;
+    this.dbPath = dbPath || resolveDefaultHubPath();
+    fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     this.db = new Database(this.dbPath);
     this.db.pragma('journal_mode = WAL');
     this.initializeSchema();
@@ -191,6 +223,36 @@ export class MemoryHubDatabase {
         FOREIGN KEY (project_id) REFERENCES projects(id)
       );
 
+      -- 长期记忆表
+      CREATE TABLE IF NOT EXISTS long_term_memories (
+        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('user', 'feedback', 'project-state', 'reference', 'journal', 'evidence', 'temporal-fact')),
+        scope TEXT NOT NULL CHECK(scope IN ('project', 'global-user')),
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        why TEXT,
+        how_to_apply TEXT,
+        tags TEXT DEFAULT '[]',
+        tags_text TEXT DEFAULT '',
+        source TEXT NOT NULL CHECK(source IN ('user-explicit', 'agent-inferred', 'tool-result')),
+        confidence REAL DEFAULT 0.5,
+        links TEXT DEFAULT '[]',
+        fact_key TEXT,
+        invalidates TEXT DEFAULT '[]',
+        invalidated_by TEXT,
+        durability TEXT DEFAULT 'stable' CHECK(durability IN ('stable', 'ephemeral')),
+        provenance TEXT DEFAULT '[]',
+        valid_from TEXT,
+        valid_until TEXT,
+        last_verified_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id),
+        UNIQUE(project_id, id)
+      );
+
       -- 索引优化
       CREATE INDEX IF NOT EXISTS idx_memories_project ON feature_memories(project_id);
       CREATE INDEX IF NOT EXISTS idx_memories_name ON feature_memories(name);
@@ -201,6 +263,12 @@ export class MemoryHubDatabase {
       CREATE INDEX IF NOT EXISTS idx_shared_index_category ON shared_index(category);
       CREATE INDEX IF NOT EXISTS idx_project_meta_project ON project_memory_meta(project_id);
       CREATE INDEX IF NOT EXISTS idx_project_meta_key ON project_memory_meta(meta_key);
+      CREATE INDEX IF NOT EXISTS idx_long_term_project ON long_term_memories(project_id);
+      CREATE INDEX IF NOT EXISTS idx_long_term_type_scope ON long_term_memories(project_id, type, scope);
+      CREATE INDEX IF NOT EXISTS idx_long_term_updated ON long_term_memories(project_id, updated_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_long_term_fact_key
+        ON long_term_memories(project_id, type, scope, fact_key)
+        WHERE fact_key IS NOT NULL;
 
       -- FTS 全文搜索
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -227,6 +295,49 @@ export class MemoryHubDatabase {
         VALUES ('delete', old.id, old.name, old.responsibility, old.data_flow);
         INSERT INTO memories_fts(rowid, name, responsibility, data_flow)
         VALUES (new.id, new.name, new.responsibility, new.data_flow);
+      END;
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS long_term_memories_fts USING fts5(
+        title,
+        summary,
+        why,
+        how_to_apply,
+        tags_text,
+        content='long_term_memories',
+        content_rowid='rowid'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS long_term_memories_fts_ai AFTER INSERT ON long_term_memories BEGIN
+        INSERT INTO long_term_memories_fts(rowid, title, summary, why, how_to_apply, tags_text)
+        VALUES (new.rowid, new.title, new.summary, new.why, new.how_to_apply, new.tags_text);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS long_term_memories_fts_ad AFTER DELETE ON long_term_memories BEGIN
+        INSERT INTO long_term_memories_fts(
+          long_term_memories_fts,
+          rowid,
+          title,
+          summary,
+          why,
+          how_to_apply,
+          tags_text
+        )
+        VALUES ('delete', old.rowid, old.title, old.summary, old.why, old.how_to_apply, old.tags_text);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS long_term_memories_fts_au AFTER UPDATE ON long_term_memories BEGIN
+        INSERT INTO long_term_memories_fts(
+          long_term_memories_fts,
+          rowid,
+          title,
+          summary,
+          why,
+          how_to_apply,
+          tags_text
+        )
+        VALUES ('delete', old.rowid, old.title, old.summary, old.why, old.how_to_apply, old.tags_text);
+        INSERT INTO long_term_memories_fts(rowid, title, summary, why, how_to_apply, tags_text)
+        VALUES (new.rowid, new.title, new.summary, new.why, new.how_to_apply, new.tags_text);
       END;
     `);
 
@@ -267,6 +378,11 @@ export class MemoryHubDatabase {
     }
     try {
       this.db.exec('ALTER TABLE feature_memories ADD COLUMN review_marked_at TEXT');
+    } catch {
+      // column exists
+    }
+    try {
+      this.db.exec("ALTER TABLE long_term_memories ADD COLUMN tags_text TEXT DEFAULT ''");
     } catch {
       // column exists
     }
@@ -580,6 +696,192 @@ export class MemoryHubDatabase {
       ORDER BY meta_key ASC
     `);
     return stmt.all(projectId) as ProjectMetaRow[];
+  }
+
+  saveLongTermMemory(memory: {
+    id: string;
+    project_id: string;
+    type: LongTermMemoryType;
+    scope: LongTermMemoryScope;
+    title: string;
+    summary: string;
+    why?: string;
+    how_to_apply?: string;
+    tags?: string[];
+    source: 'user-explicit' | 'agent-inferred' | 'tool-result';
+    confidence: number;
+    links?: string[];
+    fact_key?: string;
+    invalidates?: string[];
+    invalidated_by?: string;
+    durability?: 'stable' | 'ephemeral';
+    provenance?: string[];
+    valid_from?: string;
+    valid_until?: string;
+    last_verified_at?: string;
+    created_at: string;
+    updated_at: string;
+  }): void {
+    const normalized = {
+      ...memory,
+      why: memory.why ?? null,
+      how_to_apply: memory.how_to_apply ?? null,
+      tags: JSON.stringify(memory.tags ?? []),
+      tags_text: (memory.tags ?? []).join(' '),
+      links: JSON.stringify(memory.links ?? []),
+      fact_key: memory.fact_key ?? null,
+      invalidates: JSON.stringify(memory.invalidates ?? []),
+      invalidated_by: memory.invalidated_by ?? null,
+      durability: memory.durability ?? 'stable',
+      provenance: JSON.stringify(memory.provenance ?? []),
+      valid_from: memory.valid_from ?? null,
+      valid_until: memory.valid_until ?? null,
+      last_verified_at: memory.last_verified_at ?? null,
+    };
+
+    this.db.prepare(`
+      INSERT INTO long_term_memories (
+        id,
+        project_id,
+        type,
+        scope,
+        title,
+        summary,
+        why,
+        how_to_apply,
+        tags,
+        tags_text,
+        source,
+        confidence,
+        links,
+        fact_key,
+        invalidates,
+        invalidated_by,
+        durability,
+        provenance,
+        valid_from,
+        valid_until,
+        last_verified_at,
+        created_at,
+        updated_at
+      ) VALUES (
+        @id,
+        @project_id,
+        @type,
+        @scope,
+        @title,
+        @summary,
+        @why,
+        @how_to_apply,
+        @tags,
+        @tags_text,
+        @source,
+        @confidence,
+        @links,
+        @fact_key,
+        @invalidates,
+        @invalidated_by,
+        @durability,
+        @provenance,
+        @valid_from,
+        @valid_until,
+        @last_verified_at,
+        @created_at,
+        @updated_at
+      )
+      ON CONFLICT(project_id, id) DO UPDATE SET
+        type = excluded.type,
+        scope = excluded.scope,
+        title = excluded.title,
+        summary = excluded.summary,
+        why = excluded.why,
+        how_to_apply = excluded.how_to_apply,
+        tags = excluded.tags,
+        tags_text = excluded.tags_text,
+        source = excluded.source,
+        confidence = excluded.confidence,
+        links = excluded.links,
+        fact_key = excluded.fact_key,
+        invalidates = excluded.invalidates,
+        invalidated_by = excluded.invalidated_by,
+        durability = excluded.durability,
+        provenance = excluded.provenance,
+        valid_from = excluded.valid_from,
+        valid_until = excluded.valid_until,
+        last_verified_at = excluded.last_verified_at,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
+    `).run(normalized);
+  }
+
+  listLongTermMemories(projectId: string, options?: {
+    types?: LongTermMemoryType[];
+    scope?: LongTermMemoryScope;
+  }): LongTermMemoryRow[] {
+    let sql = `
+      SELECT *
+      FROM long_term_memories
+      WHERE project_id = ?
+    `;
+    const params: Array<string> = [projectId];
+
+    if (options?.scope) {
+      sql += ' AND scope = ?';
+      params.push(options.scope);
+    }
+
+    if (options?.types?.length) {
+      sql += ` AND type IN (${options.types.map(() => '?').join(', ')})`;
+      params.push(...options.types);
+    }
+
+    sql += ' ORDER BY updated_at DESC';
+
+    return this.db.prepare(sql).all(...params) as LongTermMemoryRow[];
+  }
+
+  searchLongTermMemories(
+    projectId: string,
+    queryText: string,
+    options?: {
+      types?: LongTermMemoryType[];
+      scope?: LongTermMemoryScope;
+      limit?: number;
+    },
+  ): Array<LongTermMemoryRow & { fts_rank: number }> {
+    let sql = `
+      SELECT ltm.*, bm25(long_term_memories_fts) AS fts_rank
+      FROM long_term_memories_fts
+      JOIN long_term_memories ltm ON long_term_memories_fts.rowid = ltm.rowid
+      WHERE long_term_memories_fts MATCH ?
+        AND ltm.project_id = ?
+    `;
+    const params: Array<string | number> = [queryText.trim(), projectId];
+
+    if (options?.scope) {
+      sql += ' AND ltm.scope = ?';
+      params.push(options.scope);
+    }
+
+    if (options?.types?.length) {
+      sql += ` AND ltm.type IN (${options.types.map(() => '?').join(', ')})`;
+      params.push(...options.types);
+    }
+
+    sql += ' ORDER BY fts_rank ASC, ltm.updated_at DESC';
+    if (options?.limit) {
+      sql += ' LIMIT ?';
+      params.push(options.limit);
+    }
+
+    return this.db.prepare(sql).all(...params) as Array<LongTermMemoryRow & { fts_rank: number }>;
+  }
+
+  deleteLongTermMemory(projectId: string, id: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM long_term_memories WHERE project_id = ? AND id = ?')
+      .run(projectId, id);
+    return result.changes > 0;
   }
 
   // ===========================================

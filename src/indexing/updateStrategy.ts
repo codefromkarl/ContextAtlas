@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getEmbeddingConfig } from '../config.js';
+import { getEmbeddingConfig, getIndexUpdateStrategyConfig } from '../config.js';
 import {
   type FileMeta,
   generateProjectId,
@@ -60,6 +60,18 @@ export interface IndexPlanSchemaStatus {
   };
 }
 
+export interface IndexPlanStrategySignals {
+  changedFiles: number;
+  eligibleForFullRebuildEscalation: boolean;
+  churnRatio: number;
+  churnThreshold: number;
+  estimatedIncrementalBytes: number;
+  estimatedFullBytes: number;
+  incrementalCostRatio: number;
+  costThresholdRatio: number;
+  fullRebuildTriggers: string[];
+}
+
 export interface IndexUpdatePlan {
   repoPath: string;
   projectId: string;
@@ -79,6 +91,7 @@ export interface IndexUpdatePlan {
   commands: string[];
   memoryCatalogStatus: 'missing' | 'consistent' | 'inconsistent' | 'version-mismatch';
   schemaStatus: IndexPlanSchemaStatus;
+  strategySignals: IndexPlanStrategySignals;
   executionHint: IncrementalExecutionHint | null;
 }
 
@@ -100,6 +113,7 @@ export interface LightweightPlanCandidate {
 
 export interface LightweightPlanDelta {
   totalFiles: number;
+  totalBytes: number;
   candidateEntries: LightweightPlanCandidate[];
   deletedPaths: string[];
   healingEntries: LightweightPlanCandidate[];
@@ -127,6 +141,7 @@ export async function collectLightweightPlanDelta(
   const candidateEntries: LightweightPlanCandidate[] = [];
   const relPathToAbs = new Map<string, string>();
   const candidatePathSet = new Set<string>();
+  let totalBytes = 0;
 
   for (const filePath of effectiveFilePaths) {
     const relPath = path.relative(resolvedRepoPath, filePath).replace(/\\/g, '/');
@@ -135,6 +150,7 @@ export async function collectLightweightPlanDelta(
     const known = input.knownFiles.get(relPath);
     try {
       const stat = fs.statSync(filePath);
+      totalBytes += stat.size;
       if (!known || known.mtime !== stat.mtimeMs || known.size !== stat.size) {
         candidateEntries.push({
           relPath,
@@ -184,6 +200,7 @@ export async function collectLightweightPlanDelta(
 
   return {
     totalFiles: effectiveFilePaths.length,
+    totalBytes,
     candidateEntries,
     deletedPaths,
     healingEntries,
@@ -246,6 +263,12 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
           staleModuleNames: [],
         },
       },
+      strategySignals: createStrategySignals({
+        changedFiles: filePaths.length,
+        totalFiles: filePaths.length,
+        estimatedIncrementalBytes: 0,
+        estimatedFullBytes: 0,
+      }),
       executionHint: null,
     };
   }
@@ -291,6 +314,23 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
       errors,
       totalFiles: delta.totalFiles,
     };
+    const changedFiles =
+      changeSummary.added
+      + changeSummary.modified
+      + changeSummary.deleted
+      + changeSummary.unchangedNeedingVectorRepair;
+    const estimatedIncrementalBytes =
+      candidateResults
+        .filter((result) => result.status === 'added' || result.status === 'modified')
+        .reduce((sum, result) => sum + result.size, 0)
+      + delta.healingEntries.reduce((sum, entry) => sum + entry.size, 0)
+      + delta.deletedPaths.reduce((sum, relPath) => sum + (knownFiles.get(relPath)?.size || 0), 0);
+    const strategySignals = createStrategySignals({
+      changedFiles,
+      totalFiles: changeSummary.totalFiles,
+      estimatedIncrementalBytes,
+      estimatedFullBytes: delta.totalBytes,
+    });
 
     const schemaStatus: IndexPlanSchemaStatus = {
       snapshot: {
@@ -346,6 +386,24 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
         code: 'vector-store-missing',
         message: '当前索引已记录 embedding metadata，但 vectors.lance 缺失，需要全量重建。',
       });
+    } else if (strategySignals.fullRebuildTriggers.length > 0) {
+      mode = 'full';
+      if (strategySignals.fullRebuildTriggers.includes('high-churn')) {
+        reasons.push({
+          code: 'high-churn',
+          message:
+            `改动文件占比 ${(strategySignals.churnRatio * 100).toFixed(1)}% `
+            + `已超过 ${(strategySignals.churnThreshold * 100).toFixed(0)}% 阈值，建议直接全量重建。`,
+        });
+      }
+      if (strategySignals.fullRebuildTriggers.includes('incremental-cost-high')) {
+        reasons.push({
+          code: 'incremental-cost-high',
+          message:
+            `估算增量处理成本已达到全量的 ${(strategySignals.incrementalCostRatio * 100).toFixed(1)}%，`
+            + `超过 ${(strategySignals.costThresholdRatio * 100).toFixed(0)}% 阈值。`,
+        });
+      }
     } else if (
       changeSummary.added > 0
       || changeSummary.modified > 0
@@ -426,6 +484,7 @@ export async function analyzeIndexUpdatePlan(repoPath: string): Promise<IndexUpd
       commands,
       memoryCatalogStatus: catalogStatus.status,
       schemaStatus,
+      strategySignals,
       executionHint:
         mode === 'incremental'
           ? buildIncrementalExecutionHint(
@@ -626,6 +685,20 @@ export function formatIndexUpdatePlanReport(plan: IndexUpdatePlan): string {
   lines.push(`- Errors: ${plan.changeSummary.errors}`);
   lines.push(`- Total Files: ${plan.changeSummary.totalFiles}`);
   lines.push('');
+  lines.push('Strategy Signals:');
+  lines.push(`- Changed Files: ${plan.strategySignals.changedFiles}`);
+  lines.push(`- Churn: ${(plan.strategySignals.churnRatio * 100).toFixed(1)}%`);
+  lines.push(`- Churn Threshold: ${(plan.strategySignals.churnThreshold * 100).toFixed(0)}%`);
+  lines.push(
+    `- Estimated Incremental Cost: ${plan.strategySignals.estimatedIncrementalBytes} bytes (${(plan.strategySignals.incrementalCostRatio * 100).toFixed(1)}% of full)`,
+  );
+  lines.push(
+    `- Cost Threshold: ${(plan.strategySignals.costThresholdRatio * 100).toFixed(0)}% of full`,
+  );
+  if (plan.strategySignals.fullRebuildTriggers.length > 0) {
+    lines.push(`- Full Rebuild Triggers: ${plan.strategySignals.fullRebuildTriggers.join(', ')}`);
+  }
+  lines.push('');
   lines.push('Impacted Memories:');
   if (plan.impactedMemories.length === 0) {
     lines.push('- 无明显受影响的模块记忆');
@@ -757,4 +830,42 @@ function normalizeModuleName(moduleName: string): string {
 
 function normalizeRelPath(filePath: string): string {
   return filePath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/').trim();
+}
+
+function createStrategySignals(input: {
+  changedFiles: number;
+  totalFiles: number;
+  estimatedIncrementalBytes: number;
+  estimatedFullBytes: number;
+}): IndexPlanStrategySignals {
+  const config = getIndexUpdateStrategyConfig();
+  const totalFiles = Math.max(input.totalFiles, 0);
+  const estimatedFullBytes = Math.max(input.estimatedFullBytes, input.estimatedIncrementalBytes, 0);
+  const churnRatio = totalFiles > 0 ? input.changedFiles / totalFiles : 0;
+  const incrementalCostRatio =
+    estimatedFullBytes > 0 ? input.estimatedIncrementalBytes / estimatedFullBytes : 0;
+  const eligibleForFullRebuildEscalation =
+    totalFiles >= config.minFilesForEscalation
+    && input.changedFiles >= config.minChangedFilesForEscalation;
+  const fullRebuildTriggers: string[] = [];
+
+  if (eligibleForFullRebuildEscalation && churnRatio >= config.churnThreshold) {
+    fullRebuildTriggers.push('high-churn');
+  }
+
+  if (eligibleForFullRebuildEscalation && incrementalCostRatio >= config.costThresholdRatio) {
+    fullRebuildTriggers.push('incremental-cost-high');
+  }
+
+  return {
+    changedFiles: input.changedFiles,
+    eligibleForFullRebuildEscalation,
+    churnRatio,
+    churnThreshold: config.churnThreshold,
+    estimatedIncrementalBytes: input.estimatedIncrementalBytes,
+    estimatedFullBytes,
+    incrementalCostRatio,
+    costThresholdRatio: config.costThresholdRatio,
+    fullRebuildTriggers,
+  };
 }

@@ -93,6 +93,10 @@ RERANK_TOP_N=20                      # 精排后返回数量
 # IGNORE_PATTERNS=.venv,node_modules,dist,.git
 # CONTEXTATLAS_BASE_DIR=~/.contextatlas
 # CONTEXTATLAS_USAGE_DB_PATH=~/.contextatlas/usage-tracker.db
+# INDEX_UPDATE_CHURN_THRESHOLD=0.35
+# INDEX_UPDATE_COST_RATIO_THRESHOLD=0.65
+# INDEX_UPDATE_MIN_FILES=8
+# INDEX_UPDATE_MIN_CHANGED_FILES=5
 
 # ─── Embedding Gateway（可选）──────────────────────────────
 # EMBEDDING_GATEWAY_HOST=127.0.0.1
@@ -124,6 +128,10 @@ RERANK_TOP_N=20                      # 精排后返回数量
 | `RERANK_MODEL` | ✅ | Rerank 模型名称 |
 | `EMBEDDINGS_MAX_CONCURRENCY` | 否 | 默认 10，降低可避免 API 限流 |
 | `IGNORE_PATTERNS` | 否 | 逗号分隔的忽略路径 |
+| `INDEX_UPDATE_CHURN_THRESHOLD` | 否 | 改动文件占比达到阈值时，`index:plan` / `index:update` 更倾向 `full` |
+| `INDEX_UPDATE_COST_RATIO_THRESHOLD` | 否 | 估算增量处理成本接近全量时触发 `full` |
+| `INDEX_UPDATE_MIN_FILES` | 否 | 启用上述升级策略所需的最小仓库文件数 |
+| `INDEX_UPDATE_MIN_CHANGED_FILES` | 否 | 启用上述升级策略所需的最小改动文件数 |
 | `EMBEDDING_GATEWAY_UPSTREAMS` | 否 | JSON 数组，声明 gateway 的上游 embeddings provider 列表 |
 | `EMBEDDING_GATEWAY_API_KEYS` | 否 | 逗号分隔；配置后 gateway 要求 Bearer Token |
 | `EMBEDDING_GATEWAY_CACHE_TTL_MS` | 否 | 本地内存缓存 TTL，默认 0 表示关闭 |

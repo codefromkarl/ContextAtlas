@@ -1,5 +1,5 @@
 import type { AlertEvaluationResult } from './alertEngine.js';
-import type { IndexHealthReport } from './indexHealth.js';
+import type { IndexHealthReport, IndexStrategySummary } from './indexHealth.js';
 import type { MemoryHealthReport } from './memoryHealth.js';
 import type { IndexOptimizationReport } from '../usage/usageAnalysis.js';
 
@@ -30,6 +30,8 @@ export interface OpsSummarySnapshot {
     currentSnapshotId: string | null;
     lastSuccessfulAt: string | null;
     lastSuccessfulScope: 'full' | 'incremental' | null;
+    latestTaskRepoPath: string | null;
+    strategySummary: IndexStrategySummary | null;
     issues: string[];
   }>;
   sections: {
@@ -73,6 +75,8 @@ export function summarizeOpsSnapshot(input: {
     ...input.usageReport.actions.map((action) => `${action.title}: ${action.command}`),
   ].filter((value, index, array) => array.indexOf(value) === index).slice(0, 5);
   const prioritizedActions = synthesizeOpsActions(input);
+  const representativeStrategy = input.indexHealth.snapshots.find((snapshot) => snapshot.strategySummary)
+    ?.strategySummary;
 
   return {
     status,
@@ -93,6 +97,8 @@ export function summarizeOpsSnapshot(input: {
       currentSnapshotId: snapshot.currentSnapshotId,
       lastSuccessfulAt: snapshot.lastSuccessfulAt,
       lastSuccessfulScope: snapshot.lastSuccessfulScope,
+      latestTaskRepoPath: snapshot.latestTaskRepoPath,
+      strategySummary: snapshot.strategySummary,
       issues: [
         !snapshot.hasCurrentSnapshot ? 'missing-current-snapshot' : '',
         snapshot.dbIntegrity === 'corrupted' ? 'corrupted-db' : '',
@@ -110,7 +116,7 @@ export function summarizeOpsSnapshot(input: {
       ].filter(Boolean),
     })),
     sections: {
-      index: `status=${input.indexHealth.overall.status} queued=${input.indexHealth.queue.queued} failed=${input.indexHealth.queue.failed} latestScope=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulScope)?.lastSuccessfulScope || 'unknown'} lastSuccess=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulAt)?.lastSuccessfulAt || 'n/a'}`,
+      index: `status=${input.indexHealth.overall.status} queued=${input.indexHealth.queue.queued} failed=${input.indexHealth.queue.failed} latestScope=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulScope)?.lastSuccessfulScope || 'unknown'} lastSuccess=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulAt)?.lastSuccessfulAt || 'n/a'}${representativeStrategy ? ` plan=${formatStrategySummaryInline(representativeStrategy)}` : ''}`,
       memory: `status=${input.memoryHealth.overall.status} staleRate=${Math.round(input.memoryHealth.longTermFreshness.staleRate * 100)}%`,
       alerts: `triggered=${input.alertResult.triggered.length}`,
       usage: `queryBeforeIndex=${Math.round(input.usageReport.summary.indexing.queryBeforeIndexRate * 100)}% avgIndexMs=${Math.round(input.usageReport.summary.indexing.avgExecutionDurationMs)}`,
@@ -148,6 +154,12 @@ export function formatOpsSummaryReport(summary: OpsSummarySnapshot): string {
       lines.push(
         `- ${project.projectId}: snapshot=${project.currentSnapshotId || 'none'} latest=${project.lastSuccessfulScope || 'unknown'} @ ${project.lastSuccessfulAt || 'n/a'}`,
       );
+      if (project.latestTaskRepoPath) {
+        lines.push(`  repo: ${project.latestTaskRepoPath}`);
+      }
+      if (project.strategySummary) {
+        lines.push(`  Strategy: ${formatStrategySummaryInline(project.strategySummary)}`);
+      }
       if (project.issues.length > 0) {
         lines.push(`  issues: ${project.issues.join(', ')}`);
       }
@@ -186,6 +198,11 @@ export function formatOpsSummaryReport(summary: OpsSummarySnapshot): string {
     }
   }
   return lines.join('\n');
+}
+
+function formatStrategySummaryInline(summary: IndexStrategySummary): string {
+  const triggers = summary.signals.fullRebuildTriggers.join(',') || 'none';
+  return `${summary.mode} changed=${summary.signals.changedFiles} churn=${(summary.signals.churnRatio * 100).toFixed(1)}% incrCost=${(summary.signals.incrementalCostRatio * 100).toFixed(1)}% triggers=${triggers}`;
 }
 
 function synthesizeOpsActions(input: {

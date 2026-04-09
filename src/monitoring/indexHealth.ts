@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { getTaskStatusReport, resolveQueueDbPath } from '../indexing/queue.js';
+import type { IndexPlanStrategySignals } from '../indexing/updateStrategy.js';
 import { resolveBaseDir } from '../runtimePaths.js';
 import { VectorStore } from '../vectorStore/index.js';
 
@@ -55,6 +56,15 @@ export interface SnapshotHealth {
   vectorChunkCount: number;
   chunkFtsCoverage: number | null;
   lastModified: string | null;
+  latestTaskRepoPath: string | null;
+  strategySummary: IndexStrategySummary | null;
+}
+
+export interface IndexStrategySummary {
+  repoPath: string;
+  mode: 'none' | 'incremental' | 'full';
+  reasons: string[];
+  signals: IndexPlanStrategySignals;
 }
 
 export interface DaemonHealth {
@@ -185,6 +195,7 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
   const hasIndexDb = fs.existsSync(dbPath);
   const hasVectorIndex = fs.existsSync(vectorDir);
   const lastSuccessfulExecution = resolveLastSuccessfulExecution(projectId);
+  const latestTaskContext = resolveLatestTaskContext(projectId);
 
   let dbIntegrity: 'ok' | 'corrupted' | 'missing' = hasIndexDb ? 'ok' : 'missing';
   let fileCount = 0;
@@ -254,6 +265,7 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
 
   const chunkFtsCoverage =
     vectorChunkCount > 0 ? Number((chunkFtsCount / vectorChunkCount).toFixed(3)) : null;
+  const strategySummary = await resolveStrategySummary(latestTaskContext?.repoPath ?? null);
 
   return {
     projectId,
@@ -275,6 +287,8 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
     vectorChunkCount,
     chunkFtsCoverage,
     lastModified,
+    latestTaskRepoPath: latestTaskContext?.repoPath ?? null,
+    strategySummary,
   };
 }
 
@@ -316,6 +330,57 @@ function resolveLastSuccessfulExecution(projectId: string): {
     };
   } finally {
     db.close();
+  }
+}
+
+function resolveLatestTaskContext(projectId: string): { repoPath: string } | null {
+  const dbPath = resolveQueueDbPath();
+  if (!fs.existsSync(dbPath)) {
+    return null;
+  }
+
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const row = db
+      .prepare(
+        `
+        SELECT repo_path
+        FROM index_tasks
+        WHERE project_id = ?
+        ORDER BY COALESCE(finished_at, started_at, created_at) DESC
+        LIMIT 1
+      `,
+      )
+      .get(projectId) as { repo_path: string } | undefined;
+
+    if (!row?.repo_path) {
+      return null;
+    }
+
+    return {
+      repoPath: row.repo_path,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+async function resolveStrategySummary(repoPath: string | null): Promise<IndexStrategySummary | null> {
+  if (!repoPath || !fs.existsSync(repoPath)) {
+    return null;
+  }
+
+  try {
+    const { analyzeIndexUpdatePlan } = await import('../indexing/updateStrategy.js');
+    const plan = await analyzeIndexUpdatePlan(repoPath);
+    return {
+      repoPath,
+      mode: plan.mode,
+      reasons: plan.reasons.map((reason) => reason.code),
+      signals: plan.strategySignals,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -697,6 +762,14 @@ export function formatIndexHealthReport(report: IndexHealthReport): string {
     lines.push(
       `    Chunk FTS: ${snap.hasChunksFts ? `${snap.chunkFtsCount} / ${snap.vectorChunkCount}${snap.chunkFtsCoverage !== null ? ` (${(snap.chunkFtsCoverage * 100).toFixed(1)}%)` : ''}` : 'missing'}`,
     );
+    if (snap.latestTaskRepoPath) {
+      lines.push(`    Repo: ${snap.latestTaskRepoPath}`);
+    }
+    if (snap.strategySummary) {
+      lines.push(
+        `    Strategy: ${snap.strategySummary.mode} changed=${snap.strategySummary.signals.changedFiles} churn=${(snap.strategySummary.signals.churnRatio * 100).toFixed(1)}% incrCost=${(snap.strategySummary.signals.incrementalCostRatio * 100).toFixed(1)}% triggers=${snap.strategySummary.signals.fullRebuildTriggers.join(',') || 'none'}`,
+      );
+    }
     if (snap.lastModified) {
       lines.push(`    Updated: ${snap.lastModified}`);
     }

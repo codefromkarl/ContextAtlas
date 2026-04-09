@@ -23,6 +23,13 @@ RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
 RERANK_MODEL=BAAI/bge-reranker-v2-m3
 RERANK_TOP_N=20
 
+# 索引更新策略（可选）
+# 改动比例或估算增量成本达到阈值时，index:update / index:plan 会建议 full rebuild。
+INDEX_UPDATE_CHURN_THRESHOLD=0.35
+INDEX_UPDATE_COST_RATIO_THRESHOLD=0.65
+INDEX_UPDATE_MIN_FILES=8
+INDEX_UPDATE_MIN_CHANGED_FILES=5
+
 # Embedding Gateway（可选）
 # 使用 contextatlas gateway:embeddings 启动本地 OpenAI-compatible 网关。
 # 如果你先接 SiliconFlow，可以直接取消下面这些注释并替换 API Key。

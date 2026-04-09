@@ -48,6 +48,15 @@ RERANK_BASE_URL=
 RERANK_MODEL=
 ```
 
+如果你想调节 `index:plan` / `index:update` 在“高 churn”或“增量成本接近全量”时何时升级为 `full`，还可以额外配置：
+
+```bash
+INDEX_UPDATE_CHURN_THRESHOLD=0.35
+INDEX_UPDATE_COST_RATIO_THRESHOLD=0.65
+INDEX_UPDATE_MIN_FILES=8
+INDEX_UPDATE_MIN_CHANGED_FILES=5
+```
+
 ## 3. 用 `start` 看当前仓库状态
 
 ```bash

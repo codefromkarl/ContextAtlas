@@ -92,3 +92,82 @@ test('analyzeMemoryHealth keeps project long-term counts isolated and aggregates
     assert.equal(repoBStats?.catalogConsistent, true);
   });
 });
+
+test('analyzeMemoryHealth does not double-count long-term memories after legacy blob migration', async () => {
+  await withTempProjects(async ({ baseDir, repoA }) => {
+    const { MemoryHubDatabase } = await import('../src/memory/MemoryHubDatabase.ts');
+    const { MemoryStore } = await import('../src/memory/MemoryStore.ts');
+    const { ProjectMetaStore } = await import('../src/memory/ProjectMetaStore.ts');
+    const hub = new MemoryHubDatabase(path.join(baseDir, 'memory-hub.db'));
+    const projectId = hub.ensureProject({ path: repoA, name: 'repo-a' }).id;
+
+    fs.mkdirSync(path.join(repoA, 'src', 'search'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoA, 'src', 'search', 'SearchService.ts'),
+      'export const state = "repo A state";\n',
+    );
+
+    const store = new MemoryStore(repoA);
+    await store.saveFeature({
+      name: 'SearchService',
+      responsibility: 'repo A state',
+      location: { dir: 'src/search', files: ['SearchService.ts'] },
+      api: { exports: ['SearchService'], endpoints: [] },
+      dependencies: { imports: [], external: [] },
+      dataFlow: 'repo A state',
+      keyPatterns: ['search'],
+      lastUpdated: new Date('2026-04-09T00:00:00.000Z').toISOString(),
+      confirmationStatus: 'human-confirmed',
+    });
+
+    const metaStore = new ProjectMetaStore({
+      hub,
+      projectId,
+      projectRoot: repoA,
+    });
+    await metaStore.saveGlobal('project-state', {
+      items: [
+        {
+          id: 'legacy-project-state',
+          type: 'project-state',
+          title: 'repo-a state',
+          summary: 'repo A state',
+          tags: ['state'],
+          scope: 'project',
+          source: 'user-explicit',
+          confidence: 0.9,
+          links: [],
+          invalidates: [],
+          durability: 'stable',
+          provenance: ['legacy'],
+          createdAt: '2026-04-09T00:00:00.000Z',
+          updatedAt: '2026-04-09T00:00:00.000Z',
+          lastVerifiedAt: '2026-04-09T00:00:00.000Z',
+        },
+      ],
+    });
+
+    await store.appendLongTermMemoryItem({
+      type: 'project-state',
+      title: 'repo-a follow-up',
+      summary: 'repo A follow-up',
+      scope: 'project',
+      source: 'agent-inferred',
+      confidence: 0.8,
+      tags: ['state'],
+      createdAt: '2026-04-09T01:00:00.000Z',
+      updatedAt: '2026-04-09T01:00:00.000Z',
+      lastVerifiedAt: '2026-04-09T01:00:00.000Z',
+    });
+
+    const { analyzeMemoryHealth } = await import('../src/monitoring/memoryHealth.ts');
+    const report = await analyzeMemoryHealth({
+      projectRoots: [repoA],
+      staleDays: 30,
+    });
+
+    assert.equal(report.longTermFreshness.total, 2);
+    assert.equal(report.projectScores.length, 1);
+    assert.equal(report.projectScores[0]?.longTermCount, 2);
+  });
+});

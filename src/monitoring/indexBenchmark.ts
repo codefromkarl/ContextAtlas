@@ -140,6 +140,7 @@ export async function runIndexBenchmark(input: {
     const snapshotId = resolveCurrentSnapshotId(projectId);
     const db = initDb(projectId, snapshotId);
     try {
+      db.exec('UPDATE files SET vector_index_hash = hash');
       db.prepare('UPDATE files SET vector_index_hash = NULL WHERE path IN (SELECT path FROM files ORDER BY path LIMIT 3)').run();
     } finally {
       db.close();

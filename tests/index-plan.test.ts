@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { getEmbeddingConfig } from '../src/config.ts';
+import { getEmbeddingConfig, getIndexUpdateStrategyConfig } from '../src/config.ts';
 import {
   generateProjectId,
   getAllFileMeta,
@@ -145,6 +145,133 @@ test('analyzeIndexUpdatePlan recommends incremental update and reports impacted 
     assert.ok(plan.impactedMemories.some((memory) => memory.name === 'SearchService'));
     assert.ok(plan.commands.includes(`contextatlas index ${repoRoot}`));
   });
+});
+
+test('analyzeIndexUpdatePlan escalates to full rebuild when churn and estimated incremental cost are high', async () => {
+  await withTempRepo(async (repoRoot) => {
+    fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+
+    for (let i = 0; i < 10; i += 1) {
+      fs.writeFileSync(path.join(repoRoot, 'src', `file-${i}.ts`), `export const value${i} = ${i};\n`);
+    }
+
+    await scan(repoRoot, { vectorIndex: false });
+    const projectId = generateProjectId(repoRoot);
+    const db = initDb(projectId);
+    setStoredEmbeddingDimensions(db, getEmbeddingConfig().dimensions);
+    db.close();
+    const { vectorPath } = resolveIndexPaths(projectId, {
+      baseDir: process.env.CONTEXTATLAS_BASE_DIR,
+    });
+    fs.mkdirSync(vectorPath, { recursive: true });
+
+    for (let i = 0; i < 8; i += 1) {
+      fs.writeFileSync(
+        path.join(repoRoot, 'src', `file-${i}.ts`),
+        `export const value${i} = ${i + 100};\n`,
+      );
+    }
+
+    const plan = await analyzeIndexUpdatePlan(repoRoot);
+    const report = formatIndexUpdatePlanReport(plan);
+
+    assert.equal(plan.mode, 'full');
+    assert.ok(plan.reasons.some((reason) => reason.code === 'high-churn'));
+    assert.ok(plan.reasons.some((reason) => reason.code === 'incremental-cost-high'));
+    assert.ok(plan.strategySignals.changedFiles >= 8);
+    assert.ok(plan.strategySignals.churnRatio >= 0.7);
+    assert.ok(plan.strategySignals.incrementalCostRatio >= 0.7);
+    assert.match(report, /Churn/i);
+    assert.match(report, /Cost/i);
+    assert.ok(plan.commands.includes(`contextatlas index ${repoRoot} --force`));
+  });
+});
+
+test('getIndexUpdateStrategyConfig returns defaults and tolerates invalid env values', () => {
+  const originalEnv = {
+    INDEX_UPDATE_CHURN_THRESHOLD: process.env.INDEX_UPDATE_CHURN_THRESHOLD,
+    INDEX_UPDATE_COST_RATIO_THRESHOLD: process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD,
+    INDEX_UPDATE_MIN_FILES: process.env.INDEX_UPDATE_MIN_FILES,
+    INDEX_UPDATE_MIN_CHANGED_FILES: process.env.INDEX_UPDATE_MIN_CHANGED_FILES,
+  };
+
+  process.env.INDEX_UPDATE_CHURN_THRESHOLD = 'invalid';
+  process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD = '2';
+  process.env.INDEX_UPDATE_MIN_FILES = '0';
+  process.env.INDEX_UPDATE_MIN_CHANGED_FILES = '-1';
+
+  try {
+    const config = getIndexUpdateStrategyConfig();
+    assert.equal(config.churnThreshold, 0.35);
+    assert.equal(config.costThresholdRatio, 0.65);
+    assert.equal(config.minFilesForEscalation, 8);
+    assert.equal(config.minChangedFilesForEscalation, 5);
+  } finally {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('analyzeIndexUpdatePlan honors configurable churn and cost thresholds', async () => {
+  const originalEnv = {
+    INDEX_UPDATE_CHURN_THRESHOLD: process.env.INDEX_UPDATE_CHURN_THRESHOLD,
+    INDEX_UPDATE_COST_RATIO_THRESHOLD: process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD,
+    INDEX_UPDATE_MIN_FILES: process.env.INDEX_UPDATE_MIN_FILES,
+  };
+  process.env.INDEX_UPDATE_CHURN_THRESHOLD = '0.95';
+  process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD = '0.95';
+  process.env.INDEX_UPDATE_MIN_FILES = '20';
+
+  try {
+    await withTempRepo(async (repoRoot) => {
+      fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+
+      for (let i = 0; i < 10; i += 1) {
+        fs.writeFileSync(
+          path.join(repoRoot, 'src', `file-${i}.ts`),
+          `export const value${i} = ${i};\n`,
+        );
+      }
+
+      await scan(repoRoot, { vectorIndex: false });
+      const projectId = generateProjectId(repoRoot);
+      const db = initDb(projectId);
+      setStoredEmbeddingDimensions(db, getEmbeddingConfig().dimensions);
+      db.close();
+      const { vectorPath } = resolveIndexPaths(projectId, {
+        baseDir: process.env.CONTEXTATLAS_BASE_DIR,
+      });
+      fs.mkdirSync(vectorPath, { recursive: true });
+
+      for (let i = 0; i < 8; i += 1) {
+        fs.writeFileSync(
+          path.join(repoRoot, 'src', `file-${i}.ts`),
+          `export const value${i} = ${i + 100};\n`,
+        );
+      }
+
+      const plan = await analyzeIndexUpdatePlan(repoRoot);
+
+      assert.equal(plan.mode, 'incremental');
+      assert.deepEqual(plan.strategySignals.fullRebuildTriggers, []);
+      assert.equal(plan.strategySignals.churnThreshold, 0.95);
+      assert.equal(plan.strategySignals.costThresholdRatio, 0.95);
+      assert.equal(plan.strategySignals.eligibleForFullRebuildEscalation, false);
+    });
+  } finally {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 });
 
 test('analyzeIndexUpdatePlan recommends full rebuild when embedding dimensions changed', async () => {
@@ -421,6 +548,17 @@ test('formatIndexUpdatePlanReport renders compact strategy guidance', () => {
         staleModuleNames: [],
       },
     },
+    strategySignals: {
+      changedFiles: 3,
+      eligibleForFullRebuildEscalation: false,
+      churnRatio: 3 / 7,
+      churnThreshold: 0.35,
+      estimatedIncrementalBytes: 2048,
+      estimatedFullBytes: 4096,
+      incrementalCostRatio: 0.5,
+      costThresholdRatio: 0.65,
+      fullRebuildTriggers: [],
+    },
   });
 
   assert.match(text, /Index Update Plan/);
@@ -490,7 +628,16 @@ test('executeIndexUpdatePlan does not enqueue when index is already up to date',
     fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     fs.writeFileSync(path.join(repoRoot, 'src', 'auth.ts'), 'export function login() {}\n');
 
-    await scan(repoRoot, { vectorIndex: true });
+    await scan(repoRoot, { vectorIndex: false });
+    const projectId = generateProjectId(repoRoot);
+    const db = initDb(projectId);
+    setStoredEmbeddingDimensions(db, getEmbeddingConfig().dimensions);
+    db.exec('UPDATE files SET vector_index_hash = hash');
+    db.close();
+    const { vectorPath } = resolveIndexPaths(projectId, {
+      baseDir: process.env.CONTEXTATLAS_BASE_DIR,
+    });
+    fs.mkdirSync(vectorPath, { recursive: true });
 
     const result = await executeIndexUpdatePlan(repoRoot, { requestedBy: 'test' });
 

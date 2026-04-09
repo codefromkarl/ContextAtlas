@@ -86,6 +86,91 @@ test('buildOpsMetricsReport 聚合核心团队指标与仓库质量分布', () =
   assert.match(formatOpsMetricsReport(report), /Governance:/);
 });
 
+test('formatOpsMetricsReport preserves governance breakdown and score-sorted distributions', () => {
+  const report = buildOpsMetricsReport({
+    querySuccessRate: 0.7,
+    emptyResultRate: 0.2,
+    staleMemoryRate: 0.3,
+    indexFailureRate: 0.1,
+    correctionRate: 0.15,
+    retrievalLatencyMs: 245.4,
+    governance: {
+      projectProfileModes: {
+        editable: 2,
+        organizationReadonly: 1,
+      },
+      sharedMemoryPolicies: {
+        disabled: 1,
+        readonly: 2,
+        editable: 0,
+      },
+      personalMemoryScopes: {
+        project: 1,
+        globalUser: 2,
+      },
+      longTermMemoryScopes: {
+        project: 4,
+        globalUser: 3,
+      },
+    },
+    repos: [
+      {
+        projectId: 'proj-z',
+        projectName: 'Repo Z',
+        querySuccessRate: 0.6,
+        emptyResultRate: 0.3,
+        staleMemoryRate: 0.2,
+        indexFailureRate: 0.2,
+      },
+      {
+        projectId: 'proj-a',
+        projectName: 'Repo A',
+        querySuccessRate: 0.95,
+        emptyResultRate: 0.05,
+        staleMemoryRate: 0.05,
+        indexFailureRate: 0,
+      },
+    ],
+    modules: [
+      {
+        projectId: 'proj-z',
+        projectName: 'Repo Z',
+        moduleName: 'LegacyRouter',
+        reviewStatus: 'needs-review',
+        staleSignalRate: 0.5,
+        correctionSignalRate: 0.5,
+        score: 40,
+        band: 'risky',
+      },
+      {
+        projectId: 'proj-a',
+        projectName: 'Repo A',
+        moduleName: 'SearchService',
+        reviewStatus: 'verified',
+        staleSignalRate: 0,
+        correctionSignalRate: 0,
+        score: 100,
+        band: 'healthy',
+      },
+    ],
+  });
+
+  assert.equal(report.repoQualityDistribution[0]?.projectId, 'proj-a');
+  assert.equal(report.repoQualityDistribution[1]?.projectId, 'proj-z');
+  assert.equal(report.moduleQualityDistribution[0]?.moduleName, 'SearchService');
+  assert.equal(report.moduleQualityDistribution[1]?.moduleName, 'LegacyRouter');
+
+  const text = formatOpsMetricsReport(report);
+  assert.match(text, /Profile Modes: editable=2, organization-readonly=1/);
+  assert.match(text, /Shared Memory: editable=0, readonly=2, disabled=1/);
+  assert.match(text, /Personal Memory Defaults: project=1, global-user=2/);
+  assert.match(text, /Long-term Scope Totals: project=4, global-user=3/);
+  assert.match(text, /Repo A \(proj-a\): score=/);
+  assert.match(text, /Repo Z \(proj-z\): score=/);
+  assert.match(text, /Repo A\/SearchService: score=100/);
+  assert.match(text, /Repo Z\/LegacyRouter: score=40/);
+});
+
 test('ops:metrics CLI 输出稳定指标 JSON', () => {
   const baseDir = makeBaseDir();
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;

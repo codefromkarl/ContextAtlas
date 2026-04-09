@@ -77,6 +77,50 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
   ]);
 });
 
+test('buildReleaseSmokePlan keeps governance smoke commands grouped after seeding', () => {
+  const plan = buildReleaseSmokePlan({
+    cliEntry: '/repo/dist/index.js',
+    fixtureRepoPath: '/tmp/contextatlas-smoke/repo',
+  });
+
+  const names = plan.map((step) => step.name);
+  const seedIndex = names.indexOf('seed-memory-governance');
+  const governanceGroup = names.slice(seedIndex + 5, seedIndex + 9);
+
+  assert.equal(seedIndex, 2);
+  assert.deepEqual(governanceGroup, [
+    'health-full',
+    'ops-summary',
+    'ops-metrics',
+    'alert-eval',
+  ]);
+  assert.ok(
+    plan
+      .slice(seedIndex + 5, seedIndex + 9)
+      .every((step) => step.command.at(-1) === '--json'),
+  );
+});
+
+test('buildReleaseSmokePlan requires governance markers across the grouped smoke commands', () => {
+  const plan = buildReleaseSmokePlan({
+    cliEntry: '/repo/dist/index.js',
+    fixtureRepoPath: '/tmp/contextatlas-smoke/repo',
+  });
+
+  const healthFullPatterns = plan.find((step) => step.name === 'health-full')?.expectedPatterns || [];
+  const opsSummaryPatterns = plan.find((step) => step.name === 'ops-summary')?.expectedPatterns || [];
+  const opsMetricsPatterns = plan.find((step) => step.name === 'ops-metrics')?.expectedPatterns || [];
+  const alertEvalPatterns = plan.find((step) => step.name === 'alert-eval')?.expectedPatterns || [];
+
+  assert.ok(healthFullPatterns.some((pattern) => /memory-high-stale-rate/.test(pattern.source)));
+  assert.ok(opsSummaryPatterns.some((pattern) => /rebuild-memory-catalog/.test(pattern.source)));
+  assert.ok(opsSummaryPatterns.some((pattern) => /prune-stale-memory/.test(pattern.source)));
+  assert.ok(opsMetricsPatterns.some((pattern) => /projectProfileModes/.test(pattern.source)));
+  assert.ok(opsMetricsPatterns.some((pattern) => /sharedMemoryPolicies/.test(pattern.source)));
+  assert.ok(alertEvalPatterns.some((pattern) => /memory-catalog-inconsistent/.test(pattern.source)));
+  assert.ok(alertEvalPatterns.some((pattern) => /memory-orphaned-features/.test(pattern.source)));
+});
+
 test('validateSmokeResult rejects non-zero exits and missing output markers', () => {
   assert.throws(
     () =>

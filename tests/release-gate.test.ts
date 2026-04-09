@@ -63,3 +63,44 @@ test('formatReleaseGateReport makes failing stage and smoke step explicit', () =
   assert.match(text, /step=mcp-help/);
   assert.match(text, /missing expected pattern/);
 });
+
+test('formatReleaseGateReport keeps successful smoke stage visible in pass output', () => {
+  const text = formatReleaseGateReport({
+    ok: true,
+    stages: [
+      {
+        stage: 'build',
+        ok: true,
+        durationMs: 120,
+        command: ['pnpm', 'build'],
+      },
+      {
+        stage: 'test',
+        ok: true,
+        durationMs: 900,
+        command: ['pnpm', 'test'],
+      },
+      {
+        stage: 'test-dist',
+        ok: true,
+        durationMs: 650,
+        command: ['pnpm', 'test:dist'],
+      },
+      {
+        stage: 'smoke',
+        ok: true,
+        durationMs: 480,
+        command: ['pnpm', 'smoke:release'],
+      },
+    ],
+  });
+
+  assert.match(text, /Release Gate Report/);
+  assert.match(text, /Status: PASS/);
+  assert.match(text, /build: ok/);
+  assert.match(text, /test: ok/);
+  assert.match(text, /test-dist: ok/);
+  assert.match(text, /smoke: ok/);
+  assert.doesNotMatch(text, /step=/);
+  assert.doesNotMatch(text, /error:/);
+});

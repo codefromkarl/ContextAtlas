@@ -7,10 +7,22 @@ export function registerOpsAlertCommands(cli: CommandRegistrar): void {
     .option('--json', '以 JSON 输出')
     .action(async (options: { json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
+      const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
       const { evaluateAlerts, formatAlertReport } = await import('../../monitoring/alertEngine.js');
       try {
-        const health = await analyzeIndexHealth();
-        const result = evaluateAlerts(health as unknown as Record<string, unknown>);
+        const [indexHealth, memoryHealth] = await Promise.all([
+          analyzeIndexHealth(),
+          analyzeMemoryHealth(),
+        ]);
+        const result = evaluateAlerts({
+          ...indexHealth,
+          memory: {
+            staleRate: memoryHealth.longTermFreshness.staleRate,
+            expiredRate: memoryHealth.longTermFreshness.expiredRate,
+            orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
+            catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
+          },
+        } as unknown as Record<string, unknown>);
         if (options.json) {
           writeJson(result);
           return;

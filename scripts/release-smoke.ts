@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.join(import.meta.dirname, '..'));
 const cliEntry = path.join(repoRoot, 'dist', 'index.js');
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'contextatlas-release-smoke-'));
 const fixtureRepoPath = path.join(tempRoot, 'repo');
+const baseDir = path.join(tempRoot, '.contextatlas');
 mkdirSync(path.join(fixtureRepoPath, 'src', 'smoke'), { recursive: true });
 writeFileSync(
   path.join(fixtureRepoPath, 'src', 'smoke', 'auth.ts'),
@@ -30,7 +31,7 @@ try {
       cwd: repoRoot,
       env: {
         ...process.env,
-        CONTEXTATLAS_BASE_DIR: path.join(tempRoot, '.contextatlas'),
+        CONTEXTATLAS_BASE_DIR: baseDir,
       },
       encoding: 'utf-8',
     });

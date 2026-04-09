@@ -102,6 +102,13 @@ export interface IndexUpdateExecutionResult {
   reusedExisting: boolean;
 }
 
+export interface IndexUpdateStrategyDiagnostics {
+  churnThreshold: number;
+  costThresholdRatio: number;
+  minFilesForEscalation: number;
+  minChangedFilesForEscalation: number;
+}
+
 type KnownFilePlanMeta = Pick<FileMeta, 'mtime' | 'hash' | 'size' | 'vectorIndexHash'>;
 
 export interface LightweightPlanCandidate {
@@ -533,6 +540,16 @@ export async function executeIndexUpdatePlan(
   };
 }
 
+export function getIndexUpdateStrategyDiagnostics(): IndexUpdateStrategyDiagnostics {
+  const config = getIndexUpdateStrategyConfig();
+  return {
+    churnThreshold: config.churnThreshold,
+    costThresholdRatio: config.costThresholdRatio,
+    minFilesForEscalation: config.minFilesForEscalation,
+    minChangedFilesForEscalation: config.minChangedFilesForEscalation,
+  };
+}
+
 function buildIncrementalExecutionHint(
   fileResults: Awaited<ReturnType<typeof processFiles>>,
   deletedPaths: string[],
@@ -715,6 +732,26 @@ export function formatIndexUpdatePlanReport(plan: IndexUpdatePlan): string {
   for (const command of plan.commands) {
     lines.push(`- ${command}`);
   }
+  return lines.join('\n');
+}
+
+export function formatIndexUpdateStrategyDiagnosticsReport(
+  diagnostics: IndexUpdateStrategyDiagnostics,
+): string {
+  const lines: string[] = [];
+  lines.push('Index Strategy Diagnostics');
+  lines.push(`- Churn Threshold: ${(diagnostics.churnThreshold * 100).toFixed(0)}%`);
+  lines.push(`- Cost Threshold: ${(diagnostics.costThresholdRatio * 100).toFixed(0)}% of full`);
+  lines.push(`- Min Files For Escalation: ${diagnostics.minFilesForEscalation}`);
+  lines.push(
+    `- Min Changed Files For Escalation: ${diagnostics.minChangedFilesForEscalation}`,
+  );
+  lines.push('');
+  lines.push('Environment Keys:');
+  lines.push('- INDEX_UPDATE_CHURN_THRESHOLD');
+  lines.push('- INDEX_UPDATE_COST_RATIO_THRESHOLD');
+  lines.push('- INDEX_UPDATE_MIN_FILES');
+  lines.push('- INDEX_UPDATE_MIN_CHANGED_FILES');
   return lines.join('\n');
 }
 

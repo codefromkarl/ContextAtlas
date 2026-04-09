@@ -11,16 +11,21 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
     fixtureRepoPath: '/tmp/contextatlas-smoke/repo',
   });
 
-  assert.equal(plan.length, 9);
+  assert.equal(plan.length, 14);
   assert.deepEqual(
     plan.map((step) => step.name),
     [
       'cli-version',
       'start-guide',
+      'seed-memory-governance',
       'daemon-help',
       'monitoring-health-full',
+      'index-diagnose',
       'mcp-help',
       'health-full',
+      'ops-summary',
+      'ops-metrics',
+      'alert-eval',
       'monitoring-retrieval-help',
       'benchmark-small-noop',
       'cold-start-search',
@@ -33,12 +38,23 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
     'start',
     '/tmp/contextatlas-smoke/repo',
   ]);
-  assert.deepEqual(plan[2].command, ['node', '/repo/dist/index.js', 'daemon', '--help']);
-  assert.deepEqual(plan[3].command, ['node', '/repo/dist/index.js', 'health:full', '--json']);
-  assert.deepEqual(plan[4].command, ['node', '/repo/dist/index.js', 'mcp', '--help']);
-  assert.deepEqual(plan[5].command, ['node', '/repo/dist/index.js', 'health:full', '--json']);
-  assert.deepEqual(plan[6].command, ['node', '/repo/dist/index.js', 'monitor:retrieval', '--help']);
-  assert.deepEqual(plan[7].command, [
+  assert.deepEqual(plan[2].command, [
+    'node',
+    '--import',
+    'tsx',
+    'scripts/release-smoke-seed.ts',
+    '/tmp/contextatlas-smoke/repo',
+  ]);
+  assert.deepEqual(plan[3].command, ['node', '/repo/dist/index.js', 'daemon', '--help']);
+  assert.deepEqual(plan[4].command, ['node', '/repo/dist/index.js', 'health:full', '--json']);
+  assert.deepEqual(plan[5].command, ['node', '/repo/dist/index.js', 'index:diagnose', '--json']);
+  assert.deepEqual(plan[6].command, ['node', '/repo/dist/index.js', 'mcp', '--help']);
+  assert.deepEqual(plan[7].command, ['node', '/repo/dist/index.js', 'health:full', '--json']);
+  assert.deepEqual(plan[8].command, ['node', '/repo/dist/index.js', 'ops:summary', '--json']);
+  assert.deepEqual(plan[9].command, ['node', '/repo/dist/index.js', 'ops:metrics', '--json']);
+  assert.deepEqual(plan[10].command, ['node', '/repo/dist/index.js', 'alert:eval', '--json']);
+  assert.deepEqual(plan[11].command, ['node', '/repo/dist/index.js', 'monitor:retrieval', '--help']);
+  assert.deepEqual(plan[12].command, [
     'node',
     '/repo/dist/index.js',
     'perf:benchmark',
@@ -48,7 +64,7 @@ test('buildReleaseSmokePlan includes release regression gates across CLI, daemon
     'noop',
     '--json',
   ]);
-  assert.deepEqual(plan[8].command, [
+  assert.deepEqual(plan[13].command, [
     'node',
     '/repo/dist/index.js',
     'search',

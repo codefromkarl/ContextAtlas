@@ -110,7 +110,7 @@ function formatAge(ms: number): string {
   return `${seconds}s`;
 }
 
-function analyzeQueueHealth(): QueueHealth {
+function analyzeQueueHealth(projectId?: string): QueueHealth {
   const dbPath = resolveQueueDbPath();
   if (!fs.existsSync(dbPath)) {
     return {
@@ -129,7 +129,7 @@ function analyzeQueueHealth(): QueueHealth {
     };
   }
 
-  const report = getTaskStatusReport();
+  const report = getTaskStatusReport({ projectId });
   return {
     totalTasks: report.counts.total,
     queued: report.counts.queued,
@@ -464,12 +464,11 @@ export async function analyzeIndexHealth(
   options: { baseDir?: string; projectIds?: string[] } = {},
 ): Promise<IndexHealthReport> {
   const baseDir = options.baseDir || resolveBaseDir();
-  const queue = analyzeQueueHealth();
-
   const projectIds =
     options.projectIds && options.projectIds.length > 0
       ? options.projectIds
       : discoverProjectIds(baseDir);
+  const queue = analyzeQueueHealth(projectIds.length === 1 ? projectIds[0] : undefined);
 
   const snapshots = await Promise.all(projectIds.map((id) => analyzeSnapshotHealth(id, baseDir)));
   const daemon = analyzeDaemonHealth();

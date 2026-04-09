@@ -255,6 +255,7 @@ test('registerOpsHealthCommands registers index planning and update commands', (
   assert.ok(registered.includes('health:check'));
   assert.ok(registered.includes('health:full'));
   assert.ok(registered.includes('index:plan [path]'));
+  assert.ok(registered.includes('index:diagnose'));
   assert.ok(registered.includes('index:update [path]'));
   assert.ok(registered.includes('task:status'));
   assert.ok(registered.includes('task:inspect <taskId>'));
@@ -328,6 +329,7 @@ test('registerOpsHealthCommands registers health-oriented ops commands', () => {
     'memory:health',
     'health:full',
     'index:plan [path]',
+    'index:diagnose',
     'index:update [path]',
     'task:status',
     'task:inspect <taskId>',

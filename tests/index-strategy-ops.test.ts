@@ -9,6 +9,7 @@ import {
   formatIndexHealthReport,
   type IndexHealthReport,
 } from '../src/monitoring/indexHealth.ts';
+import { buildHealthFullReport } from '../src/monitoring/healthFull.ts';
 import { formatOpsSummaryReport, summarizeOpsSnapshot } from '../src/monitoring/opsSummary.ts';
 
 test('formatIndexHealthReport and ops summary expose index strategy signals', () => {
@@ -85,6 +86,47 @@ test('formatIndexHealthReport and ops summary expose index strategy signals', ()
   const healthText = formatIndexHealthReport(indexHealth);
   assert.match(healthText, /Strategy: full/);
   assert.match(healthText, /triggers=high-churn/);
+
+  const fullHealthText = buildHealthFullReport({
+    indexHealth,
+    memoryHealth: {
+      overall: { status: 'healthy', issues: [], recommendations: [] },
+      longTermFreshness: {
+        total: 0,
+        active: 0,
+        stale: 0,
+        expired: 0,
+        activeRate: 0,
+        staleRate: 0,
+        expiredRate: 0,
+        byType: {} as any,
+        byScope: {} as any,
+      },
+      featureMemoryHealth: {
+        total: 0,
+        withValidPaths: 0,
+        withOrphanedPaths: 0,
+        orphanedRate: 0,
+        avgKeyPatterns: 0,
+        avgExports: 0,
+        emptyResponsibilityCount: 0,
+      },
+      catalogConsistency: {
+        isConsistent: true,
+        missingFromCatalog: [],
+        staleInCatalog: [],
+        totalFeatures: 0,
+        totalCatalogEntries: 0,
+      },
+      projectScores: [],
+    } as any,
+    alerts: {
+      triggered: [],
+      suppressed: [],
+      recommendedActions: [],
+    } as any,
+  });
+  assert.match(fullHealthText, /Strategy: full/);
 
   const summary = summarizeOpsSnapshot({
     indexHealth,

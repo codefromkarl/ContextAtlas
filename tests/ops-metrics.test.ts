@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { analyzeOpsMetrics, buildOpsMetricsReport } from '../src/monitoring/opsMetrics.ts';
+import {
+  analyzeOpsMetrics,
+  buildOpsMetricsReport,
+  formatOpsMetricsReport,
+} from '../src/monitoring/opsMetrics.ts';
+import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
 import { MemoryStore } from '../src/memory/MemoryStore.ts';
 import type { RetrievalMonitorReport } from '../src/monitoring/retrievalMonitor.ts';
 import { recordIndexUsage, recordToolUsage } from '../src/usage/usageTracker.ts';
@@ -68,6 +73,9 @@ test('buildOpsMetricsReport 聚合核心团队指标与仓库质量分布', () =
 
   assert.equal(report.summary.querySuccessRate, 0.9);
   assert.equal(report.summary.emptyResultRate, 0.2);
+  assert.equal(report.governance.projectProfileModes.editable, 0);
+  assert.equal(report.governance.sharedMemoryPolicies.readonly, 0);
+  assert.equal(report.governance.longTermMemoryScopes.project, 0);
   assert.equal(report.repoQualityDistribution.length, 2);
   assert.equal(report.repoQualityDistribution[0].projectId, 'proj-a');
   assert.equal(report.repoQualityDistribution[0].band, 'healthy');
@@ -75,6 +83,7 @@ test('buildOpsMetricsReport 聚合核心团队指标与仓库质量分布', () =
   assert.equal(report.moduleQualityDistribution.length, 2);
   assert.equal(report.moduleQualityDistribution[0].moduleName, 'SearchService');
   assert.equal(report.moduleQualityDistribution[1].band, 'risky');
+  assert.match(formatOpsMetricsReport(report), /Governance:/);
 });
 
 test('ops:metrics CLI 输出稳定指标 JSON', () => {
@@ -126,6 +135,9 @@ test('ops:metrics CLI 输出稳定指标 JSON', () => {
     const payload = JSON.parse(result.stdout);
     assert.equal(payload.summary.querySuccessRate, 1);
     assert.equal(payload.summary.indexFailureRate, 0);
+    assert.equal(payload.governance.projectProfileModes.editable, 0);
+    assert.equal(payload.governance.sharedMemoryPolicies.readonly, 0);
+    assert.ok(payload.governance.longTermMemoryScopes);
     assert.ok(Array.isArray(payload.repoQualityDistribution));
     assert.ok(Array.isArray(payload.moduleQualityDistribution));
   } finally {
@@ -207,6 +219,8 @@ test('ops:metrics CLI 在未显式传 log-dir 时默认读取 baseDir/logs', () 
     const payload = JSON.parse(result.stdout);
     assert.equal(payload.summary.querySuccessRate, 1);
     assert.equal(payload.summary.retrievalLatencyMs, 321);
+    assert.equal(payload.governance.projectProfileModes.editable, 0);
+    assert.ok(payload.governance.longTermMemoryScopes);
   } finally {
     if (previousBaseDir === undefined) {
       delete process.env.CONTEXTATLAS_BASE_DIR;
@@ -440,6 +454,146 @@ test('analyzeOpsMetrics 在日志缺失时保持可用', async () => {
     assert.equal(report.summary.emptyResultRate, 0);
     assert.equal(report.summary.retrievalLatencyMs, 0);
   } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('analyzeOpsMetrics aggregates project governance distribution across profiles', async () => {
+  const baseDir = makeBaseDir();
+  const repoA = path.join(baseDir, 'repo-a');
+  const repoB = path.join(baseDir, 'repo-b');
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  fs.mkdirSync(repoA, { recursive: true });
+  fs.mkdirSync(repoB, { recursive: true });
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase(path.join(baseDir, 'memory-hub.db')));
+
+  try {
+    const storeA = new MemoryStore(repoA);
+    await storeA.saveProfile({
+      name: 'Repo A',
+      description: 'governance profile A',
+      techStack: { language: ['TypeScript'], frameworks: [], databases: [], tools: [] },
+      structure: { srcDir: 'src', mainEntry: 'src/index.ts', keyModules: [] },
+      conventions: { namingConventions: [], codeStyle: [], gitWorkflow: 'trunk' },
+      commands: { build: [], test: [], dev: [], start: [] },
+      governance: {
+        profileMode: 'organization-readonly',
+        sharedMemory: 'readonly',
+        personalMemory: 'project',
+      },
+      lastUpdated: '2026-04-09T00:00:00.000Z',
+    });
+
+    const storeB = new MemoryStore(repoB);
+    await storeB.saveProfile({
+      name: 'Repo B',
+      description: 'governance profile B',
+      techStack: { language: ['TypeScript'], frameworks: [], databases: [], tools: [] },
+      structure: { srcDir: 'src', mainEntry: 'src/index.ts', keyModules: [] },
+      conventions: { namingConventions: [], codeStyle: [], gitWorkflow: 'trunk' },
+      commands: { build: [], test: [], dev: [], start: [] },
+      governance: {
+        profileMode: 'editable',
+        sharedMemory: 'editable',
+        personalMemory: 'global-user',
+      },
+      lastUpdated: '2026-04-09T00:00:00.000Z',
+    });
+
+    const report = await analyzeOpsMetrics({
+      staleDays: 30,
+      logDir: path.join(baseDir, 'logs'),
+    });
+
+    assert.equal(report.governance.projectProfileModes.organizationReadonly, 1);
+    assert.equal(report.governance.projectProfileModes.editable, 1);
+    assert.equal(report.governance.sharedMemoryPolicies.readonly, 1);
+    assert.equal(report.governance.sharedMemoryPolicies.editable, 1);
+    assert.equal(report.governance.personalMemoryScopes.project, 1);
+    assert.equal(report.governance.personalMemoryScopes.globalUser, 1);
+  } finally {
+    MemoryStore.resetSharedHubForTests();
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('ops:metrics CLI surfaces project governance distribution from saved profiles', async () => {
+  const baseDir = makeBaseDir();
+  const repoA = path.join(baseDir, 'repo-a');
+  const repoB = path.join(baseDir, 'repo-b');
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  fs.mkdirSync(repoA, { recursive: true });
+  fs.mkdirSync(repoB, { recursive: true });
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase(path.join(baseDir, 'memory-hub.db')));
+
+  try {
+    const storeA = new MemoryStore(repoA);
+    await storeA.saveProfile({
+      name: 'Repo A',
+      description: 'governance profile A',
+      techStack: { language: ['TypeScript'], frameworks: [], databases: [], tools: [] },
+      structure: { srcDir: 'src', mainEntry: 'src/index.ts', keyModules: [] },
+      conventions: { namingConventions: [], codeStyle: [], gitWorkflow: 'trunk' },
+      commands: { build: [], test: [], dev: [], start: [] },
+      governance: {
+        profileMode: 'organization-readonly',
+        sharedMemory: 'readonly',
+        personalMemory: 'project',
+      },
+      lastUpdated: '2026-04-09T00:00:00.000Z',
+    });
+
+    const storeB = new MemoryStore(repoB);
+    await storeB.saveProfile({
+      name: 'Repo B',
+      description: 'governance profile B',
+      techStack: { language: ['TypeScript'], frameworks: [], databases: [], tools: [] },
+      structure: { srcDir: 'src', mainEntry: 'src/index.ts', keyModules: [] },
+      conventions: { namingConventions: [], codeStyle: [], gitWorkflow: 'trunk' },
+      commands: { build: [], test: [], dev: [], start: [] },
+      governance: {
+        profileMode: 'editable',
+        sharedMemory: 'editable',
+        personalMemory: 'global-user',
+      },
+      lastUpdated: '2026-04-09T00:00:00.000Z',
+    });
+
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'ops:metrics', '--json'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.governance.projectProfileModes.organizationReadonly, 1);
+    assert.equal(payload.governance.projectProfileModes.editable, 1);
+    assert.equal(payload.governance.sharedMemoryPolicies.readonly, 1);
+    assert.equal(payload.governance.sharedMemoryPolicies.editable, 1);
+    assert.equal(payload.governance.personalMemoryScopes.project, 1);
+    assert.equal(payload.governance.personalMemoryScopes.globalUser, 1);
+  } finally {
+    MemoryStore.resetSharedHubForTests();
     if (previousBaseDir === undefined) {
       delete process.env.CONTEXTATLAS_BASE_DIR;
     } else {

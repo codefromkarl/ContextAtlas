@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   formatOpsSummaryReport,
   summarizeOpsSnapshot,
 } from '../src/monitoring/opsSummary.ts';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function makeBaseDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'cw-ops-summary-'));
+}
 
 test('summarizeOpsSnapshot aggregates health, alerts, and usage into one snapshot', () => {
   const summary = summarizeOpsSnapshot({
@@ -163,6 +174,7 @@ test('formatOpsSummaryReport renders a compact team-facing overview', () => {
     sections: {
       index: 'index status',
       memory: 'memory status',
+      governance: 'governance status',
       alerts: 'alert status',
       usage: 'usage status',
     },
@@ -173,6 +185,7 @@ test('formatOpsSummaryReport renders a compact team-facing overview', () => {
   assert.match(text, /Queued Tasks: 2/);
   assert.match(text, /Triggered Alerts: 1/);
   assert.match(text, /Top Actions:/);
+  assert.match(text, /Governance:/);
   assert.match(text, /contextatlas daemon start/);
   assert.match(text, /Priority Actions:/);
   assert.match(text, /\[high\] Start daemon/);
@@ -180,4 +193,148 @@ test('formatOpsSummaryReport renders a compact team-facing overview', () => {
   assert.match(text, /Per-Project:/);
   assert.match(text, /proj-a/);
   assert.match(text, /incremental/);
+});
+
+test('ops:summary CLI 输出包含 governance section', () => {
+  const baseDir = makeBaseDir();
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+
+  try {
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'ops:summary', '--json'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(typeof payload.sections.governance, 'string');
+    assert.match(payload.sections.governance, /^catalog=/);
+    assert.match(payload.sections.index, /^status=/);
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('ops:summary prioritizes catalog rebuild before stale memory pruning when both governance signals are present', () => {
+  const summary = summarizeOpsSnapshot({
+    indexHealth: {
+      queue: {
+        totalTasks: 0,
+        queued: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        canceled: 0,
+        oldestQueuedAgeMs: null,
+        oldestQueuedAgeHuman: null,
+        oldestRunningAgeMs: null,
+        oldestRunningAgeHuman: null,
+        stuckRunning: [],
+        recentFailures: [],
+      },
+      daemon: {
+        isRunning: true,
+        pid: 123,
+        lockFileAge: null,
+        queuePollingActive: true,
+      },
+      snapshots: [],
+      overall: {
+        status: 'healthy',
+        issues: [],
+        recommendations: [],
+        repairPlan: {
+          autoFixable: [],
+          manual: [],
+        },
+      },
+    } as any,
+    memoryHealth: {
+      overall: {
+        status: 'unhealthy',
+        issues: ['功能记忆与 catalog 不一致', '100% 的长期记忆陈旧'],
+        recommendations: [
+          '重建 catalog: contextatlas memory:rebuild-catalog',
+          '核验或清理陈旧记忆: contextatlas memory:prune-long-term --include-stale --apply',
+        ],
+      },
+      longTermFreshness: {
+        total: 1,
+        active: 0,
+        stale: 1,
+        expired: 0,
+        activeRate: 0,
+        staleRate: 1,
+        expiredRate: 0,
+        byType: {} as any,
+        byScope: {
+          project: { total: 1, active: 0, stale: 1, expired: 0 },
+          'global-user': { total: 0, active: 0, stale: 0, expired: 0 },
+        },
+      },
+      featureMemoryHealth: {
+        total: 2,
+        withValidPaths: 1,
+        withOrphanedPaths: 1,
+        orphanedRate: 0.5,
+        avgKeyPatterns: 1,
+        avgExports: 1,
+        emptyResponsibilityCount: 0,
+      },
+      catalogConsistency: {
+        isConsistent: false,
+        missingFromCatalog: ['repo:searchservice'],
+        staleInCatalog: [],
+        totalFeatures: 2,
+        totalCatalogEntries: 0,
+      },
+      projectScores: [
+        {
+          projectId: 'repo',
+          projectName: 'repo',
+          featureCount: 2,
+          longTermCount: 1,
+          freshnessScore: 40,
+          catalogConsistent: false,
+          issues: ['功能记忆孤立路径比例: 50%', 'catalog 缺失 1 个模块'],
+        },
+      ],
+    } as any,
+    usageReport: {
+      summary: {
+        indexing: {
+          queryBeforeIndexRate: 0,
+          avgExecutionDurationMs: 0,
+        },
+      },
+      actions: [],
+    } as any,
+    alertResult: {
+      triggered: [],
+      resolved: [],
+      active: [],
+    } as any,
+  });
+
+  assert.equal(summary.prioritizedActions[0]?.id, 'rebuild-memory-catalog');
+  assert.equal(summary.prioritizedActions[1]?.id, 'prune-stale-memory');
+
+  const text = formatOpsSummaryReport(summary);
+  assert.match(text, /contextatlas memory:rebuild-catalog/);
+  assert.match(text, /contextatlas memory:prune-long-term --include-stale --apply/);
+  assert.match(text, /contextatlas ops:apply rebuild-memory-catalog/);
 });

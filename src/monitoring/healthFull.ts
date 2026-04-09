@@ -5,6 +5,16 @@ import type { MemoryHealthReport } from './memoryHealth.js';
 import { formatMemoryHealthReport } from './memoryHealth.js';
 import { formatAlertReport } from './alertEngine.js';
 
+function formatStrategySummaryLine(
+  strategySummary: NonNullable<IndexHealthReport['snapshots'][number]['strategySummary']>,
+): string {
+  const triggers =
+    strategySummary.signals.fullRebuildTriggers.length > 0
+      ? ` triggers=${strategySummary.signals.fullRebuildTriggers.join(',')}`
+      : '';
+  return `Strategy: ${strategySummary.mode} (changed=${strategySummary.signals.changedFiles}, churn=${(strategySummary.signals.churnRatio * 100).toFixed(1)}%, cost=${(strategySummary.signals.incrementalCostRatio * 100).toFixed(1)}%)${triggers}`;
+}
+
 export function buildHealthFullReport(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
@@ -31,6 +41,9 @@ export function buildHealthFullReport(input: {
       lines.push(
         `- ${snapshot.projectId}: snapshot=${snapshot.currentSnapshotId || 'none'} latest=${snapshot.lastSuccessfulScope || 'unknown'} @ ${snapshot.lastSuccessfulAt || 'n/a'} | FTS=${ftsCoverage} | Memory Score=${memoryScore?.freshnessScore ?? 'n/a'}`,
       );
+      if (snapshot.strategySummary) {
+        lines.push(`  ${formatStrategySummaryLine(snapshot.strategySummary)}`);
+      }
 
       const issues: string[] = [];
       if (!snapshot.hasCurrentSnapshot) issues.push('missing-current-snapshot');

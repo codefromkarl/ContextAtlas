@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { initDb } from '../src/db/index.ts';
 import {
   enqueueIndexTask,
@@ -13,6 +15,12 @@ import {
   resolveQueueDbPath,
 } from '../src/indexing/queue.ts';
 import { analyzeIndexHealth, formatIndexHealthReport } from '../src/monitoring/indexHealth.ts';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function makeBaseDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'cw-index-health-'));
+}
 import { commitSnapshot, prepareWritableSnapshot } from '../src/storage/layout.ts';
 import { VectorStore } from '../src/vectorStore/index.ts';
 
@@ -287,4 +295,101 @@ test('analyzeIndexHealth exposes stuck running tasks and blocked-on summary', as
   assert.match(output, new RegExp(runningTask!.taskId));
   assert.match(output, /最老排队任务已等待/);
   assert.match(output, /daemon 未运行/);
+});
+
+test('health:check --project-id scopes queue noise to the requested project', () => {
+  const baseDir = makeBaseDir();
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+
+  try {
+    const targetProjectId = 'proj-target';
+    const noiseProjectId = 'proj-noise';
+
+    enqueueIndexTask({
+      projectId: noiseProjectId,
+      repoPath: '/repos/proj-noise',
+      scope: 'full',
+      reason: 'noise-test',
+      requestedBy: 'test',
+    });
+
+    const noiseTask = pickNextQueuedTask('worker-noise');
+    assert.ok(noiseTask);
+    markTaskFailed(noiseTask!.taskId, 'historical noise failure');
+
+    enqueueIndexTask({
+      projectId: targetProjectId,
+      repoPath: '/repos/proj-target',
+      scope: 'incremental',
+      reason: 'target-test',
+      requestedBy: 'test',
+    });
+
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'health:check', '--json', '--project-id', targetProjectId],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.queue.queued, 1);
+    assert.equal(payload.queue.failed, 0);
+    assert.deepEqual(payload.queue.recentFailures, []);
+    assert.ok(
+      payload.overall.issues.every((issue: string) => !issue.includes('执行失败')),
+      JSON.stringify(payload.overall.issues),
+    );
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('health:full CLI 输出稳定 JSON 结构', () => {
+  const baseDir = makeBaseDir();
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+
+  try {
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'health:full', '--json'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.ok(payload.indexHealth);
+    assert.ok(payload.memoryHealth);
+    assert.ok(payload.alerts);
+    assert.equal(typeof payload.indexHealth.overall.status, 'string');
+    assert.ok(Array.isArray(payload.alerts.triggered));
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
 });

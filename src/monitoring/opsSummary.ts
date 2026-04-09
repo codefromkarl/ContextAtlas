@@ -37,6 +37,7 @@ export interface OpsSummarySnapshot {
   sections: {
     index: string;
     memory: string;
+    governance: string;
     alerts: string;
     usage: string;
   };
@@ -77,6 +78,9 @@ export function summarizeOpsSnapshot(input: {
   const prioritizedActions = synthesizeOpsActions(input);
   const representativeStrategy = input.indexHealth.snapshots.find((snapshot) => snapshot.strategySummary)
     ?.strategySummary;
+  const longTermScopes = input.memoryHealth.longTermFreshness.byScope || ({} as NonNullable<
+    MemoryHealthReport['longTermFreshness']['byScope']
+  >);
 
   return {
     status,
@@ -118,6 +122,7 @@ export function summarizeOpsSnapshot(input: {
     sections: {
       index: `status=${input.indexHealth.overall.status} queued=${input.indexHealth.queue.queued} failed=${input.indexHealth.queue.failed} latestScope=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulScope)?.lastSuccessfulScope || 'unknown'} lastSuccess=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulAt)?.lastSuccessfulAt || 'n/a'}${representativeStrategy ? ` plan=${formatStrategySummaryInline(representativeStrategy)}` : ''}`,
       memory: `status=${input.memoryHealth.overall.status} staleRate=${Math.round(input.memoryHealth.longTermFreshness.staleRate * 100)}%`,
+      governance: `catalog=${input.memoryHealth.catalogConsistency.isConsistent ? 'consistent' : 'inconsistent'} orphaned=${Math.round(input.memoryHealth.featureMemoryHealth.orphanedRate * 100)}% scopes=project:${longTermScopes.project?.total || 0},global-user:${longTermScopes['global-user']?.total || 0}`,
       alerts: `triggered=${input.alertResult.triggered.length}`,
       usage: `queryBeforeIndex=${Math.round(input.usageReport.summary.indexing.queryBeforeIndexRate * 100)}% avgIndexMs=${Math.round(input.usageReport.summary.indexing.avgExecutionDurationMs)}`,
     },
@@ -143,6 +148,7 @@ export function formatOpsSummaryReport(summary: OpsSummarySnapshot): string {
   lines.push('Sections:');
   lines.push(`- Index: ${summary.sections.index}`);
   lines.push(`- Memory: ${summary.sections.memory}`);
+  lines.push(`- Governance: ${summary.sections.governance}`);
   lines.push(`- Alerts: ${summary.sections.alerts}`);
   lines.push(`- Usage: ${summary.sections.usage}`);
   lines.push('');

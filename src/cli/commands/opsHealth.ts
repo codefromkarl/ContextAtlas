@@ -159,6 +159,27 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
     });
 
   cli
+    .command('index:diagnose', '显示当前索引升级阈值与升级判定配置')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: { json?: boolean }) => {
+      try {
+        const {
+          formatIndexUpdateStrategyDiagnosticsReport,
+          getIndexUpdateStrategyDiagnostics,
+        } = await import('../../indexing/updateStrategy.js');
+        const diagnostics = getIndexUpdateStrategyDiagnostics();
+        if (options.json) {
+          writeJson(diagnostics);
+          return;
+        }
+        writeText(formatIndexUpdateStrategyDiagnosticsReport(diagnostics));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('生成索引阈值诊断失败', { error: error.message });
+      }
+    });
+
+  cli
     .command('index:update [path]', '按当前仓库变化自动触发全量或增量索引任务')
     .option('--json', '以 JSON 输出结果')
     .action(async (targetPath: string | undefined, options: { json?: boolean }) => {

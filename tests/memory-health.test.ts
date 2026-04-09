@@ -93,6 +93,45 @@ test('analyzeMemoryHealth keeps project long-term counts isolated and aggregates
   });
 });
 
+test('analyzeMemoryHealth aggregates orphaned feature rate across projects', async () => {
+  await withTempProjects(async ({ repoA, repoB }) => {
+    await seedProject(repoA, 'repo A state');
+    await seedProject(repoB, 'repo B state');
+
+    const { MemoryStore } = await import('../src/memory/MemoryStore.ts');
+    const store = new MemoryStore(repoB);
+    await store.saveFeature({
+      name: 'OrphanModule',
+      responsibility: 'orphan fixture',
+      location: {
+        dir: 'src/features',
+        files: ['missing.ts'],
+      },
+      api: {
+        exports: ['OrphanModule'],
+        endpoints: [],
+      },
+      dependencies: {
+        imports: [],
+        external: [],
+      },
+      dataFlow: 'orphan data flow',
+      keyPatterns: ['orphan'],
+      lastUpdated: '2026-04-09T00:00:00.000Z',
+      confirmationStatus: 'human-confirmed',
+    });
+
+    const { analyzeMemoryHealth } = await import('../src/monitoring/memoryHealth.ts');
+    const report = await analyzeMemoryHealth({
+      projectRoots: [repoA, repoB],
+      staleDays: 30,
+    });
+
+    assert.ok(report.featureMemoryHealth.orphanedRate > 0);
+    assert.ok(report.projectScores.some((project) => project.issues.some((issue) => issue.includes('功能记忆孤立路径比例'))));
+  });
+});
+
 test('analyzeMemoryHealth does not double-count long-term memories after legacy blob migration', async () => {
   await withTempProjects(async ({ baseDir, repoA }) => {
     const { MemoryHubDatabase } = await import('../src/memory/MemoryHubDatabase.ts');

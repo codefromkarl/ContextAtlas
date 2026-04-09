@@ -324,19 +324,22 @@ export async function analyzeMemoryHealth(
     const longTermFreshness = analyzeLongTermFreshness(allLongTermItems);
 
     // 2. Feature memory health + catalog consistency per project
-    let allFeatures: FeatureMemory[] = [];
     const projectScores: ProjectMemoryScore[] = [];
     const aggregatedMissingFromCatalog: string[] = [];
     const aggregatedStaleInCatalog: string[] = [];
     let aggregatedCatalogEntryCount = 0;
     let aggregatedFeatureCount = 0;
+    let aggregatedValidPaths = 0;
+    let aggregatedOrphanedPaths = 0;
+    let aggregatedKeyPatterns = 0;
+    let aggregatedExports = 0;
+    let aggregatedEmptyResponsibilityCount = 0;
 
     for (const project of projects) {
       try {
         const store = new MemoryStore(project.path);
         await store.initializeReadOnly();
         const features = await store.listFeatures();
-        allFeatures.push(...features);
 
         const catalog = await store.readCatalog();
 
@@ -352,6 +355,11 @@ export async function analyzeMemoryHealth(
           projectFeatures,
           project.path.startsWith('contextatlas://') ? undefined : project.path,
         );
+        aggregatedValidPaths += featureHealth.withValidPaths;
+        aggregatedOrphanedPaths += featureHealth.withOrphanedPaths;
+        aggregatedKeyPatterns += featureHealth.avgKeyPatterns * featureHealth.total;
+        aggregatedExports += featureHealth.avgExports * featureHealth.total;
+        aggregatedEmptyResponsibilityCount += featureHealth.emptyResponsibilityCount;
 
         const freshness = analyzeLongTermFreshness(projectLongTerm);
         const consistency = analyzeCatalogConsistency(
@@ -384,7 +392,18 @@ export async function analyzeMemoryHealth(
     }
 
     // 3. Global feature memory health
-    const featureMemoryHealth = analyzeFeatureMemoryHealth(allFeatures);
+    const featureMemoryHealth: FeatureMemoryHealth = {
+      total: aggregatedFeatureCount,
+      withValidPaths: aggregatedValidPaths,
+      withOrphanedPaths: aggregatedOrphanedPaths,
+      orphanedRate:
+        aggregatedFeatureCount > 0 ? round(aggregatedOrphanedPaths / aggregatedFeatureCount) : 0,
+      avgKeyPatterns:
+        aggregatedFeatureCount > 0 ? round(aggregatedKeyPatterns / aggregatedFeatureCount) : 0,
+      avgExports:
+        aggregatedFeatureCount > 0 ? round(aggregatedExports / aggregatedFeatureCount) : 0,
+      emptyResponsibilityCount: aggregatedEmptyResponsibilityCount,
+    };
 
     // 4. Catalog consistency (aggregated)
     const catalogConsistency: CatalogConsistency = {

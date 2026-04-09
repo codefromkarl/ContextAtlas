@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +18,9 @@ import {
   analyzeIndexUpdatePlan,
   collectLightweightPlanDelta,
   executeIndexUpdatePlan,
+  formatIndexUpdateStrategyDiagnosticsReport,
   formatIndexUpdatePlanReport,
+  getIndexUpdateStrategyDiagnostics,
 } from '../src/indexing/updateStrategy.ts';
 import { getTaskById } from '../src/indexing/queue.ts';
 import { MEMORY_CATALOG_VERSION } from '../src/memory/MemoryRouter.ts';
@@ -47,6 +50,16 @@ async function withTempRepo(
       process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
     }
     fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+}
+
+function restoreEnv(originalEnv: Record<string, string | undefined>) {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
 }
 
@@ -214,6 +227,80 @@ test('getIndexUpdateStrategyConfig returns defaults and tolerates invalid env va
         process.env[key] = value;
       }
     }
+  }
+});
+
+test('getIndexUpdateStrategyDiagnostics returns the parsed threshold values', () => {
+  const originalEnv = {
+    INDEX_UPDATE_CHURN_THRESHOLD: process.env.INDEX_UPDATE_CHURN_THRESHOLD,
+    INDEX_UPDATE_COST_RATIO_THRESHOLD: process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD,
+    INDEX_UPDATE_MIN_FILES: process.env.INDEX_UPDATE_MIN_FILES,
+    INDEX_UPDATE_MIN_CHANGED_FILES: process.env.INDEX_UPDATE_MIN_CHANGED_FILES,
+  };
+
+  process.env.INDEX_UPDATE_CHURN_THRESHOLD = '0.45';
+  process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD = '0.75';
+  process.env.INDEX_UPDATE_MIN_FILES = '13';
+  process.env.INDEX_UPDATE_MIN_CHANGED_FILES = '8';
+
+  try {
+    const diagnostics = getIndexUpdateStrategyDiagnostics();
+    assert.equal(diagnostics.churnThreshold, 0.45);
+    assert.equal(diagnostics.costThresholdRatio, 0.75);
+    assert.equal(diagnostics.minFilesForEscalation, 13);
+    assert.equal(diagnostics.minChangedFilesForEscalation, 8);
+  } finally {
+    restoreEnv(originalEnv);
+  }
+});
+
+test('formatIndexUpdateStrategyDiagnosticsReport renders threshold values and env keys', () => {
+  const text = formatIndexUpdateStrategyDiagnosticsReport({
+    churnThreshold: 0.35,
+    costThresholdRatio: 0.65,
+    minFilesForEscalation: 8,
+    minChangedFilesForEscalation: 5,
+  });
+
+  assert.match(text, /Index Strategy Diagnostics/);
+  assert.match(text, /Churn Threshold: 35%/);
+  assert.match(text, /Cost Threshold: 65% of full/);
+  assert.match(text, /INDEX_UPDATE_CHURN_THRESHOLD/);
+  assert.match(text, /INDEX_UPDATE_MIN_CHANGED_FILES/);
+});
+
+test('index:diagnose CLI 输出稳定阈值 JSON', () => {
+  const originalEnv = {
+    INDEX_UPDATE_CHURN_THRESHOLD: process.env.INDEX_UPDATE_CHURN_THRESHOLD,
+    INDEX_UPDATE_COST_RATIO_THRESHOLD: process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD,
+    INDEX_UPDATE_MIN_FILES: process.env.INDEX_UPDATE_MIN_FILES,
+    INDEX_UPDATE_MIN_CHANGED_FILES: process.env.INDEX_UPDATE_MIN_CHANGED_FILES,
+  };
+
+  process.env.INDEX_UPDATE_CHURN_THRESHOLD = '0.41';
+  process.env.INDEX_UPDATE_COST_RATIO_THRESHOLD = '0.73';
+  process.env.INDEX_UPDATE_MIN_FILES = '12';
+  process.env.INDEX_UPDATE_MIN_CHANGED_FILES = '7';
+
+  try {
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'index:diagnose', '--json'],
+      {
+        cwd: path.resolve(import.meta.dirname, '..'),
+        encoding: 'utf8',
+        env: process.env,
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.churnThreshold, 0.41);
+    assert.equal(payload.costThresholdRatio, 0.73);
+    assert.equal(payload.minFilesForEscalation, 12);
+    assert.equal(payload.minChangedFilesForEscalation, 7);
+  } finally {
+    restoreEnv(originalEnv);
   }
 });
 

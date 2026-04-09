@@ -28,6 +28,25 @@ export interface OpsMetricsReport {
     staleDays?: number;
     logDir?: string;
   };
+  governance: {
+    projectProfileModes: {
+      editable: number;
+      organizationReadonly: number;
+    };
+    sharedMemoryPolicies: {
+      disabled: number;
+      readonly: number;
+      editable: number;
+    };
+    personalMemoryScopes: {
+      project: number;
+      globalUser: number;
+    };
+    longTermMemoryScopes: {
+      project: number;
+      globalUser: number;
+    };
+  };
   summary: {
     querySuccessRate: number;
     emptyResultRate: number;
@@ -66,6 +85,8 @@ export interface AnalyzeOpsMetricsOptions {
   retrievalFallbackReport?: RetrievalMonitorReport;
   memoryHealthFactory?: (input: { staleDays?: number }) => Promise<MemoryHealthReport>;
 }
+
+type GovernanceSummary = OpsMetricsReport['governance'];
 
 function round(value: number, digits = 3): number {
   const factor = 10 ** digits;
@@ -243,6 +264,65 @@ async function collectModuleQualityDistribution(
   }
 }
 
+async function collectGovernanceSummary(
+  memoryHealth: MemoryHealthReport,
+): Promise<GovernanceSummary> {
+  const summary: GovernanceSummary = {
+    projectProfileModes: {
+      editable: 0,
+      organizationReadonly: 0,
+    },
+    sharedMemoryPolicies: {
+      disabled: 0,
+      readonly: 0,
+      editable: 0,
+    },
+    personalMemoryScopes: {
+      project: 0,
+      globalUser: 0,
+    },
+    longTermMemoryScopes: {
+      project: memoryHealth.longTermFreshness.byScope.project?.total || 0,
+      globalUser: memoryHealth.longTermFreshness.byScope['global-user']?.total || 0,
+    },
+  };
+
+  const hub = new MemoryHubDatabase();
+  try {
+    const projects = hub.listProjects();
+    for (const project of projects) {
+      try {
+        const store = new MemoryStore(project.path);
+        const profile = await store.readProfile();
+        const governance = profile?.governance;
+        const profileMode = governance?.profileMode || 'editable';
+        const sharedMemory = governance?.sharedMemory || 'readonly';
+        const personalMemory = governance?.personalMemory || 'global-user';
+
+        if (profileMode === 'organization-readonly') {
+          summary.projectProfileModes.organizationReadonly += 1;
+        } else {
+          summary.projectProfileModes.editable += 1;
+        }
+
+        summary.sharedMemoryPolicies[sharedMemory] += 1;
+        if (personalMemory === 'project') {
+          summary.personalMemoryScopes.project += 1;
+        } else {
+          summary.personalMemoryScopes.globalUser += 1;
+        }
+      } catch {
+        summary.projectProfileModes.editable += 1;
+        summary.sharedMemoryPolicies.readonly += 1;
+        summary.personalMemoryScopes.globalUser += 1;
+      }
+    }
+    return summary;
+  } finally {
+    hub.close();
+  }
+}
+
 function buildZeroRetrievalReport(): RetrievalMonitorReport {
   return {
     filters: {},
@@ -280,9 +360,29 @@ export function buildOpsMetricsReport(input: {
   repos: OpsMetricsRepoInput[];
   modules?: OpsMetricsReport['moduleQualityDistribution'];
   filters?: OpsMetricsReport['filters'];
+  governance?: OpsMetricsReport['governance'];
 }): OpsMetricsReport {
   return {
     filters: input.filters || {},
+    governance: input.governance || {
+      projectProfileModes: {
+        editable: 0,
+        organizationReadonly: 0,
+      },
+      sharedMemoryPolicies: {
+        disabled: 0,
+        readonly: 0,
+        editable: 0,
+      },
+      personalMemoryScopes: {
+        project: 0,
+        globalUser: 0,
+      },
+      longTermMemoryScopes: {
+        project: 0,
+        globalUser: 0,
+      },
+    },
     summary: {
       querySuccessRate: round(input.querySuccessRate),
       emptyResultRate: round(input.emptyResultRate),
@@ -341,6 +441,7 @@ export async function analyzeOpsMetrics(
 
   const projectStaleRates = await collectProjectStaleRates(options.staleDays);
   const moduleQualityDistribution = await collectModuleQualityDistribution(options.staleDays);
+  const governance = await collectGovernanceSummary(memoryHealth);
   const allProjectIds = new Set<string>([
     ...retrievalRows.map((row) => row.projectId).filter((value): value is string => Boolean(value)),
     ...indexRows.map((row) => row.projectId).filter((value): value is string => Boolean(value)),
@@ -403,6 +504,7 @@ export async function analyzeOpsMetrics(
     retrievalLatencyMs: round(retrievalReport.summary.averages.totalMs || 0, 2),
     repos,
     modules: moduleQualityDistribution,
+    governance,
   });
 }
 
@@ -420,6 +522,20 @@ export function formatOpsMetricsReport(report: OpsMetricsReport): string {
   lines.push(`- Index Failure Rate: ${Math.round(report.summary.indexFailureRate * 100)}%`);
   lines.push(`- Correction Rate: ${Math.round(report.summary.correctionRate * 100)}%`);
   lines.push(`- Retrieval Latency: ${Math.round(report.summary.retrievalLatencyMs)}ms`);
+  lines.push('');
+  lines.push('Governance:');
+  lines.push(
+    `- Profile Modes: editable=${report.governance.projectProfileModes.editable}, organization-readonly=${report.governance.projectProfileModes.organizationReadonly}`,
+  );
+  lines.push(
+    `- Shared Memory: editable=${report.governance.sharedMemoryPolicies.editable}, readonly=${report.governance.sharedMemoryPolicies.readonly}, disabled=${report.governance.sharedMemoryPolicies.disabled}`,
+  );
+  lines.push(
+    `- Personal Memory Defaults: project=${report.governance.personalMemoryScopes.project}, global-user=${report.governance.personalMemoryScopes.globalUser}`,
+  );
+  lines.push(
+    `- Long-term Scope Totals: project=${report.governance.longTermMemoryScopes.project}, global-user=${report.governance.longTermMemoryScopes.globalUser}`,
+  );
   lines.push('');
   lines.push('Repo Quality Distribution:');
   if (report.repoQualityDistribution.length === 0) {

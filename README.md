@@ -18,10 +18,8 @@
 
 <p align="center">
   <a href="./README_ZH.md">简体中文</a> ·
-  <a href="./docs/README.md">Docs Index</a> ·
+  <a href="./docs/README.md">Docs</a> ·
   <a href="./docs/guides/first-use.md">First Use</a> ·
-  <a href="./docs/changelog/2026-04-09.md">2026-04-09 Update</a> ·
-  <a href="./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md">2026-04-09 Delivery</a> ·
   <a href="./docs/guides/deployment.md">Deployment</a> ·
   <a href="./docs/reference/cli.md">CLI</a> ·
   <a href="./docs/reference/mcp.md">MCP</a>
@@ -44,24 +42,15 @@
 
 - [Why ContextAtlas](#why-contextatlas)
 - [Where it fits](#where-it-fits)
-- [Core capabilities](#core-capabilities)
-- [Quick highlights](#quick-highlights)
-- [Positioning](#positioning)
-- [Tech stack](#tech-stack)
+- [Core Capabilities](#core-capabilities)
+- [Tech Stack](#tech-stack)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [Quick start](#quick-start)
-- [Integration modes](#integration-modes)
-- [Usage flow](#usage-flow)
-- [Common commands](#common-commands)
-- [Architecture overview](#architecture-overview)
-- [Project structure](#project-structure)
-- [Notes](#notes)
-- [Current limitations](#current-limitations)
-- [Documentation map](#documentation-map)
-- [Contributing](#contributing)
-- [Development](#development)
-- [Friendly links](#friendly-links)
+- [Quick Start](#quick-start)
+- [Integration Modes](#integration-modes)
+- [Architecture Overview](#architecture-overview)
+- [Documentation](#documentation-map)
+- [Friendly Links](#friendly-links)
 - [License](#license)
 
 ContextAtlas is not just a code search tool. It addresses a more practical engineering problem:
@@ -108,62 +97,7 @@ ContextAtlas turns this into a composable set of capabilities:
 | **Async Indexing** | SQLite queue + daemon consumer + atomic snapshot switch |
 | **Observability** | Retrieval monitor, usage report, index health, memory health, and alert evaluation |
 
-## Quick highlights
-
-### 1. It does more than search code
-
-ContextAtlas does not aim to return “the most similar snippet.” It assembles a usable context pack through:
-
-- vector recall
-- FTS recall
-- RRF fusion
-- rerank
-- graph expansion
-- token-aware packing
-
-### 2. Repository understanding can be persisted
-
-In addition to retrieval, ContextAtlas supports:
-
-- Feature Memory: module responsibilities, files, dependencies, and data flow
-- Decision Record: architecture decisions and rationale
-- Project Profile: tech stack, structure, and conventions
-- Long-term Memory: preferences, rules, and external references
-
-### 3. The retrieval system itself is observable
-
-You can inspect more than just search results:
-
-- whether the index is healthy
-- whether retrieval quality is degrading
-- whether long-term memories are stale or expired
-- whether usage patterns suggest a rebuild or incremental indexing
-
-### 4. It works both as CLI and MCP Server
-
-The same capabilities can be used:
-
-- directly from local shell commands, scripts, and skills
-- through MCP tools in Claude Desktop or other MCP clients
-
-## Positioning
-
-**ContextAtlas is a context infrastructure layer for AI agents.**
-
-It answers this question:
-
-> When an upstream agent starts working, how can it reliably get high-value, low-noise, reusable code context and repository knowledge?
-
-It does **not** handle:
-
-- agent reasoning itself
-- workflow orchestration / planning
-- full verification harness responsibilities
-- browser, terminal, or business API actions
-
-In short, ContextAtlas decides **what context to provide**, not **how the task should be executed**.
-
-For a fuller architecture explanation, see [ContextAtlas engineering positioning](./docs/architecture/harness-engineering.md).
+ContextAtlas decides **what context to provide**, not **how the task should be executed**. It does not handle agent reasoning, workflow orchestration, or business API actions.
 
 ## Tech stack
 
@@ -328,183 +262,15 @@ ContextAtlas MCP tools cover:
 - cross-project hub operations
 - auto-recording and memory suggestion flows
 
-## Usage flow
-
-```text
-1. init
-   ↓
-2. index
-   ↓
-3. search / MCP retrieval
-   ↓
-4. understand code and dependencies
-   ↓
-5. record project memory / long-term memory (optional)
-   ↓
-6. continuously observe health / monitor / usage signals
-```
-
-A typical workflow looks like this:
-
-1. run `contextatlas init`
-2. run `contextatlas index /path/to/repo`
-3. use `contextatlas search` or MCP tools to retrieve code and memory
-4. record stable module knowledge, decisions, or long-term memory after the task
-5. periodically run `health:full`, `monitor:retrieval`, `usage:index-report`, and `memory:health`
-
-### Recommended CLAUDE.md startup rules
-
-If you use ContextAtlas inside Claude Code or other session-based agent workflows, add a rule like this to `CLAUDE.md`:
-
-```md
-At the beginning of every conversation:
-1. Query project memory first (for example via `project-memory-hub` / `memory-load` / `find_memory`)
-2. Immediately run repository indexing (`contextatlas index /path/to/repo`)
-3. Only then start retrieval, analysis, and implementation
-```
-
-Why this helps:
-
-- it loads existing project knowledge before broad exploration
-- it reduces the chance of working against stale retrieval data after repository changes
-- it makes later planning and implementation depend on fresher context
-
-## Common commands
-
-### Retrieval and indexing
-
-```bash
-contextatlas start /path/to/repo
-contextatlas index /path/to/repo
-contextatlas index --force
-contextatlas index:plan /path/to/repo --json
-contextatlas index:diagnose --json
-contextatlas daemon start
-contextatlas search --repo-path /path/to/repo --information-request "Where is the database connection logic?"
-```
-
-### Project memory and long-term memory
-
-```bash
-contextatlas memory:find "auth"
-contextatlas memory:record "Auth Module" --desc "User authentication module" --dir "src/auth"
-contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
-contextatlas memory:list
-contextatlas memory:prune-long-term --include-stale
-contextatlas decision:list
-contextatlas profile:show
-```
-
-`contextatlas start` now gives the default loop directly: `Connect Repo → Check Index Status → Ask → Review Result → Give Feedback / Save Memory`. Retrieval result cards also surface source hierarchy, freshness/conflict/confidence signals, and concrete follow-up commands.
-
-Index health checks now also show the latest successful indexing time and the latest execution mode for each project, so it is clearer whether a repository is staying healthy through incremental updates or falling back to rebuild-heavy recovery.
-
-### Cross-project hub
-
-```bash
-contextatlas hub:list-projects
-contextatlas hub:search --category search
-contextatlas hub:deps <projectId> <moduleName>
-```
-
-### Observability and operations
-
-```bash
-contextatlas monitor:retrieval --days 7
-contextatlas usage:index-report --days 7
-contextatlas ops:summary
-contextatlas ops:metrics --days 7 --stale-days 30
-contextatlas health:check
-contextatlas index:plan /path/to/repo
-contextatlas index:diagnose
-contextatlas alert:eval --stale-days 30
-```
-
 ## Architecture overview
 
-### Retrieval path
-
 ```text
-User question
-  → vector recall
-  → FTS lexical recall
-  → RRF fusion
-  → rerank
-  → graph expansion
-  → token-aware packing
-  → structured context output
+Indexing:  Crawler / Scanner → Chunking → Indexing → Vector / SQLite Storage
+Retrieval: Vector + FTS Recall → RRF → Rerank → Graph Expansion → Context Packing
+Memory:    Project Memory / Long-term Memory / Hub → CLI / MCP Tools
 ```
 
-In the current implementation, `SearchService` is mostly an orchestration facade instead of a single all-in-one engine:
-
-- `HybridRecallEngine` handles vector + lexical recall, FTS fallback, and RRF fusion
-- `RerankPolicy` owns rerank pool selection and Smart TopK cutoff
-- `SnippetExtractor` builds rerank text and hit-centered snippets
-- `GraphExpander` and `ContextPacker` still own expansion and packing
-
-### Indexing path
-
-```text
-File changes
-  → scanner/ detects changes
-  → chunking/ semantic chunking
-  → indexer/ embedding + vector store write
-  → storage/ atomic snapshot switch
-  → indexing/ queue state update
-```
-
-### Memory path
-
-```text
-Feature / Decision / Profile / Long-term write
-  → MemoryStore facade
-  → bootstrap project initialization and compatibility import
-  → focused sub-stores persist and sync data
-  → Memory Hub / Router / retrieval tools read it back
-```
-
-The current `memory/` boundaries are:
-
-- `MemoryStore` stays as the stable facade for CLI, MCP, and monitoring
-- `MemoryStoreBootstrap` handles read-only/writable initialization, project registration, and compatibility import
-- `ProjectMetaStore` owns checkpoints, catalog, profile, and global memory
-- `FeatureMemoryRepository` and `FeatureMemoryCatalogCoordinator` own feature memory persistence and catalog sync
-- `DecisionStore` owns decision-record mapping and persistence
-- `LongTermMemoryService` owns append/find/status/prune logic for long-term memory
-
-## Project structure
-
-```text
-src/
-├── api/                  # Embedding / Rerank / Unicode handling
-├── chunking/             # Tree-sitter semantic chunking
-├── db/                   # SQLite + FTS + file metadata
-├── indexer/              # Vector indexing orchestration
-├── indexing/             # Index queue and daemon
-├── mcp/                  # MCP server and tool definitions
-├── memory/               # MemoryStore facade + bootstrap + sub-stores + cross-project hub
-├── monitoring/           # Retrieval monitoring / health / alerts
-├── scanner/              # File discovery and incremental scanning
-├── search/               # SearchService facade + recall / rerank / snippet / expand / pack submodules
-├── storage/              # Snapshot layout and atomic switching
-├── usage/                # Usage tracking and optimization analysis
-└── vectorStore/          # LanceDB vector storage
-```
-
-## Notes
-
-- **The first full index may take time**: index once, then keep incremental updates warm with the daemon
-- **Do not store code-derivable facts in long-term memory**: use it for rules, preferences, external references, and non-code state
-- **MCP and CLI are complementary**: MCP is better for tool integration, CLI is better for scripts, skills, and manual debugging
-- **Make health checks routine**: when results get worse, check index, memory, and retrieval metrics before blaming the model
-
-## Current limitations
-
-- no multi-tenant or permission isolation yet
-- memory write quality still depends on upstream workflow discipline
-- no conflict detection in the cross-project hub yet
-- automatic incremental indexing still relies on the daemon or external scheduling
-- no unified confidence score interface for retrieval results yet
+ContextAtlas focuses on **what context to provide**, not how the task should be executed. For a fuller architecture explanation, see [repository positioning](./docs/architecture/repository-positioning.md) and [engineering positioning](./docs/architecture/harness-engineering.md).
 
 ## Documentation map
 

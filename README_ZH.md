@@ -18,10 +18,8 @@
 
 <p align="center">
   <a href="./README.md">English</a> ·
-  <a href="./docs/README.md">文档总览</a> ·
+  <a href="./docs/README.md">文档</a> ·
   <a href="./docs/guides/first-use.md">首次使用</a> ·
-  <a href="./docs/changelog/2026-04-09.md">2026-04-09 更新</a> ·
-  <a href="./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md">2026-04-09 交付索引</a> ·
   <a href="./docs/guides/deployment.md">部署手册</a> ·
   <a href="./docs/reference/cli.md">CLI</a> ·
   <a href="./docs/reference/mcp.md">MCP</a>
@@ -45,9 +43,12 @@
 - [为什么需要 ContextAtlas](#为什么需要-contextatlas)
 - [适合什么场景](#适合什么场景)
 - [核心能力](#核心能力)
+- [技术栈](#技术栈)
 - [安装](#安装)
+- [配置](#配置)
 - [快速开始](#快速开始)
 - [接入方式](#接入方式)
+- [架构概览](#架构概览)
 - [文档导航](#文档导航)
 - [友情链接](#友情链接)
 - [License](#license)
@@ -75,6 +76,8 @@ ContextAtlas 把这些问题拆成一套可组合的基础能力：
 - **补**：图扩展和 token packing 补足局部上下文
 - **存**：项目记忆、长期记忆、跨项目 Hub 沉淀知识
 - **看**：索引健康、检索 telemetry、usage 和 alert 让系统可观测
+
+ContextAtlas 决定的是**提供什么上下文**，而不是**如何执行任务**。它不处理 Agent 推理、工作流编排或业务 API 操作。
 
 ## 适合什么场景
 
@@ -261,19 +264,6 @@ ContextAtlas 的 MCP 工具覆盖：
 - 长期记忆
 - 跨项目 Hub
 - 自动记录与建议写回
-
-## 常用命令
-
-```bash
-contextatlas init
-contextatlas start /path/to/repo
-contextatlas index /path/to/repo
-contextatlas daemon start
-contextatlas search --repo-path /path/to/repo --information-request "数据库连接逻辑"
-contextatlas mcp
-```
-
-更完整的命令分类、参数和运维命令见 [CLI 命令参考](./docs/reference/cli.md)。
 
 ## 架构概览
 

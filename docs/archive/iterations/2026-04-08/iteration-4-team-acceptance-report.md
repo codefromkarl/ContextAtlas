@@ -14,9 +14,9 @@
 
 本次验收对应：
 
-- [docs/NEXT_TASKS_EXECUTION_CHECKLIST.md](/home/yuanzhi/Develop/tools/ContextAtlas/docs/NEXT_TASKS_EXECUTION_CHECKLIST.md) 中 `团队级验收闭环`
-- [docs/ROADMAP_CHECKLIST.md](/home/yuanzhi/Develop/tools/ContextAtlas/docs/ROADMAP_CHECKLIST.md) 中 `P2 验收标准` 剩余 3 项
-- [docs/ITERATION_PLAN_2026_04_08.md](/home/yuanzhi/Develop/tools/ContextAtlas/docs/ITERATION_PLAN_2026_04_08.md) 中 `Iteration 4` 的前两项验收工作
+- [docs/plans/next-tasks-execution-checklist.md](../../../plans/next-tasks-execution-checklist.md) 中 `团队级验收闭环`
+- [docs/plans/roadmap-checklist.md](../../../plans/roadmap-checklist.md) 中 `P2 验收标准` 剩余 3 项
+- [docs/archive/iterations/2026-04-08/iteration-plan.md](./iteration-plan.md) 中 `Iteration 4` 的前两项验收工作
 
 ---
 
@@ -148,17 +148,17 @@ pnpm test
 
 建议正式关闭下面这些条目：
 
-1. [docs/NEXT_TASKS_EXECUTION_CHECKLIST.md](/home/yuanzhi/Develop/tools/ContextAtlas/docs/NEXT_TASKS_EXECUTION_CHECKLIST.md)
+1. [docs/plans/next-tasks-execution-checklist.md](../../../plans/next-tasks-execution-checklist.md)
    - `验证产品可稳定处理 repo 日常变化，尽量不依赖人工全量重建`
    - `让管理者可见“是否在用、哪里不准、哪里在坏”`
    - `验证团队共享 memory 后不会互相污染`
 
-2. [docs/ROADMAP_CHECKLIST.md](/home/yuanzhi/Develop/tools/ContextAtlas/docs/ROADMAP_CHECKLIST.md)
+2. [docs/plans/roadmap-checklist.md](../../../plans/roadmap-checklist.md)
    - `产品能稳定处理 repo 日常变化，不需要频繁人工全量重建`
    - `管理者能看到“是否在用、哪里不准、哪里在坏”`
    - `团队能共享高价值 memory，但不会互相污染`
 
-3. [docs/ITERATION_PLAN_2026_04_08.md](/home/yuanzhi/Develop/tools/ContextAtlas/docs/ITERATION_PLAN_2026_04_08.md)
+3. [docs/archive/iterations/2026-04-08/iteration-plan.md](./iteration-plan.md)
    - `Iteration 4` 中与团队级验收直接相关的两项工作
 
 ---

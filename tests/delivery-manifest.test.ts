@@ -8,12 +8,18 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const MANIFEST_PATH = path.join(
   REPO_ROOT,
   'docs',
-  'DELIVERY_MANIFEST_2026_04_09_INDEX_AND_MEMORY.json',
+  'archive',
+  'deliveries',
+  '2026-04-09-index-and-memory',
+  'delivery-manifest.json',
 );
 const DELIVERY_BUNDLE_PATH = path.join(
   REPO_ROOT,
   'docs',
-  'DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md',
+  'archive',
+  'deliveries',
+  '2026-04-09-index-and-memory',
+  'delivery-bundle.md',
 );
 
 test('delivery manifest stays aligned with delivery bundle and referenced docs exist', () => {
@@ -42,15 +48,15 @@ test('delivery manifest includes the latest delivery-facing artifacts', () => {
 
   assert.equal(
     manifest.artifacts.delivery_commands,
-    'docs/DELIVERY_COMMANDS_2026_04_09_INDEX_AND_MEMORY.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-commands.md',
   );
   assert.equal(
     manifest.artifacts.changeset_map,
-    'docs/CHANGESET_MAP_2026_04_09_INDEX_AND_MEMORY.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/changeset-map.md',
   );
   assert.equal(
     manifest.artifacts.delivery_runbook,
-    'docs/DELIVERY_RUNBOOK_2026_04_09_INDEX_AND_MEMORY.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-runbook.md',
   );
 });
 
@@ -98,11 +104,11 @@ test('delivery docs reference the latest checkpoint id from the manifest', () =>
   };
   const expectedCheckpoint = manifest.checkpoint.id;
   const docsToCheck = [
-    'docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/MERGE_CHECKLIST_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/TEAM_UPDATE_MESSAGE_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/handoff.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/merge-checklist.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/team-update-message.md',
+    'docs/archive/iterations/2026-04-09/iteration-6-index-and-memory-acceptance-report.md',
   ];
 
   for (const relPath of docsToCheck) {
@@ -113,16 +119,16 @@ test('delivery docs reference the latest checkpoint id from the manifest', () =>
 
 test('delivery docs do not retain stale checkpoint ids or outdated test counts', () => {
   const docsToCheck = [
-    'docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/MERGE_CHECKLIST_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/TEAM_UPDATE_MESSAGE_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md',
-    'docs/UPDATE_2026_04_09.md',
-    'docs/PR_SUMMARY_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/PR_BODY_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/RELEASE_NOTE_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/DELIVERY_MANIFEST_2026_04_09_INDEX_AND_MEMORY.json',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/handoff.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/merge-checklist.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/team-update-message.md',
+    'docs/archive/iterations/2026-04-09/iteration-6-index-and-memory-acceptance-report.md',
+    'docs/changelog/2026-04-09.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/pr-summary.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/pr-body.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/release-note.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-manifest.json',
   ];
 
   const forbiddenPatterns = [

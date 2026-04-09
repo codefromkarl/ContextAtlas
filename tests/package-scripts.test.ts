@@ -43,7 +43,7 @@ test('package.json exposes a delivery manifest print script', () => {
 
   const script = pkg.scripts?.['delivery:manifest'];
   assert.ok(script);
-  assert.match(script, /DELIVERY_MANIFEST_2026_04_09_INDEX_AND_MEMORY\.json/);
+  assert.match(script, /archive\/deliveries\/2026-04-09-index-and-memory\/delivery-manifest\.json/);
 });
 
 test('package.json exposes a delivery bundle print script', () => {
@@ -55,7 +55,7 @@ test('package.json exposes a delivery bundle print script', () => {
 
   const script = pkg.scripts?.['delivery:bundle'];
   assert.ok(script);
-  assert.match(script, /DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY\.md/);
+  assert.match(script, /archive\/deliveries\/2026-04-09-index-and-memory\/delivery-bundle\.md/);
 });
 
 test('package.json exposes delivery scripts for PR body and team update message', () => {
@@ -70,8 +70,8 @@ test('package.json exposes delivery scripts for PR body and team update message'
 
   assert.ok(prScript);
   assert.ok(teamScript);
-  assert.match(prScript, /PR_BODY_2026_04_09_INDEX_AND_MEMORY\.md/);
-  assert.match(teamScript, /TEAM_UPDATE_MESSAGE_2026_04_09_INDEX_AND_MEMORY\.md/);
+  assert.match(prScript, /archive\/deliveries\/2026-04-09-index-and-memory\/pr-body\.md/);
+  assert.match(teamScript, /archive\/deliveries\/2026-04-09-index-and-memory\/team-update-message\.md/);
 });
 
 test('package.json exposes a delivery runbook script', () => {
@@ -83,7 +83,7 @@ test('package.json exposes a delivery runbook script', () => {
 
   const script = pkg.scripts?.['delivery:runbook'];
   assert.ok(script);
-  assert.match(script, /DELIVERY_RUNBOOK_2026_04_09_INDEX_AND_MEMORY\.md/);
+  assert.match(script, /archive\/deliveries\/2026-04-09-index-and-memory\/delivery-runbook\.md/);
 });
 
 test('package.json exposes delivery scripts for handoff and merge checklist', () => {
@@ -98,8 +98,8 @@ test('package.json exposes delivery scripts for handoff and merge checklist', ()
 
   assert.ok(handoffScript);
   assert.ok(checklistScript);
-  assert.match(handoffScript, /HANDOFF_2026_04_09_INDEX_AND_MEMORY\.md/);
-  assert.match(checklistScript, /MERGE_CHECKLIST_2026_04_09_INDEX_AND_MEMORY\.md/);
+  assert.match(handoffScript, /archive\/deliveries\/2026-04-09-index-and-memory\/handoff\.md/);
+  assert.match(checklistScript, /archive\/deliveries\/2026-04-09-index-and-memory\/merge-checklist\.md/);
 });
 
 test('package.json exposes delivery scripts for commit message and release note', () => {
@@ -114,8 +114,8 @@ test('package.json exposes delivery scripts for commit message and release note'
 
   assert.ok(commitScript);
   assert.ok(releaseScript);
-  assert.match(commitScript, /COMMIT_MESSAGE_2026_04_09_INDEX_AND_MEMORY\.md/);
-  assert.match(releaseScript, /RELEASE_NOTE_2026_04_09_INDEX_AND_MEMORY\.md/);
+  assert.match(commitScript, /archive\/deliveries\/2026-04-09-index-and-memory\/commit-message\.md/);
+  assert.match(releaseScript, /archive\/deliveries\/2026-04-09-index-and-memory\/release-note\.md/);
 });
 
 test('package.json exposes a delivery all-in-one script', () => {

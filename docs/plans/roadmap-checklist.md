@@ -1,6 +1,6 @@
 # ContextAtlas 路线图执行清单
 
-基于 [PRODUCT_EVOLUTION_ROADMAP.md](../PRODUCT_EVOLUTION_ROADMAP.md) 整理。
+基于 [产品路线图](../product/roadmap.md) 整理。
 
 目标不是继续横向堆功能，而是按版本节奏把现有能力压缩成：
 
@@ -29,7 +29,7 @@
 
 验收记录：
 
-- [模块收口评估（2026-04-08）](./ITERATION_1_MODULE_CLOSURE_EVALUATION_2026_04_08.md)
+- [模块收口评估（2026-04-08）](../archive/iterations/2026-04-08/iteration-1-module-closure-evaluation.md)
 
 ---
 
@@ -76,7 +76,7 @@
 
 验收记录：
 
-- [Iteration 1 验收报告（2026-04-08）](./ITERATION_1_ACCEPTANCE_REPORT_2026_04_08.md)
+- [Iteration 1 验收报告（2026-04-08）](../archive/iterations/2026-04-08/iteration-1-acceptance-report.md)
 
 ---
 
@@ -176,8 +176,8 @@
 
 验收记录：
 
-- [Iteration 2 记忆治理边界设计（2026-04-08）](./ITERATION_2_MEMORY_GOVERNANCE_DESIGN_2026_04_08.md)
-- [Iteration 3 治理能力实现记录（2026-04-08）](./ITERATION_3_GOVERNANCE_IMPLEMENTATION_2026_04_08.md)
+- [Iteration 2 记忆治理边界设计（2026-04-08）](../archive/iterations/2026-04-08/iteration-2-memory-governance-design.md)
+- [Iteration 3 治理能力实现记录（2026-04-08）](../archive/iterations/2026-04-08/iteration-3-governance-implementation.md)
 
 ### P2 验收标准
 
@@ -188,7 +188,7 @@
 
 验收记录：
 
-- [Iteration 4 团队级验收报告（2026-04-08）](./ITERATION_4_TEAM_ACCEPTANCE_REPORT_2026_04_08.md)
+- [Iteration 4 团队级验收报告（2026-04-08）](../archive/iterations/2026-04-08/iteration-4-team-acceptance-report.md)
 
 ---
 
@@ -225,7 +225,7 @@
 
 目标：把 ContextAtlas 从“检索 + 记忆 + 打包”推进为“上下文生命周期系统”。
 
-设计基线见：[ContextAtlas 工程定位 / 下一版上下文 / 记忆架构草图](./ContextAtlas-Harness-Engineering.md#下一版上下文--记忆架构草图)
+设计基线见：[ContextAtlas 工程定位 / 下一版上下文 / 记忆架构草图](../architecture/harness-engineering.md#下一版上下文--记忆架构草图)
 
 ### P3 对象模型
 

@@ -44,7 +44,7 @@ Observed:
 
 ## Related Docs
 
-- `docs/UPDATE_2026_04_09.md`
-- `docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md`
-- `docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md`
-- `docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md`
+- `docs/changelog/2026-04-09.md`
+- `docs/archive/iterations/2026-04-09/iteration-6-index-and-memory-acceptance-report.md`
+- `docs/archive/deliveries/2026-04-09-index-and-memory/handoff.md`
+- `docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md`

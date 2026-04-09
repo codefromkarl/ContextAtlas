@@ -15,19 +15,19 @@
     "title": "Make index update escalation configurable and persist long-term memory in dedicated tables"
   },
   "artifacts": {
-    "update_summary": "docs/UPDATE_2026_04_09.md",
-    "acceptance_report": "docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md",
-    "handoff_summary": "docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md",
-    "pr_summary": "docs/PR_SUMMARY_2026_04_09_INDEX_AND_MEMORY.md",
-    "pr_body": "docs/PR_BODY_2026_04_09_INDEX_AND_MEMORY.md",
-    "commit_message": "docs/COMMIT_MESSAGE_2026_04_09_INDEX_AND_MEMORY.md",
-    "delivery_commands": "docs/DELIVERY_COMMANDS_2026_04_09_INDEX_AND_MEMORY.md",
-    "delivery_runbook": "docs/DELIVERY_RUNBOOK_2026_04_09_INDEX_AND_MEMORY.md",
-    "team_message": "docs/TEAM_UPDATE_MESSAGE_2026_04_09_INDEX_AND_MEMORY.md",
-    "release_note": "docs/RELEASE_NOTE_2026_04_09_INDEX_AND_MEMORY.md",
-    "merge_checklist": "docs/MERGE_CHECKLIST_2026_04_09_INDEX_AND_MEMORY.md",
-    "delivery_index": "docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md",
-    "changeset_map": "docs/CHANGESET_MAP_2026_04_09_INDEX_AND_MEMORY.md"
+    "update_summary": "docs/changelog/2026-04-09.md",
+    "acceptance_report": "docs/archive/iterations/2026-04-09/iteration-6-index-and-memory-acceptance-report.md",
+    "handoff_summary": "docs/archive/deliveries/2026-04-09-index-and-memory/handoff.md",
+    "pr_summary": "docs/archive/deliveries/2026-04-09-index-and-memory/pr-summary.md",
+    "pr_body": "docs/archive/deliveries/2026-04-09-index-and-memory/pr-body.md",
+    "commit_message": "docs/archive/deliveries/2026-04-09-index-and-memory/commit-message.md",
+    "delivery_commands": "docs/archive/deliveries/2026-04-09-index-and-memory/delivery-commands.md",
+    "delivery_runbook": "docs/archive/deliveries/2026-04-09-index-and-memory/delivery-runbook.md",
+    "team_message": "docs/archive/deliveries/2026-04-09-index-and-memory/team-update-message.md",
+    "release_note": "docs/archive/deliveries/2026-04-09-index-and-memory/release-note.md",
+    "merge_checklist": "docs/archive/deliveries/2026-04-09-index-and-memory/merge-checklist.md",
+    "delivery_index": "docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md",
+    "changeset_map": "docs/archive/deliveries/2026-04-09-index-and-memory/changeset-map.md"
   },
   "run_artifacts": {
     "results_log": "research-results.tsv",

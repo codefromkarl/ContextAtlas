@@ -6,15 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('README top navigation links expose update, acceptance, handoff, and delivery entrypoints', () => {
+test('README top navigation links expose docs index, latest update, and delivery entrypoints', () => {
   const readme = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
   const readmeEn = fs.readFileSync(path.join(REPO_ROOT, 'README.EN.md'), 'utf8');
 
   const expectedLinks = [
-    'docs/UPDATE_2026_04_09.md',
-    'docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md',
-    'docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md',
-    'docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md',
+    'docs/README.md',
+    'docs/changelog/2026-04-09.md',
+    'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md',
   ];
 
   for (const relPath of expectedLinks) {

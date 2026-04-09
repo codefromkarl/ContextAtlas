@@ -20,10 +20,10 @@ Validate the 2026-04-09 workstream that:
 - `src/cli/commands/bootstrap.ts`
 - `README.md`
 - `README.EN.md`
-- `docs/CLI.md`
-- `docs/FIRST_USE.md`
-- `docs/DEPLOYMENT.md`
-- `docs/UPDATE_2026_04_09.md`
+- `docs/reference/cli.md`
+- `docs/guides/first-use.md`
+- `docs/guides/deployment.md`
+- `docs/changelog/2026-04-09.md`
 
 ## Acceptance Checks
 

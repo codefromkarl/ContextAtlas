@@ -13,9 +13,9 @@
 
 本次验收对应：
 
-- `docs/ROADMAP_CHECKLIST.md` 中 `Phase A / P0 验收标准`
-- `docs/NEXT_TASKS_EXECUTION_CHECKLIST.md` 中 `P0`
-- `docs/ITERATION_PLAN_2026_04_08.md` 中 `Iteration 1`
+- `docs/plans/roadmap-checklist.md` 中 `Phase A / P0 验收标准`
+- `docs/plans/next-tasks-execution-checklist.md` 中 `P0`
+- `docs/archive/iterations/2026-04-08/iteration-plan.md` 中 `Iteration 1`
 
 ---
 
@@ -50,7 +50,7 @@ pnpm test -- --test-name-pattern "buildStartGuide|handleCodebaseRetrieval"
 
 依据：
 
-- `docs/FIRST_USE.md` 已将默认路径压缩为：
+- `docs/guides/first-use.md` 已将默认路径压缩为：
   - `Connect Repo`
   - `Check Index Status`
   - `Ask`
@@ -114,7 +114,7 @@ pnpm test -- --test-name-pattern "buildStartGuide|handleCodebaseRetrieval"
   - npm 包名：`@codefromkarl/context-atlas`
   - CLI 主命令：`contextatlas`
   - 兼容短别名：`cw`
-- `README.md`、`README.EN.md`、`docs/FIRST_USE.md`、`docs/CLI.md`、`docs/DEPLOYMENT.md` 均已统一使用 `contextatlas` 作为主命令名。
+- `README.md`、`README.EN.md`、`docs/guides/first-use.md`、`docs/reference/cli.md`、`docs/guides/deployment.md` 均已统一使用 `contextatlas` 作为主命令名。
 - `.github/workflows/release.yml` 中的安装说明、发布包名和运行示例也已统一为：
   - `npm install -g @codefromkarl/context-atlas`
   - `contextatlas start /path/to/repo`
@@ -133,14 +133,14 @@ pnpm test -- --test-name-pattern "buildStartGuide|handleCodebaseRetrieval"
 
 建议将下面这些状态正式关闭：
 
-1. `docs/ROADMAP_CHECKLIST.md`
+1. `docs/plans/roadmap-checklist.md`
    - `评估是否继续收大模块`
    - `P0 验收标准` 下 4 个未勾选项
 
-2. `docs/NEXT_TASKS_EXECUTION_CHECKLIST.md`
+2. `docs/plans/next-tasks-execution-checklist.md`
    - `P0` 全部条目
 
-3. `docs/ITERATION_PLAN_2026_04_08.md`
+3. `docs/archive/iterations/2026-04-08/iteration-plan.md`
    - `Iteration 1` 的工作项、交付物和退出标准
 
 ---

@@ -4,9 +4,9 @@
 
 适用范围：
 
-- `docs/NEXT_TASKS_EXECUTION_CHECKLIST.md`
-- `docs/ROADMAP_CHECKLIST.md`
-- `docs/UPDATE_2026_04_08.md`
+- `docs/plans/next-tasks-execution-checklist.md`
+- `docs/plans/roadmap-checklist.md`
+- `docs/changelog/2026-04-08.md`
 
 说明：
 
@@ -38,12 +38,12 @@
 工作项：
 
 - [x] 完成 `src/mcp/tools/codebaseRetrieval.ts` 与 `src/search/SearchService.ts` 的收口评估
-- [x] 按 `docs/FIRST_USE.md` 跑一次默认闭环
+- [x] 按 `docs/guides/first-use.md` 跑一次默认闭环
 - [x] 验证 10 分钟首次接入目标
 - [x] 验证结果卡片结构在 CLI / MCP 主路径上一致
 - [x] 验证冷启动降级路径稳定可用
 - [x] 核对产品身份文案是否完全统一
-- [x] 更新 `docs/ROADMAP_CHECKLIST.md` 中对应验收状态
+- [x] 更新 `docs/plans/roadmap-checklist.md` 中对应验收状态
 
 交付物：
 
@@ -53,8 +53,8 @@
 
 交付记录：
 
-- [模块收口评估（2026-04-08）](./ITERATION_1_MODULE_CLOSURE_EVALUATION_2026_04_08.md)
-- [Iteration 1 验收报告（2026-04-08）](./ITERATION_1_ACCEPTANCE_REPORT_2026_04_08.md)
+- [模块收口评估（2026-04-08）](./iteration-1-module-closure-evaluation.md)
+- [Iteration 1 验收报告（2026-04-08）](./iteration-1-acceptance-report.md)
 
 退出标准：
 
@@ -81,7 +81,7 @@
 
 交付记录：
 
-- [Iteration 2 记忆治理边界设计（2026-04-08）](./ITERATION_2_MEMORY_GOVERNANCE_DESIGN_2026_04_08.md)
+- [Iteration 2 记忆治理边界设计（2026-04-08）](./iteration-2-memory-governance-design.md)
 
 退出标准：
 
@@ -109,7 +109,7 @@
 
 交付记录：
 
-- [Iteration 3 治理能力实现记录（2026-04-08）](./ITERATION_3_GOVERNANCE_IMPLEMENTATION_2026_04_08.md)
+- [Iteration 3 治理能力实现记录（2026-04-08）](./iteration-3-governance-implementation.md)
 
 退出标准：
 
@@ -131,8 +131,8 @@
 
 交付记录：
 
-- [Iteration 4 团队级验收报告（2026-04-08）](./ITERATION_4_TEAM_ACCEPTANCE_REPORT_2026_04_08.md)
-- [Iteration 5 Gateway 增强报告（2026-04-08）](./ITERATION_5_GATEWAY_ENHANCEMENT_REPORT_2026_04_08.md)
+- [Iteration 4 团队级验收报告（2026-04-08）](./iteration-4-team-acceptance-report.md)
+- [Iteration 5 Gateway 增强报告（2026-04-08）](./iteration-5-gateway-enhancement-report.md)
 
 交付物：
 
@@ -194,4 +194,4 @@
 1. 进入 Iteration 1。
 2. 先完成大模块收口评估。
 3. 再跑一次首次接入、结果卡片、冷启动和产品身份统一验收。
-4. 最后回写 `docs/ROADMAP_CHECKLIST.md` 与 `docs/NEXT_TASKS_EXECUTION_CHECKLIST.md` 的状态。
+4. 最后回写 `docs/plans/roadmap-checklist.md` 与 `docs/plans/next-tasks-execution-checklist.md` 的状态。

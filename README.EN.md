@@ -18,19 +18,17 @@
 
 <p align="center">
   <a href="./README.md">简体中文</a> ·
-  <a href="./docs/FIRST_USE.md">First Use</a> ·
-  <a href="./docs/UPDATE_2026_04_09.md">2026-04-09 Update</a> ·
-  <a href="./docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md">2026-04-09 Acceptance</a> ·
-  <a href="./docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md">2026-04-09 Handoff</a> ·
-  <a href="./docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md">2026-04-09 Delivery</a> ·
-  <a href="./docs/UPDATE_2026_04_06.md">2026-04-06 Update</a> ·
-  <a href="./docs/DEPLOYMENT.md">Deployment</a> ·
-  <a href="./docs/CLI.md">CLI</a> ·
-  <a href="./docs/MCP.md">MCP</a>
+  <a href="./docs/README.md">Docs Index</a> ·
+  <a href="./docs/guides/first-use.md">First Use</a> ·
+  <a href="./docs/changelog/2026-04-09.md">2026-04-09 Update</a> ·
+  <a href="./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md">2026-04-09 Delivery</a> ·
+  <a href="./docs/guides/deployment.md">Deployment</a> ·
+  <a href="./docs/reference/cli.md">CLI</a> ·
+  <a href="./docs/reference/mcp.md">MCP</a>
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/codefromkarl/ContextAtlas/main/docs/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
+  <img src="https://raw.githubusercontent.com/codefromkarl/ContextAtlas/main/docs/architecture/contextatlas-architecture.png" alt="ContextAtlas architecture" width="900" />
 </p>
 
 ## Updates
@@ -163,7 +161,7 @@ It does **not** handle:
 
 In short, ContextAtlas decides **what context to provide**, not **how the task should be executed**.
 
-For a fuller architecture explanation, see [ContextAtlas engineering positioning](./docs/ContextAtlas-Harness-Engineering.md).
+For a fuller architecture explanation, see [ContextAtlas engineering positioning](./docs/architecture/harness-engineering.md).
 
 ## Tech stack
 
@@ -235,7 +233,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 
 ## Quick start
 
-If you are onboarding for the first time, start with the [First use guide](./docs/FIRST_USE.md).
+If you are onboarding for the first time, start with the [First use guide](./docs/guides/first-use.md).
 
 ### 1) Confirm the default entry flow
 
@@ -508,16 +506,17 @@ src/
 
 | Document | Purpose |
 |------|------|
-| [First use guide](./docs/FIRST_USE.md) | Fast onboarding path for the default `contextatlas` loop |
-| [2026-04-06 update summary](./docs/UPDATE_2026_04_06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
-| [2026-04-07 update summary](./docs/UPDATE_2026_04_07.md) | Summary of the seven indexing phases covering lightweight planning, snapshot copy reduction, health repair, observability, fallback hardening, storage trimming, and benchmarks |
-| [Deployment guide](./docs/DEPLOYMENT.md) | Installation, deployment patterns, MCP integration, operations |
-| [CLI reference](./docs/CLI.md) | CLI commands, categories, and examples |
-| [MCP reference](./docs/MCP.md) | MCP tools, parameters, and calling patterns |
-| [Project memory guide](./PROJECT_MEMORY.md) | Feature Memory, Decision Record, and Catalog routing |
-| [Repository positioning](./docs/REPOSITORY_POSITIONING.md) | Repository role, design thinking, and system boundaries |
-| [Engineering positioning](./docs/ContextAtlas-Harness-Engineering.md) | Where ContextAtlas fits in harness engineering |
-| [Product roadmap](./PRODUCT_EVOLUTION_ROADMAP.md) | Future versions and product direction |
+| [Docs index](./docs/README.md) | Unified entry for stable docs, plans, changelog, and archived delivery material |
+| [First use guide](./docs/guides/first-use.md) | Fast onboarding path for the default `contextatlas` loop |
+| [2026-04-06 update summary](./docs/changelog/2026-04-06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
+| [2026-04-07 update summary](./docs/changelog/2026-04-07.md) | Summary of the seven indexing phases covering lightweight planning, snapshot copy reduction, health repair, observability, fallback hardening, storage trimming, and benchmarks |
+| [Deployment guide](./docs/guides/deployment.md) | Installation, deployment patterns, MCP integration, operations |
+| [CLI reference](./docs/reference/cli.md) | CLI commands, categories, and examples |
+| [MCP reference](./docs/reference/mcp.md) | MCP tools, parameters, and calling patterns |
+| [Project memory guide](./docs/project/project-memory.md) | Feature Memory, Decision Record, and Catalog routing |
+| [Repository positioning](./docs/architecture/repository-positioning.md) | Repository role, design thinking, and system boundaries |
+| [Engineering positioning](./docs/architecture/harness-engineering.md) | Where ContextAtlas fits in harness engineering |
+| [Product roadmap](./docs/product/roadmap.md) | Future versions and product direction |
 
 ## Contributing
 

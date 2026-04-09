@@ -1,6 +1,6 @@
 # MCP 工具参考
 
-如果你是第一次接入 ContextAtlas，建议先读 [首次使用](./FIRST_USE.md)，确认默认 CLI 入口和索引状态，再配置 MCP。
+如果你是第一次接入 ContextAtlas，建议先读 [首次使用](../guides/first-use.md)，确认默认 CLI 入口和索引状态，再配置 MCP。
 
 ## 配置
 

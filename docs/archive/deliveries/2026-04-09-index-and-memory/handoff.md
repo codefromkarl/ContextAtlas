@@ -57,11 +57,11 @@ Primary file:
 
 - `README.md`
 - `README.EN.md`
-- `docs/CLI.md`
-- `docs/FIRST_USE.md`
-- `docs/DEPLOYMENT.md`
-- `docs/UPDATE_2026_04_09.md`
-- `docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md`
+- `docs/reference/cli.md`
+- `docs/guides/first-use.md`
+- `docs/guides/deployment.md`
+- `docs/changelog/2026-04-09.md`
+- `docs/archive/iterations/2026-04-09/iteration-6-index-and-memory-acceptance-report.md`
 
 ## Tests Worth Reading
 

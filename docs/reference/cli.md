@@ -7,7 +7,7 @@ npm install -g @codefromkarl/context-atlas
 contextatlas init
 ```
 
-配置文件位于 `~/.contextatlas/.env`，详见 [README.md](../README.md#配置)。
+配置文件位于 `~/.contextatlas/.env`，详见 [README.md](../../README.md#配置)。
 
 产品身份映射：
 
@@ -15,7 +15,7 @@ contextatlas init
 - npm 包名：`@codefromkarl/context-atlas`
 - CLI 命令：`contextatlas`
 
-如果你是第一次接入，先看 [首次使用](./FIRST_USE.md)。
+如果你是第一次接入，先看 [首次使用](../guides/first-use.md)。
 
 ## 检索与索引
 
@@ -165,7 +165,7 @@ contextatlas gateway:embeddings --no-coalesce-identical-requests
 - `EMBEDDING_GATEWAY_REDIS_KEY_PREFIX`
 - `EMBEDDING_GATEWAY_COALESCE_IDENTICAL_REQUESTS`
 
-更完整的部署示例见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+更完整的部署示例见 [DEPLOYMENT.md](../guides/deployment.md)。
 
 ## 项目记忆
 
@@ -363,7 +363,7 @@ contextatlas alert:config --reset
 contextatlas mcp
 ```
 
-MCP 工具详情见 [MCP.md](./MCP.md)。
+MCP 工具详情见 [MCP.md](../reference/mcp.md)。
 
 ## 开发命令
 

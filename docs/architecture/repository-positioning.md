@@ -6,8 +6,8 @@
 
 如果你想先看功能总览与上手方式，可以直接阅读：
 
-- [README（中文）](../README.md)
-- [README（English）](../README.EN.md)
+- [README（中文）](../../README.md)
+- [README（English）](../../README.EN.md)
 
 ---
 

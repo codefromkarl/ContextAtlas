@@ -26,9 +26,9 @@ pnpm delivery:full
 ```bash
 pnpm delivery:bundle
 pnpm delivery:manifest
-sed -n '1,200p' docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md
-sed -n '1,200p' docs/PR_BODY_2026_04_09_INDEX_AND_MEMORY.md
-sed -n '1,200p' docs/COMMIT_MESSAGE_2026_04_09_INDEX_AND_MEMORY.md
+sed -n '1,200p' docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md
+sed -n '1,200p' docs/archive/deliveries/2026-04-09-index-and-memory/pr-body.md
+sed -n '1,200p' docs/archive/deliveries/2026-04-09-index-and-memory/commit-message.md
 ```
 
 ## Suggested Commit Flow

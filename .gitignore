@@ -11,6 +11,12 @@ test-*
 .pnpm-store
 .omc
 .project-memory
+autoresearch-state*.json
+autoresearch-hook-context*.json
+autoresearch-lessons.md
+research-results*.tsv
+.autoresearch/*.json
+.autoresearch/*.log
 CPn
 D
 GE

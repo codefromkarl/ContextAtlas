@@ -6,15 +6,15 @@
 - confirm `pnpm build` passes
 - confirm `pnpm test` passes
 - skim the latest delivery docs:
-  - `docs/PR_SUMMARY_2026_04_09_INDEX_AND_MEMORY.md`
-  - `docs/RELEASE_NOTE_2026_04_09_INDEX_AND_MEMORY.md`
-  - `docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md`
+  - `docs/archive/deliveries/2026-04-09-index-and-memory/pr-summary.md`
+  - `docs/archive/deliveries/2026-04-09-index-and-memory/release-note.md`
+  - `docs/archive/deliveries/2026-04-09-index-and-memory/handoff.md`
 
 ## Key References
 
 - checkpoint: `chk_dd4e63fc1634`
 - decision: `2026-04-09-index-update-and-long-term-storage`
-- delivery index: `docs/DELIVERY_BUNDLE_2026_04_09_INDEX_AND_MEMORY.md`
+- delivery index: `docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md`
 
 ## Suggested Verification Commands
 

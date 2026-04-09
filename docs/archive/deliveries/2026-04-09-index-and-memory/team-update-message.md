@@ -17,10 +17,10 @@ ContextAtlas 这轮关于 index:update / 长期记忆治理的收口已经完成
 - pnpm test = 268/268 通过
 
 相关文档：
-- 更新总结：docs/UPDATE_2026_04_09.md
-- 验收报告：docs/ITERATION_6_INDEX_AND_MEMORY_ACCEPTANCE_REPORT_2026_04_09.md
-- 交接摘要：docs/HANDOFF_2026_04_09_INDEX_AND_MEMORY.md
-- PR 摘要：docs/PR_SUMMARY_2026_04_09_INDEX_AND_MEMORY.md
+- 更新总结：docs/changelog/2026-04-09.md
+- 验收报告：docs/archive/iterations/2026-04-09/iteration-6-index-and-memory-acceptance-report.md
+- 交接摘要：docs/archive/deliveries/2026-04-09-index-and-memory/handoff.md
+- PR 摘要：docs/archive/deliveries/2026-04-09-index-and-memory/pr-summary.md
 
 相关 checkpoint：
 - chk_dd4e63fc1634

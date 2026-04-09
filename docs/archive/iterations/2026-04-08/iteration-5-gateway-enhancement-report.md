@@ -97,11 +97,11 @@ pnpm test
 
 已同步更新：
 
-- `docs/CLI.md`
-- `docs/DEPLOYMENT.md`
-- `docs/NEXT_TASKS_EXECUTION_CHECKLIST.md`
-- `docs/ITERATION_PLAN_2026_04_08.md`
-- `docs/UPDATE_2026_04_08.md`
+- `docs/reference/cli.md`
+- `docs/guides/deployment.md`
+- `docs/plans/next-tasks-execution-checklist.md`
+- `docs/archive/iterations/2026-04-08/iteration-plan.md`
+- `docs/changelog/2026-04-08.md`
 
 ---
 

@@ -6,10 +6,10 @@
 
 主要依据：
 
-- `docs/ROADMAP_CHECKLIST.md`
-- `PRODUCT_EVOLUTION_ROADMAP.md`
-- `docs/MEMPALACE_ABSORPTION_EXECUTION_PLAN.md`
-- `docs/UPDATE_2026_04_08.md`
+- `docs/plans/roadmap-checklist.md`
+- `docs/product/roadmap.md`
+- `docs/plans/mempalace-absorption-execution-plan.md`
+- `docs/changelog/2026-04-08.md`
 
 ---
 
@@ -47,11 +47,11 @@
 - 如果 `codebaseRetrieval` 再继续增长，或结果卡片/冷启动/反馈治理出现高频冲突，再单独开“模块化二次拆分”任务。
 - 如果 `SearchService` 再重新吸收 recall/rerank/packing 细节，再重新评估 facade 边界。
 
-详细记录：见 [Iteration 1 模块收口评估（2026-04-08）](./ITERATION_1_MODULE_CLOSURE_EVALUATION_2026_04_08.md)
+详细记录：见 [Iteration 1 模块收口评估（2026-04-08）](../archive/iterations/2026-04-08/iteration-1-module-closure-evaluation.md)
 
 ### 2. 首次接入闭环验收
 
-- [x] 按 `docs/FIRST_USE.md` 实走一次默认闭环
+- [x] 按 `docs/guides/first-use.md` 实走一次默认闭环
 - [x] 验证新用户可在 10 分钟内完成首次接入与问答
 - [x] 补充验收记录或 smoke 证据
 
@@ -104,7 +104,7 @@
   - `tests/release-smoke.test.ts`
     - `cold-start-search`
 - 路线图状态证据：
-  - `docs/ROADMAP_CHECKLIST.md` 中 `P0 冷启动体验` 相关条目已完成
+  - `docs/plans/roadmap-checklist.md` 中 `P0 冷启动体验` 相关条目已完成
 
 ### 5. 产品身份统一验收
 
@@ -118,14 +118,14 @@
   - 包名 `@codefromkarl/context-atlas`
   - CLI 主命令 `contextatlas`
   - 兼容短别名 `cw`
-- `README.md`、`README.EN.md`、`docs/FIRST_USE.md`、`docs/CLI.md`、`docs/DEPLOYMENT.md` 均以 `contextatlas` 作为默认命令名。
+- `README.md`、`README.EN.md`、`docs/guides/first-use.md`、`docs/reference/cli.md`、`docs/guides/deployment.md` 均以 `contextatlas` 作为默认命令名。
 - `.github/workflows/release.yml` 的发布说明已统一使用：
   - npm 包名 `@codefromkarl/context-atlas`
   - 默认 CLI 命令 `contextatlas`
 - 仓库检索未发现 `CodeWeaver`、`ContextWeaver` 等旧品牌残留。
 - `cw` 仍被保留，但仅作为兼容短别名，不影响产品身份统一。
 
-详细记录：见 [Iteration 1 验收报告（2026-04-08）](./ITERATION_1_ACCEPTANCE_REPORT_2026_04_08.md)
+详细记录：见 [Iteration 1 验收报告（2026-04-08）](../archive/iterations/2026-04-08/iteration-1-acceptance-report.md)
 
 ---
 
@@ -135,9 +135,9 @@
 
 设计基线：
 
-- [Iteration 2 记忆治理边界设计（2026-04-08）](./ITERATION_2_MEMORY_GOVERNANCE_DESIGN_2026_04_08.md)
-- [Iteration 3 治理能力实现记录（2026-04-08）](./ITERATION_3_GOVERNANCE_IMPLEMENTATION_2026_04_08.md)
-- [Iteration 4 团队级验收报告（2026-04-08）](./ITERATION_4_TEAM_ACCEPTANCE_REPORT_2026_04_08.md)
+- [Iteration 2 记忆治理边界设计（2026-04-08）](../archive/iterations/2026-04-08/iteration-2-memory-governance-design.md)
+- [Iteration 3 治理能力实现记录（2026-04-08）](../archive/iterations/2026-04-08/iteration-3-governance-implementation.md)
+- [Iteration 4 团队级验收报告（2026-04-08）](../archive/iterations/2026-04-08/iteration-4-team-acceptance-report.md)
 
 ### 6. 共享与个人记忆分层
 
@@ -175,7 +175,7 @@
 
 ## 四、已完成项说明
 
-以下 Context Lifecycle 相关阶段已在 `docs/MEMPALACE_ABSORPTION_EXECUTION_PLAN.md` 中标记为完成：
+以下 Context Lifecycle 相关阶段已在 `docs/plans/mempalace-absorption-execution-plan.md` 中标记为完成：
 
 - Phase 3：证据回链与时态主路径
 - Phase 4：Agent Diary 生命周期接入
@@ -209,7 +209,7 @@
 
 交付记录：
 
-- [Iteration 5 Gateway 增强报告（2026-04-08）](./ITERATION_5_GATEWAY_ENHANCEMENT_REPORT_2026_04_08.md)
+- [Iteration 5 Gateway 增强报告（2026-04-08）](../archive/iterations/2026-04-08/iteration-5-gateway-enhancement-report.md)
 
 ---
 

@@ -229,3 +229,75 @@ test('alert:eval CLI surfaces combined governance alerts for catalog drift, orph
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
+
+test('alert:eval CLI respects stale-days threshold when evaluating stale-memory alerts', async () => {
+  const baseDir = makeBaseDir();
+  const repoRoot = path.join(baseDir, 'repo');
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  fs.mkdirSync(repoRoot, { recursive: true });
+
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase(path.join(baseDir, 'memory-hub.db')));
+
+  try {
+    const store = new MemoryStore(repoRoot);
+    await store.saveFeature(buildFeature('SearchService'));
+    await store.appendLongTermMemoryItem({
+      type: 'feedback',
+      title: 'stale governance memory',
+      summary: 'legacy smoke guidance',
+      scope: 'project',
+      source: 'user-explicit',
+      confidence: 1,
+      lastVerifiedAt: '2020-01-01',
+      tags: ['smoke'],
+      links: [],
+      provenance: [],
+      durability: 'stable',
+    });
+
+    const staleResult = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'alert:eval', '--json', '--stale-days', '30'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+    assert.equal(staleResult.status, 0, staleResult.stderr);
+    const stalePayload = JSON.parse(staleResult.stdout);
+    assert.ok(
+      stalePayload.triggered.some((item: { ruleId?: string }) => item.ruleId === 'memory-high-stale-rate'),
+    );
+
+    const relaxedResult = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'alert:eval', '--json', '--stale-days', '5000'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+    assert.equal(relaxedResult.status, 0, relaxedResult.stderr);
+    const relaxedPayload = JSON.parse(relaxedResult.stdout);
+    assert.ok(
+      !relaxedPayload.triggered.some((item: { ruleId?: string }) => item.ruleId === 'memory-high-stale-rate'),
+    );
+  } finally {
+    MemoryStore.setSharedHubForTests(null);
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});

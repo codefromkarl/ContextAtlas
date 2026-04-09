@@ -4,16 +4,20 @@ import type { CommandRegistrar } from '../types.js';
 export function registerOpsAlertCommands(cli: CommandRegistrar): void {
   cli
     .command('alert:eval', '评估当前指标并触发告警')
+    .option('--stale-days <days>', '记忆 stale 阈值天数', { default: '30' })
     .option('--json', '以 JSON 输出')
-    .action(async (options: { json?: boolean }) => {
+    .action(async (options: { staleDays?: string; json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
       const { evaluateAlerts, formatAlertReport } = await import('../../monitoring/alertEngine.js');
       const { buildAlertEvaluationMetrics } = await import('../../monitoring/healthFull.js');
       try {
+        const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
         const [indexHealth, memoryHealth] = await Promise.all([
           analyzeIndexHealth(),
-          analyzeMemoryHealth(),
+          analyzeMemoryHealth({
+            staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
+          }),
         ]);
         const result = evaluateAlerts(buildAlertEvaluationMetrics({ indexHealth, memoryHealth }));
         if (options.json) {

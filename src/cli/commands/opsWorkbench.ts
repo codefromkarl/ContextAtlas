@@ -13,6 +13,7 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
       const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
       const { analyzeIndexOptimization } = await import('../../usage/usageAnalysis.js');
+      const { buildAlertEvaluationMetrics } = await import('../../monitoring/healthFull.js');
       const { formatOpsSummaryReport, summarizeOpsSnapshot } = await import(
         '../../monitoring/opsSummary.js'
       );
@@ -32,15 +33,9 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
           days: Number.isFinite(days) && days > 0 ? days : 7,
         });
 
-        const alertResult = evaluateAlerts({
-          ...indexHealth,
-          memory: {
-            staleRate: memoryHealth.longTermFreshness.staleRate,
-            expiredRate: memoryHealth.longTermFreshness.expiredRate,
-            orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
-            catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
-          },
-        });
+        const alertResult = evaluateAlerts(
+          buildAlertEvaluationMetrics({ indexHealth, memoryHealth }),
+        );
 
         const summary = summarizeOpsSnapshot({
           indexHealth,

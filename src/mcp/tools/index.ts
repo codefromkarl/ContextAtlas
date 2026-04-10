@@ -73,6 +73,16 @@ export {
   handleAssembleContext,
 } from './assembleContext.js';
 export {
+  detectChangesSchema,
+  graphContextSchema,
+  graphImpactSchema,
+  graphQuerySchema,
+  handleDetectChanges,
+  handleGraphContext,
+  handleGraphImpact,
+  handleGraphQuery,
+} from './codeGraph.js';
+export {
   handlePrepareHandoff,
   prepareHandoffSchema,
 } from './prepareHandoff.js';

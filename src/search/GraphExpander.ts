@@ -10,6 +10,7 @@
 import type Database from 'better-sqlite3';
 import { getEmbeddingConfig } from '../config.js';
 import { initDb } from '../db/index.js';
+import { GraphStore, type StoredSymbol } from '../graph/GraphStore.js';
 import { logger } from '../utils/logger.js';
 import { type ChunkRecord, getVectorStore, type VectorStore } from '../vectorStore/index.js';
 import { createResolvers, type ImportResolver } from './resolvers/index.js';
@@ -345,6 +346,7 @@ export class GraphExpander {
     const result: ScoredChunk[] = [];
     const { importFilesPerSeed, chunksPerImportFile, decayImport, decayDepth } = this.config;
     const seedScoreByFile = this.buildSeedScoreByFile(seeds);
+    const seedsByFile = this.groupByFile(seeds);
     const queue: Array<{ filePath: string; depth: number; seedScore: number }> = [];
     const visited = new Set<string>();
 
@@ -361,6 +363,21 @@ export class GraphExpander {
 
       // depth=1 只允许 barrel 文件
       if (depth > 0 && !this.isBarrelFile(filePath)) continue;
+
+      if (depth === 0) {
+        const graphFirstChunks = await this.expandGraphRelations(
+          seedsByFile.get(filePath) ?? [],
+          existingKeys,
+          queryTokens,
+          seedScore,
+          chunksPerImportFile,
+          decayImport,
+        );
+        if (graphFirstChunks.length > 0) {
+          result.push(...graphFirstChunks);
+          continue;
+        }
+      }
 
       // 1. 查找对应的解析器
       const resolver = this.resolvers.find((r) => r.supports(filePath));
@@ -427,6 +444,65 @@ export class GraphExpander {
     return result;
   }
 
+  private async expandGraphRelations(
+    seeds: ScoredChunk[],
+    existingKeys: Set<string>,
+    queryTokens: Set<string> | undefined,
+    seedScore: number,
+    chunksPerImportFile: number,
+    decayImport: number,
+  ): Promise<ScoredChunk[]> {
+    if (!this.db || !this.vectorStore || seeds.length === 0 || chunksPerImportFile <= 0) {
+      return [];
+    }
+
+    const store = new GraphStore(this.db);
+    const resolvedSeedSymbols = this.resolveSeedSymbols(store, seeds);
+    if (resolvedSeedSymbols.length === 0) {
+      return [];
+    }
+
+    const results: ScoredChunk[] = [];
+    const seenTargets = new Set<string>();
+
+    for (const symbol of resolvedSeedSymbols) {
+      const relations = store
+        .getDirectRelations(symbol.id, 'downstream')
+        .filter((relation) => relation.resolved && relation.symbol);
+
+      for (const relation of relations) {
+        const target = relation.symbol!;
+        const targetKey = `${target.id}`;
+        if (seenTargets.has(targetKey)) continue;
+        seenTargets.add(targetKey);
+
+        const targetChunks = await this.vectorStore.getFileChunks(target.filePath);
+        if (!targetChunks || targetChunks.length === 0) continue;
+
+        const prioritized = targetChunks.filter((chunk) => this.chunkMatchesSymbol(chunk, target));
+        const selectedChunks = this.selectImportChunks(
+          prioritized.length > 0 ? prioritized : targetChunks,
+          chunksPerImportFile,
+          queryTokens,
+        );
+
+        for (const chunk of selectedChunks) {
+          const key = `${target.filePath}#${chunk.chunk_index}`;
+          if (existingKeys.has(key)) continue;
+          results.push({
+            filePath: target.filePath,
+            chunkIndex: chunk.chunk_index,
+            score: seedScore * decayImport,
+            source: 'import',
+            record: { ...chunk, _distance: 0 },
+          });
+        }
+      }
+    }
+
+    return results;
+  }
+
   // =========================================
   // 工具方法
   // =========================================
@@ -464,6 +540,42 @@ export class GraphExpander {
       }
     }
     return map;
+  }
+
+  private resolveSeedSymbols(store: GraphStore, seeds: ScoredChunk[]): StoredSymbol[] {
+    const resolved = new Map<string, StoredSymbol>();
+
+    for (const seed of seeds) {
+      const symbolName = this.extractSymbolNameFromBreadcrumb(seed.record.breadcrumb);
+      if (!symbolName) continue;
+
+      const matches = store
+        .findSymbolsByName(symbolName)
+        .filter((symbol) => symbol.filePath === seed.filePath);
+      for (const match of matches) {
+        resolved.set(match.id, match);
+      }
+    }
+
+    return Array.from(resolved.values());
+  }
+
+  private extractSymbolNameFromBreadcrumb(breadcrumb: string): string | null {
+    const parts = breadcrumb.split(' > ');
+    const tail = parts[parts.length - 1];
+    if (!tail || tail.includes('/')) {
+      return null;
+    }
+
+    return tail
+      .replace(/^(abstract class |class |interface |fn\*? |def |func |struct |enum |trait |record |@interface )/, '')
+      .trim() || null;
+  }
+
+  private chunkMatchesSymbol(chunk: ChunkRecord, symbol: StoredSymbol): boolean {
+    const normalizedBreadcrumb = chunk.breadcrumb.toLowerCase();
+    const normalizedName = symbol.name.toLowerCase();
+    return normalizedBreadcrumb.includes(normalizedName);
   }
 
   /**

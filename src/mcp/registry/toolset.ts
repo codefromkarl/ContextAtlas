@@ -4,6 +4,10 @@ export type McpToolsetMode = 'full' | 'retrieval-only';
 
 const RETRIEVAL_ONLY_TOOL_NAMES = new Set<string>([
   'codebase-retrieval',
+  'graph_impact',
+  'graph_context',
+  'graph_query',
+  'detect_changes',
   'find_memory',
   'get_project_profile',
   'load_module_memory',

@@ -8,6 +8,8 @@ import {
   type ProcessedChunk,
   SemanticSplitter,
 } from '../chunking/index.js';
+import type { GraphWritePayload } from '../graph/types.js';
+import { SymbolExtractor } from '../graph/SymbolExtractor.js';
 import { readFileWithEncoding } from '../utils/encoding.js';
 import { sha256 } from './hash.js';
 import { getLanguage } from './language.js';
@@ -112,6 +114,7 @@ const splitter = new SemanticSplitter({
   minChunkSize: 50,
   chunkOverlap: 40, // 混合检索(BM25+向量+rerank)下的保守 overlap
 });
+const symbolExtractor = new SymbolExtractor();
 
 /**
  * 文件处理结果
@@ -122,6 +125,8 @@ export interface ProcessResult {
   hash: string;
   content: string | null;
   chunks: ProcessedChunk[];
+  /** Phase 0 先固定接缝，Phase 1 再写入真实 graph payload。 */
+  graph?: GraphWritePayload;
   language: string;
   mtime: number;
   size: number;
@@ -317,6 +322,7 @@ async function processFile(
 
     // 语义分片
     let chunks: ProcessedChunk[] = [];
+    let graph: GraphWritePayload | undefined;
     let astAttempted = false;
     let astFailed = false;
     let usedFallback = false;
@@ -329,6 +335,7 @@ async function processFile(
         if (parser) {
           const tree = parser.parse(content);
           chunks = splitter.split(tree, content, relPath, language);
+          graph = symbolExtractor.extract(tree, content, relPath, language);
         }
       } catch (err) {
         const error = err as { message?: string };
@@ -350,6 +357,7 @@ async function processFile(
       hash,
       content,
       chunks,
+      graph,
       language,
       mtime,
       size,

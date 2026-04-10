@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type Database from 'better-sqlite3';
 import { getEmbeddingConfig } from '../config.js';
 import {
   batchDelete,
@@ -18,6 +19,7 @@ import {
   setStoredIndexContentSchemaVersion,
   setStoredEmbeddingDimensions,
 } from '../db/index.js';
+import { GraphStore } from '../graph/GraphStore.js';
 import { getIndexer } from '../indexer/index.js';
 import { closeAllCachedResources } from '../runtime/closeAllCachedResources.js';
 import {
@@ -33,6 +35,25 @@ import { crawl } from './crawler.js';
 import { initFilter } from './filter.js';
 import { type ProcessResult, processFiles } from './processor.js';
 import { INDEX_CONTENT_SCHEMA_VERSION } from './processor.js';
+
+function syncGraphArtifacts(db: Database.Database, results: ProcessResult[]): void {
+  const store = new GraphStore(db);
+  for (const result of results) {
+    if (result.status !== 'added' && result.status !== 'modified') continue;
+    if (result.graph) {
+      store.upsertFile(result.relPath, result.graph);
+    } else {
+      store.deleteFile(result.relPath);
+    }
+  }
+}
+
+function deleteGraphArtifacts(db: Database.Database, paths: string[]): void {
+  const store = new GraphStore(db);
+  for (const filePath of paths) {
+    store.deleteFile(filePath);
+  }
+}
 
 /**
  * 扫描结果统计
@@ -307,12 +328,14 @@ async function scanWithIncrementalHint(
     if (candidateSummary.toAdd.length > 0) {
       batchUpsert(db, candidateSummary.toAdd);
     }
+    syncGraphArtifacts(db, candidateResults);
     if (candidateSummary.toUpdateMtime.length > 0) {
       batchUpdateMtime(db, candidateSummary.toUpdateMtime);
     }
 
     if (hint.deletedPaths.length > 0) {
       batchDelete(db, hint.deletedPaths);
+      deleteGraphArtifacts(db, hint.deletedPaths);
     }
 
     let stats: ScanStats = {
@@ -533,6 +556,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
       if (summary.toAdd.length > 0) {
         batchUpsert(db, summary.toAdd);
       }
+      syncGraphArtifacts(db, batchResults);
       if (summary.toUpdateMtime.length > 0) {
         batchUpdateMtime(db, summary.toUpdateMtime);
       }
@@ -587,6 +611,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
     }
 
     batchDelete(db, deletedPaths);
+    deleteGraphArtifacts(db, deletedPaths);
 
     if (options.vectorIndex !== false && indexer) {
       const deletedResults = createDeletedResults(deletedPaths);

@@ -4,8 +4,12 @@ import {
   codebaseRetrievalSchema,
   createCheckpointSchema,
   deleteMemorySchema,
+  detectChangesSchema,
   findAgentDiarySchema,
   findMemorySchema,
+  graphContextSchema,
+  graphImpactSchema,
+  graphQuerySchema,
   handleAssembleContext,
   handleCreateCheckpoint,
   handleFindAgentDiary,
@@ -16,6 +20,10 @@ import {
   getDependencyChainSchema,
   getProjectProfileSchema,
   handleCodebaseRetrieval,
+  handleDetectChanges,
+  handleGraphContext,
+  handleGraphImpact,
+  handleGraphQuery,
   handleDeleteMemory,
   handleFindMemory,
   handleGetDependencyChain,
@@ -85,6 +93,14 @@ export function createToolDispatcher(cwd: string) {
         return handleSuggestPhaseBoundary(suggestPhaseBoundarySchema.parse(args));
       case 'find_memory':
         return handleFindMemory(findMemorySchema.parse(args), cwd);
+      case 'graph_impact':
+        return handleGraphImpact(graphImpactSchema.parse(args), cwd);
+      case 'graph_context':
+        return handleGraphContext(graphContextSchema.parse(args), cwd);
+      case 'detect_changes':
+        return handleDetectChanges(detectChangesSchema.parse(args), cwd);
+      case 'graph_query':
+        return handleGraphQuery(graphQuerySchema.parse(args), cwd);
       case 'record_memory':
         return handleRecordMemory(recordMemorySchema.parse(args), cwd);
       case 'record_decision':

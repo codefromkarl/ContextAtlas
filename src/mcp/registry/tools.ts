@@ -103,6 +103,99 @@ Examples of BAD queries:
     },
   },
   {
+    name: 'detect_changes',
+    description: `
+Analyze git diff changes and map changed lines back to indexed graph symbols, then summarize direct upstream/downstream impact.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'string',
+          enum: ['working_tree', 'staged'],
+          default: 'working_tree',
+          description: 'Whether to inspect unstaged working tree changes or staged changes.',
+        },
+        format: { ...responseFormatProperty },
+      },
+    },
+  },
+  {
+    name: 'graph_query',
+    description: `
+Trace graph paths from one exact entry symbol across resolved relations such as CALLS and HAS_METHOD.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Exact entry symbol name to trace.',
+        },
+        direction: {
+          type: 'string',
+          enum: ['upstream', 'downstream'],
+          default: 'downstream',
+          description: 'Traversal direction for path tracing.',
+        },
+        max_depth: {
+          type: 'number',
+          default: 3,
+          description: 'Maximum traversal depth.',
+        },
+        format: { ...responseFormatProperty },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'graph_impact',
+    description: `
+Analyze downstream / upstream code graph impact for one exact symbol name.
+
+Use this after indexing when you need to inspect immediate relations and resolved local impact.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Exact symbol name to inspect.',
+        },
+        direction: {
+          type: 'string',
+          enum: ['upstream', 'downstream', 'both'],
+          default: 'downstream',
+          description: 'Traversal direction.',
+        },
+        max_depth: {
+          type: 'number',
+          default: 2,
+          description: 'Maximum traversal depth for resolved impact.',
+        },
+        format: { ...responseFormatProperty },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'graph_context',
+    description: `
+Return the immediate graph neighborhood for one exact symbol name, including parent, upstream, and downstream relations.
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Exact symbol name to inspect.',
+        },
+        format: { ...responseFormatProperty },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
     name: 'create_checkpoint',
     description: `
 Create a durable task checkpoint for later resume or handoff.

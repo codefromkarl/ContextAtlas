@@ -56,6 +56,9 @@ export function generateProjectId(projectPath: string): string {
 }
 
 const SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH = '20260409_add_vector_index_hash_to_files';
+const SCHEMA_MIGRATION_RESERVE_CODE_GRAPH = '20260410_reserve_code_graph_hooks';
+const SCHEMA_MIGRATION_ADD_CODE_GRAPH_TABLES = '20260410_add_code_graph_tables';
+const SCHEMA_MIGRATION_RELATIONS_ALLOW_UNRESOLVED = '20260410_relations_allow_unresolved_targets';
 
 function readStringField(row: unknown, key: string): string | undefined {
   if (!row || typeof row !== 'object') {
@@ -124,12 +127,96 @@ function recordSchemaMigration(db: Database.Database, version: string): void {
   ).run(version, new Date().toISOString());
 }
 
+function getCreateTableSql(db: Database.Database, table: string): string | null {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table);
+  return readStringField(row, 'sql') ?? null;
+}
+
+function rebuildRelationsTableWithoutForeignKeys(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE relations_next (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1.0,
+      reason TEXT
+    );
+
+    INSERT INTO relations_next (id, from_id, to_id, type, confidence, reason)
+    SELECT id, from_id, to_id, type, confidence, reason
+    FROM relations;
+
+    DROP TABLE relations;
+    ALTER TABLE relations_next RENAME TO relations;
+
+    CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(type);
+  `);
+}
+
 function applySchemaMigrations(db: Database.Database): void {
   if (!hasAppliedMigration(db, SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH)) {
     if (!hasColumn(db, 'files', 'vector_index_hash')) {
       db.exec(`ALTER TABLE files ADD COLUMN ${'vector_index_hash'} TEXT`);
     }
     recordSchemaMigration(db, SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH);
+  }
+
+  if (!hasAppliedMigration(db, SCHEMA_MIGRATION_RESERVE_CODE_GRAPH)) {
+    // Phase 0: 仅预留 code graph migration 钩子，不创建任何新表。
+    recordSchemaMigration(db, SCHEMA_MIGRATION_RESERVE_CODE_GRAPH);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS symbols (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      language TEXT NOT NULL,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      modifiers TEXT NOT NULL DEFAULT '[]',
+      parent_id TEXT,
+      exported INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (file_path) REFERENCES files(path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
+    CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+    CREATE INDEX IF NOT EXISTS idx_symbols_type ON symbols(type);
+    CREATE INDEX IF NOT EXISTS idx_symbols_parent ON symbols(parent_id);
+
+    CREATE TABLE IF NOT EXISTS relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_id TEXT NOT NULL,
+      to_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1.0,
+      reason TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
+    CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(type);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts
+    USING fts5(symbol_id UNINDEXED, name, file_path);
+  `);
+
+  if (!hasAppliedMigration(db, SCHEMA_MIGRATION_ADD_CODE_GRAPH_TABLES)) {
+    recordSchemaMigration(db, SCHEMA_MIGRATION_ADD_CODE_GRAPH_TABLES);
+  }
+
+  const relationsSql = getCreateTableSql(db, 'relations') ?? '';
+  const relationsNeedRebuild = /FOREIGN KEY/i.test(relationsSql);
+  if (relationsNeedRebuild) {
+    rebuildRelationsTableWithoutForeignKeys(db);
+  }
+  if (!hasAppliedMigration(db, SCHEMA_MIGRATION_RELATIONS_ALLOW_UNRESOLVED)) {
+    recordSchemaMigration(db, SCHEMA_MIGRATION_RELATIONS_ALLOW_UNRESOLVED);
   }
 }
 
@@ -316,6 +403,27 @@ export function batchDelete(db: Database.Database, paths: string[]): void {
 
   const transaction = db.transaction((items: string[]) => {
     for (const item of items) {
+      const symbolIds = db
+        .prepare('SELECT id FROM symbols WHERE file_path = ?')
+        .all(item)
+        .map((row) => readStringField(row, 'id'))
+        .filter((id): id is string => Boolean(id));
+
+      if (symbolIds.length > 0) {
+        const placeholders = symbolIds.map(() => '?').join(', ');
+        db.prepare(`DELETE FROM relations WHERE from_id IN (${placeholders}) OR to_id IN (${placeholders})`).run(
+          ...symbolIds,
+          ...symbolIds,
+        );
+        db.prepare(`DELETE FROM symbols_fts WHERE symbol_id IN (${placeholders})`).run(...symbolIds);
+      } else {
+        db.prepare('DELETE FROM symbols_fts WHERE file_path = ?').run(item);
+      }
+
+      db.prepare('DELETE FROM symbols WHERE file_path = ?').run(item);
+    }
+
+    for (const item of items) {
       stmt.run(item);
     }
   });
@@ -332,7 +440,12 @@ export function batchDelete(db: Database.Database, paths: string[]): void {
  * 清空数据库
  */
 export function clear(db: Database.Database): void {
-  db.exec('DELETE FROM files');
+  db.exec(`
+    DELETE FROM relations;
+    DELETE FROM symbols_fts;
+    DELETE FROM symbols;
+    DELETE FROM files;
+  `);
 }
 
 // ===========================================

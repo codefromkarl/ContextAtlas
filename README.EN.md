@@ -15,5 +15,5 @@
 | Document | Purpose |
 |------|------|
 | [Docs index](./docs/README.md) | Unified entry for stable docs, plans, changelog, and archived delivery material |
-| [2026-04-09 update summary](./docs/changelog/2026-04-09.md) | Summary of the latest delivery-facing updates |
+| [2026-04-10 update summary](./docs/changelog/2026-04-10.md) | Default-on graph context for codebase retrieval plus docs sync |
 | [Latest delivery bundle](./docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md) | Handoff bundle for the latest verified delivery |

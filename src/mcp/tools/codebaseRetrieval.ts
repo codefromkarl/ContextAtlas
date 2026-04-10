@@ -14,7 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { responseFormatSchema } from './responseFormat.js';
-import { generateProjectId } from '../../db/index.js';
+import { closeDb, generateProjectId, initDb } from '../../db/index.js';
+import { GraphStore } from '../../graph/GraphStore.js';
 import type {
   BlockFirstPayload,
   CheckpointCandidate,
@@ -57,6 +58,11 @@ export const codebaseRetrievalSchema = z.object({
     .optional()
     .default('expanded')
     .describe('Whether to return a lightweight overview or the expanded full retrieval payload'),
+  include_graph_context: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe('When true, append a compact direct graph context summary for top matched symbols.'),
 });
 
 export type CodebaseRetrievalInput = z.infer<typeof codebaseRetrievalSchema>;
@@ -144,10 +150,22 @@ interface RetrievalResultCard {
   reasoning: string[];
   trustRules: string[];
   nextActions: string[];
+  graphContext?: RetrievalGraphContextSummary;
   status?: {
     headline: string;
     details: string[];
   };
+}
+
+interface RetrievalGraphSymbolSummary {
+  name: string;
+  filePath: string;
+  directUpstream: string[];
+  directDownstream: string[];
+}
+
+interface RetrievalGraphContextSummary {
+  symbols: RetrievalGraphSymbolSummary[];
 }
 
 // ===========================================
@@ -323,7 +341,14 @@ export async function handleCodebaseRetrieval(
   args: CodebaseRetrievalInput,
   onProgress?: ProgressCallback,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const { repo_path, information_request, technical_terms, response_format, response_mode } = args;
+  const {
+    repo_path,
+    information_request,
+    technical_terms,
+    response_format,
+    response_mode,
+    include_graph_context,
+  } = args;
   const requestId = crypto.randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const reportProgress = createRetrievalProgressReporter(onProgress);
@@ -644,6 +669,7 @@ export async function handleCodebaseRetrieval(
     informationRequest: information_request,
     technicalTerms: technical_terms || [],
     pack: contextPack,
+    includeGraphContext: include_graph_context ?? true,
     status: {
       headline: '索引状态: 完整模式已就绪',
       details: ['当前结果来自已建立索引的混合检索链路'],
@@ -683,6 +709,7 @@ function formatMcpResponse(
       ? {
           responseMode: options.responseMode,
           summary: overview.summary,
+          graphContext: resultCard.graphContext,
           topFiles: overview.topFiles,
           contextBlocks,
           references: overview.references,
@@ -698,6 +725,7 @@ function formatMcpResponse(
             files: files.length,
             totalSegments: files.reduce((acc, f) => acc + f.segments.length, 0),
           },
+          graphContext: resultCard.graphContext,
           contextBlocks,
           references: contextBlocks.flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, ...item }))),
           expansionCandidates: overview.expansionCandidates,
@@ -730,6 +758,13 @@ function formatMcpResponse(
       '',
       '### Next Inspection Suggestions',
       ...(overview.nextInspectionSuggestions.length > 0 ? overview.nextInspectionSuggestions.map((item) => `- ${item}`) : ['- None']),
+      ...(resultCard.graphContext
+        ? [
+            '',
+            '### Graph Context',
+            ...formatGraphContextSummary(resultCard.graphContext),
+          ]
+        : []),
     ];
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   }
@@ -768,6 +803,13 @@ function formatMcpResponse(
     '### 相关长期记忆 (Source: Long-term Memory)',
     formatLongTermMemoryMatches(resultCard.longTermMemories),
     '',
+    ...(resultCard.graphContext
+      ? [
+          '### 直接图谱摘要 (Source: Code Graph)',
+          formatGraphContextSummary(resultCard.graphContext).join('\n'),
+          '',
+        ]
+      : []),
     '### 近期反馈信号 (Source: Feedback Loop)',
     formatFeedbackMatches(resultCard.feedbackSignals),
     '',
@@ -854,12 +896,14 @@ async function buildRetrievalResultCard({
   informationRequest,
   technicalTerms,
   pack,
+  includeGraphContext,
   status,
 }: {
   repoPath: string;
   informationRequest: string;
   technicalTerms: string[];
   pack: ContextPack;
+  includeGraphContext: boolean;
   status?: RetrievalResultCard['status'];
 }): Promise<RetrievalResultCard> {
   try {
@@ -900,11 +944,16 @@ async function buildRetrievalResultCard({
       ),
     );
 
+    const graphContext = includeGraphContext
+      ? buildGraphContextSummary(repoPath, pack)
+      : undefined;
+
     return {
       memories: memoryMatchesWithFeedback,
       decisions: decisionMatches,
       longTermMemories: longTermMatches,
       feedbackSignals,
+      graphContext,
       reasoning: buildReasoningLines(
         informationRequest,
         technicalTerms,
@@ -929,6 +978,7 @@ async function buildRetrievalResultCard({
       decisions: [],
       longTermMemories: [],
       feedbackSignals: [],
+      graphContext: includeGraphContext ? buildGraphContextSummary(repoPath, pack) : undefined,
       reasoning: buildReasoningLines(informationRequest, technicalTerms, pack, [], [], [], []),
       trustRules: buildTrustRules(),
       nextActions: buildNextActions({
@@ -939,6 +989,81 @@ async function buildRetrievalResultCard({
       status,
     };
   }
+}
+
+function buildGraphContextSummary(
+  repoPath: string,
+  pack: ContextPack,
+): RetrievalGraphContextSummary | undefined {
+  const projectId = generateProjectId(repoPath);
+  const snapshotId = resolveCurrentSnapshotId(projectId);
+  const db = initDb(projectId, snapshotId);
+
+  try {
+    const store = new GraphStore(db);
+    const seen = new Set<string>();
+    const symbols: RetrievalGraphSymbolSummary[] = [];
+
+    for (const seed of pack.seeds) {
+      const symbolName = extractSymbolNameFromBreadcrumb(seed.record.breadcrumb);
+      if (!symbolName) continue;
+
+      const matches = store
+        .findSymbolsByName(symbolName)
+        .filter((symbol) => symbol.filePath === seed.filePath);
+      const match = matches[0];
+      if (!match) continue;
+      if (seen.has(match.id)) continue;
+      seen.add(match.id);
+
+      const upstream = store
+        .getDirectRelations(match.id, 'upstream')
+        .slice(0, 3)
+        .map((relation) => `${relation.relationType}:${relation.targetName}`);
+      const downstream = store
+        .getDirectRelations(match.id, 'downstream')
+        .slice(0, 3)
+        .map((relation) => `${relation.relationType}:${relation.targetName}`);
+
+      symbols.push({
+        name: match.name,
+        filePath: match.filePath,
+        directUpstream: upstream,
+        directDownstream: downstream,
+      });
+
+      if (symbols.length >= 3) {
+        break;
+      }
+    }
+
+    return symbols.length > 0 ? { symbols } : undefined;
+  } catch (err) {
+    logger.debug({ error: (err as Error).message }, '构建图谱摘要失败，忽略 code graph summary');
+    return undefined;
+  } finally {
+    closeDb(db);
+  }
+}
+
+function extractSymbolNameFromBreadcrumb(breadcrumb: string): string | null {
+  const parts = breadcrumb.split(' > ');
+  const tail = parts[parts.length - 1];
+  if (!tail || tail.includes('/')) {
+    return null;
+  }
+
+  return tail
+    .replace(/^(abstract class |class |interface |fn\*? |def |func |struct |enum |trait |record |@interface )/, '')
+    .trim() || null;
+}
+
+function formatGraphContextSummary(summary: RetrievalGraphContextSummary): string[] {
+  return summary.symbols.flatMap((symbol) => [
+    `- ${symbol.name} (${symbol.filePath})`,
+    `  upstream: ${symbol.directUpstream.length > 0 ? symbol.directUpstream.join(', ') : 'none'}`,
+    `  downstream: ${symbol.directDownstream.length > 0 ? symbol.directDownstream.join(', ') : 'none'}`,
+  ]);
 }
 
 function rankFeatureMemoryMatches(

@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { generateProjectId, initDb } from '../src/db/index.js';
+import { batchUpsert, generateProjectId, initDb } from '../src/db/index.js';
+import { GraphStore } from '../src/graph/index.js';
 import { getActiveTask } from '../src/indexing/queue.js';
 import { handleCodebaseRetrieval } from '../src/mcp/tools/codebaseRetrieval.js';
 import { MemoryStore } from '../src/memory/MemoryStore.js';
@@ -497,7 +498,7 @@ test('handleCodebaseRetrieval formats default result card with memory and decisi
   }
 });
 
-test('codebaseRetrievalSchema normalizes markdown alias and accepts json response format', async () => {
+test('codebaseRetrievalSchema normalizes markdown alias and enables graph context by default', async () => {
   const { codebaseRetrievalSchema } = await import('../src/mcp/tools/codebaseRetrieval.ts');
   const markdownParsed = codebaseRetrievalSchema.parse({
     repo_path: '/tmp/repo',
@@ -505,13 +506,191 @@ test('codebaseRetrievalSchema normalizes markdown alias and accepts json respons
     response_format: 'markdown',
   });
   assert.equal(markdownParsed.response_format, 'text');
+  assert.equal(markdownParsed.include_graph_context, true);
 
   const jsonParsed = codebaseRetrievalSchema.parse({
     repo_path: '/tmp/repo',
     information_request: 'trace auth flow',
     response_format: 'json',
+    include_graph_context: true,
   });
   assert.equal(jsonParsed.response_format, 'json');
+  assert.equal(jsonParsed.include_graph_context, true);
+});
+
+test('handleCodebaseRetrieval appends graph context summary when include_graph_context=true', async () => {
+  const baseDir = createTempBaseDir();
+  const repoDir = path.join(baseDir, 'repo');
+  fs.mkdirSync(path.join(repoDir, 'src', 'search'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'src', 'search', 'SearchService.ts'), 'export class SearchService {}');
+
+  const previousEnv = {
+    CONTEXTATLAS_BASE_DIR: process.env.CONTEXTATLAS_BASE_DIR,
+    MCP_AUTO_INDEX: process.env.MCP_AUTO_INDEX,
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
+    RERANK_BASE_URL: process.env.RERANK_BASE_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+  };
+
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  process.env.MCP_AUTO_INDEX = 'false';
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
+  process.env.EMBEDDINGS_MODEL = 'test-embedding-model';
+  process.env.RERANK_API_KEY = 'test-key';
+  process.env.RERANK_BASE_URL = 'http://127.0.0.1/rerank';
+  process.env.RERANK_MODEL = 'test-rerank-model';
+
+  const projectId = generateProjectId(repoDir);
+  const db = initDb(projectId);
+  batchUpsert(db, [
+    {
+      path: 'src/search/SearchService.ts',
+      hash: 'hash-search-service',
+      mtime: 1,
+      size: 64,
+      content: 'export class SearchService {}',
+      language: 'typescript',
+      vectorIndexHash: null,
+    },
+  ]);
+  new GraphStore(db).upsertFile('src/search/SearchService.ts', {
+    symbols: [
+      {
+        id: 'typescript:src/search/SearchService.ts:SearchService:1',
+        name: 'SearchService',
+        type: 'Class',
+        filePath: 'src/search/SearchService.ts',
+        language: 'typescript',
+        startLine: 1,
+        endLine: 10,
+        modifiers: ['export'],
+        parentId: null,
+        exported: true,
+      },
+      {
+        id: 'typescript:src/search/SearchService.ts:buildContextPack:2',
+        name: 'buildContextPack',
+        type: 'Method',
+        filePath: 'src/search/SearchService.ts',
+        language: 'typescript',
+        startLine: 2,
+        endLine: 8,
+        modifiers: [],
+        parentId: 'typescript:src/search/SearchService.ts:SearchService:1',
+        exported: false,
+      },
+    ],
+    relations: [
+      {
+        fromId: 'typescript:src/search/SearchService.ts:SearchService:1',
+        toId: 'typescript:src/search/SearchService.ts:buildContextPack:2',
+        type: 'HAS_METHOD',
+        confidence: 1,
+      },
+    ],
+  });
+  db.close();
+
+  const originalInit = SearchService.prototype.init;
+  const originalBuildContextPack = SearchService.prototype.buildContextPack;
+
+  SearchService.prototype.init = (async function initMock() {}) as typeof SearchService.prototype.init;
+  SearchService.prototype.buildContextPack = (async function buildContextPackMock() {
+    return {
+      query: 'search service',
+      seeds: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          chunkIndex: 0,
+          score: 0.95,
+          source: 'vector',
+          record: {
+            chunk_id: 'src/search/SearchService.ts#hash#0',
+            file_path: 'src/search/SearchService.ts',
+            file_hash: 'hash',
+            chunk_index: 0,
+            vector: [0, 0],
+            display_code: 'export class SearchService {}',
+            language: 'typescript',
+            breadcrumb: 'src/search/SearchService.ts > class SearchService',
+            start_index: 0,
+            end_index: 10,
+            raw_start: 0,
+            raw_end: 10,
+            vec_start: 0,
+            vec_end: 10,
+            _distance: 0,
+          },
+        },
+      ],
+      expanded: [],
+      files: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          segments: [
+            {
+              filePath: 'src/search/SearchService.ts',
+              rawStart: 0,
+              rawEnd: 10,
+              startLine: 1,
+              endLine: 1,
+              score: 0.95,
+              breadcrumb: 'src/search/SearchService.ts > class SearchService',
+              text: 'export class SearchService {}',
+            },
+          ],
+        },
+      ],
+      mode: 'expanded',
+      expansionCandidates: [],
+      nextInspectionSuggestions: [],
+      debug: {
+        wVec: 1,
+        wLex: 1,
+        timingMs: {},
+      },
+    };
+  }) as typeof SearchService.prototype.buildContextPack;
+
+  try {
+    const jsonResponse = await handleCodebaseRetrieval({
+      repo_path: repoDir,
+      information_request: 'trace search service',
+      response_format: 'json',
+      include_graph_context: true,
+    });
+    const jsonPayload = JSON.parse(jsonResponse.content[0]?.text ?? '{}');
+    assert.equal(jsonPayload.graphContext.symbols[0].name, 'SearchService');
+    assert.deepEqual(jsonPayload.graphContext.symbols[0].directDownstream, ['HAS_METHOD:buildContextPack']);
+
+    const textResponse = await handleCodebaseRetrieval({
+      repo_path: repoDir,
+      information_request: 'trace search service',
+      include_graph_context: true,
+    });
+    const text = textResponse.content[0]?.text ?? '';
+    assert.match(text, /直接图谱摘要/);
+    assert.match(text, /SearchService/);
+    assert.match(text, /HAS_METHOD:buildContextPack/);
+  } finally {
+    SearchService.prototype.init = originalInit;
+    SearchService.prototype.buildContextPack = originalBuildContextPack;
+
+    process.env.CONTEXTATLAS_BASE_DIR = previousEnv.CONTEXTATLAS_BASE_DIR;
+    process.env.MCP_AUTO_INDEX = previousEnv.MCP_AUTO_INDEX;
+    process.env.EMBEDDINGS_API_KEY = previousEnv.EMBEDDINGS_API_KEY;
+    process.env.EMBEDDINGS_BASE_URL = previousEnv.EMBEDDINGS_BASE_URL;
+    process.env.EMBEDDINGS_MODEL = previousEnv.EMBEDDINGS_MODEL;
+    process.env.RERANK_API_KEY = previousEnv.RERANK_API_KEY;
+    process.env.RERANK_BASE_URL = previousEnv.RERANK_BASE_URL;
+    process.env.RERANK_MODEL = previousEnv.RERANK_MODEL;
+
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
 });
 
 test('handleCodebaseRetrieval returns block-first json payload when response_format=json', async () => {

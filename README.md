@@ -33,6 +33,7 @@
 
 ## Updates
 
+- `2026-04-10`: `codebase-retrieval` now includes the lightweight direct graph summary by default, with MCP metadata, tests, and changelog docs updated in sync.
 - `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
 - `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
 - `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
@@ -279,10 +280,11 @@ ContextAtlas focuses on **what context to provide**, not how the task should be 
 | Document | Purpose |
 |------|------|
 | [Docs index](./docs/README.md) | Unified entry for stable docs, plans, changelog, and archived delivery material |
+| [2026-04-10 update summary](./docs/changelog/2026-04-10.md) | Default-on graph context for codebase retrieval plus MCP/docs sync |
 | [First use guide](./docs/guides/first-use.md) | Fast onboarding path for the default `contextatlas` loop |
-| [2026-04-09 update summary](./docs/changelog/2026-04-09.md) | Summary of index planning thresholds, long-term memory table split, and delivery sync |
 | [2026-04-06 update summary](./docs/changelog/2026-04-06.md) | Summary of the new main path, memory governance, operations, release gate, and team metrics |
 | [2026-04-07 update summary](./docs/changelog/2026-04-07.md) | Summary of the seven indexing phases covering lightweight planning, snapshot copy reduction, health repair, observability, fallback hardening, storage trimming, and benchmarks |
+| [2026-04-09 update summary](./docs/changelog/2026-04-09.md) | Summary of index planning thresholds, long-term memory table split, and delivery sync |
 | [Deployment guide](./docs/guides/deployment.md) | Installation, deployment patterns, MCP integration, operations |
 | [CLI reference](./docs/reference/cli.md) | CLI commands, categories, and examples |
 | [MCP reference](./docs/reference/mcp.md) | MCP tools, parameters, and calling patterns |

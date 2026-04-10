@@ -129,6 +129,8 @@ contextatlas mcp
 
 ### 代码检索
 
+`codebase-retrieval` 现在默认会附带一段轻量直接图谱摘要；只有在你明确不需要时，才传 `include_graph_context: false` 关闭。
+
 ```json
 {
   "repo_path": "/path/to/repo",

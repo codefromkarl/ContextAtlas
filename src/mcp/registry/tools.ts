@@ -98,6 +98,11 @@ Examples of BAD queries:
           description: 'Whether to return a lightweight overview or the expanded full retrieval payload',
           default: 'expanded',
         },
+        include_graph_context: {
+          type: 'boolean',
+          description: 'Whether to append a compact direct graph context summary for top matched symbols.',
+          default: true,
+        },
       },
       required: ['repo_path', 'information_request'],
     },

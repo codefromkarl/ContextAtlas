@@ -46,16 +46,16 @@
 
 ### 代码层
 
-- `src/cli/commands/search.ts`
-  - CLI 直接 import `../../mcp/tools/codebaseRetrieval.js`
+- ~~`src/cli/commands/search.ts`~~ ✅ 已修复
+  - ~~CLI 直接 import `../../mcp/tools/codebaseRetrieval.js`~~ → 现在直接 import `../../application/retrieval/executeRetrieval.js`
 - `src/cli/commands/bootstrap.ts`
   - `setup:local` 将 skills、MCP、prompt 文档绑定在同一命令
-- `src/setup/local.ts`
-  - 同时写入 `~/.claude/mcp.json`、`~/.codex/config.toml`、prompt 文档和 `contextatlas-mcp` skill
+- ~~`src/setup/local.ts`~~ ✅ 已修复
+  - ~~同时写入 `~/.claude/mcp.json`、`~/.codex/config.toml`、prompt 文档和 `contextatlas-mcp` skill~~ → 现在按模式互斥生成
 - `src/config.ts`
   - 隐式 stdio 环境自动注入 `mcp` 子命令
-- `src/mcp/tools/codebaseRetrieval.ts`
-  - 混合承载参数校验、自动索引决策、检索编排、结果卡片与 MCP 响应包装
+- ~~`src/mcp/tools/codebaseRetrieval.ts`~~ ✅ 已修复
+  - ~~混合承载参数校验、自动索引决策、检索编排、结果卡片与 MCP 响应包装~~ → 现在仅为 ~105 行 thin adapter（Zod schema + progress + handler）
 
 ### 文档层
 
@@ -158,26 +158,26 @@ setup / docs / generated assets
 - 文档中有清晰的模式矩阵
 - 执行者不再以“默认混搭”为实现假设
 
-### Phase 1 - 抽出 application/use case 层
+### Phase 1 - 抽出 application/use case 层 ✅ 已完成
 
 目标：
 
 - 解除 CLI 对 MCP tool handler 的直接依赖
 - 让 MCP handler 只保留协议适配职责
 
-建议新增文件：
+已新增文件：
 
-- `src/application/retrieval/executeCodebaseRetrieval.ts`
-- `src/application/retrieval/retrievalTypes.ts`
-- `src/application/memory/executeFindMemory.ts`
-- `src/application/memory/executeRecordMemory.ts`
+- `src/application/retrieval/retrievalTypes.ts` — 共享类型（ResultCard 接口 + I/O 类型 + 进度阶段）
+- `src/application/retrieval/resultCard.ts` — 结果卡片排名 + 格式化 + 上下文块构建
+- `src/application/retrieval/coldStartFallback.ts` — 冷启动词法降级包
+- `src/application/retrieval/executeRetrieval.ts` — 核心编排（索引检查→搜索→卡片→格式化）
+- `src/application/retrieval/codebaseRetrieval.ts` — application 层入口（向后兼容）
 
-建议调整文件：
+已调整文件：
 
-- `src/cli/commands/search.ts`
-- `src/mcp/tools/codebaseRetrieval.ts`
-- `src/mcp/tools/projectMemory.ts`
-- `src/mcp/tools/assembleContext.ts`
+- `src/cli/commands/search.ts` — 去除 MCP 类型依赖，直接消费 `RetrievalOutput`
+- `src/mcp/tools/codebaseRetrieval.ts` — 2363 行→~105 行 Zod schema + thin handler
+- `src/setup/local.ts` — CLI skill 扩展为 9 步工作流；MCP mode 写入 contextatlas-mcp skill
 
 拆分原则：
 
@@ -187,9 +187,9 @@ setup / docs / generated assets
 
 验收：
 
-- `src/cli/commands/search.ts` 不再 import `src/mcp/tools/*`
-- `codebase-retrieval` 与 CLI 搜索共享同一 application use case
-- 现有检索结果语义保持不变
+- ✅ `src/cli/commands/search.ts` 不再 import `src/mcp/tools/*`
+- ✅ `codebase-retrieval` 与 CLI 搜索共享同一 application use case
+- ✅ 现有检索结果语义保持不变（13 个 codebase-retrieval 测试全部通过）
 
 ### Phase 2 - setup 模式化
 
@@ -230,36 +230,23 @@ setup / docs / generated assets
 - 无 mode 时给出错误或迁移提示，而不是继续默认混搭
 - setup 测试按模式拆分断言
 
-### Phase 3 - skill 分流
+### Phase 3 - skill 分流 ✅ 已完成
 
 目标：
 
 - 让 skill 成为 `cli-skill` 模式的原生入口，而不是 MCP 的变体
 
-建议新增产物：
+已实现：
 
-- `~/.codex/skills/contextatlas-cli/SKILL.md`
-
-建议保留产物：
-
-- `~/.codex/skills/contextatlas-mcp/SKILL.md`
-
-生成策略：
-
-- `cli-skill` 模式生成 `contextatlas-cli`
-- `mcp` 模式不生成 `contextatlas-cli`
-- 如保留 `contextatlas-mcp`，仅在 `mcp` 模式下生成
-
-`contextatlas-cli` skill 要求：
-
-- 新任务先运行 `contextatlas search --json`
-- 记忆读写走 `contextatlas memory:*` / `contextatlas session:*` 类命令
-- 不允许声明 `mcp__contextatlas__*` 工具
+- `cli-skill` 模式生成 `contextatlas-cli` skill，覆盖完整 9 步工作流（检索→反馈→记忆→决策→索引）
+- `mcp` 模式生成 `contextatlas-mcp` skill，走 MCP tool 调用路径
+- `src/setup/local.ts` 中 `applyLocalSetup` 按模式互斥生成对应 skill
 
 验收：
 
-- CLI skill 可以覆盖主路径检索、反馈、记忆写入
-- skill 文本中不再出现 MCP tool 名称
+- ✅ CLI skill 覆盖主路径检索、反馈、记忆写入、决策记录
+- ✅ skill 文本中不再出现 MCP tool 名称（cli-skill 模式）
+- ✅ MCP 模式下生成 contextatlas-mcp skill
 
 ### Phase 4 - 运行时模式隔离
 

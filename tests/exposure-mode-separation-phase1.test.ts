@@ -15,5 +15,5 @@ test('CLI search command does not depend on MCP tool implementation directly', (
   );
 
   assert.doesNotMatch(source, /mcp\/tools\/codebaseRetrieval/);
-  assert.match(source, /application\/retrieval\/codebaseRetrieval/);
+  assert.match(source, /application\/retrieval\/executeRetrieval/);
 });

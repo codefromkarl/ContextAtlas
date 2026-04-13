@@ -182,10 +182,17 @@ export function buildCodexCliSkillContent(): string {
     '',
     '优先用 ContextAtlas CLI 做代码理解，而不是猜文件路径。',
     '',
-    '1. 新任务先运行 `contextatlas search --repo-path <repo> --information-request "<问题>" --json`。',
-    '2. 根据 JSON 结果继续阅读代码、定位边界和判断影响范围。',
-    '3. 需要保存知识时，运行 `contextatlas memory:*` 相关命令。',
-    '4. `~/.contextatlas/.env` 管理 embeddings 与 rerank 配置。',
+    '## 工作流',
+    '',
+    '1. 新任务先运行 `contextatlas search --repo-path <repo> --information-request "<问题>" --json`',
+    '2. 根据 JSON 结果中的 files/segments 继续阅读代码、定位边界',
+    '3. 检索质量反馈：`contextatlas feedback:record --outcome helpful|not-helpful --target-type code --query "<问题>"`',
+    '4. 模块记忆反馈：`contextatlas feedback:record --outcome memory-stale|wrong-module --target-type feature-memory --target-id "<模块名>"`',
+    '5. 新增模块记忆：`contextatlas memory:suggest <module> --files "src/.../file.ts"`',
+    '6. 长期记忆：`contextatlas memory:record-long-term --type reference --title "<标题>" --summary "<摘要>"`',
+    '7. 决策记录：`contextatlas decision:record <id> --title "<标题>" --context "<背景>" --decision "<决策>"`',
+    '8. 手动索引：`contextatlas index <repo-path>`',
+    '9. `~/.contextatlas/.env` 管理 embeddings 与 rerank 配置',
     '',
   ].join('\n');
 }
@@ -305,6 +312,16 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
       path.join(options.homeDir, '.codex', 'skills', 'contextatlas-cli', 'SKILL.md'),
       'Codex ContextAtlas CLI skill',
       buildCodexCliSkillContent(),
+      options.dryRun,
+    );
+  }
+
+  if (options.mode === 'mcp') {
+    await queueWrite(
+      operations,
+      path.join(options.homeDir, '.codex', 'skills', 'contextatlas-mcp', 'SKILL.md'),
+      'Codex ContextAtlas MCP skill',
+      buildCodexSkillContent(),
       options.dryRun,
     );
   }

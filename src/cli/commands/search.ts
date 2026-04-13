@@ -1,32 +1,34 @@
 import path from 'node:path';
 import {
   exitWithError,
-  joinToolText,
   splitCommaSeparated,
   writeJson,
   writeText,
 } from '../helpers.js';
-import { executeCodebaseRetrieval } from '../../application/retrieval/codebaseRetrieval.js';
+import { executeRetrieval } from '../../application/retrieval/executeRetrieval.js';
+import type { RetrievalOutput } from '../../application/retrieval/retrievalTypes.js';
 import { resolveBaseDir } from '../../runtimePaths.js';
 import type { CommandRegistrar } from '../types.js';
-import type { ToolTextResponse } from '../../mcp/response.js';
 
 export interface SearchJsonPayload {
   tool: 'codebase-retrieval';
   repo_path: string;
   information_request: string;
   technical_terms: string[];
-  content: ToolTextResponse['content'];
+  content: Array<{ type: 'text'; text: string }>;
   text: string;
+  data?: RetrievalOutput['data'];
 }
 
+/** 向后兼容：测试和其他模块可能引用 */
 export function buildSearchJsonPayload(input: {
   repoPath: string;
   informationRequest: string;
   technicalTerms: string[];
-  response: ToolTextResponse;
+  response: { content: Array<{ type: 'text'; text: string }> };
 }): SearchJsonPayload {
   const { repoPath, informationRequest, technicalTerms, response } = input;
+  const text = response.content.map((c) => c.text).join('');
 
   return {
     tool: 'codebase-retrieval',
@@ -34,7 +36,7 @@ export function buildSearchJsonPayload(input: {
     information_request: informationRequest,
     technical_terms: technicalTerms,
     content: response.content,
-    text: joinToolText(response),
+    text,
   };
 }
 
@@ -60,25 +62,25 @@ export function registerSearchCommands(cli: CommandRegistrar): void {
 
         const technicalTerms = splitCommaSeparated(options.technicalTerms);
 
-        const response = await executeCodebaseRetrieval({
-          repo_path: repoPath,
-          information_request: informationRequest,
-          technical_terms: technicalTerms.length > 0 ? technicalTerms : undefined,
+        const result = await executeRetrieval({
+          repoPath,
+          informationRequest,
+          technicalTerms: technicalTerms.length > 0 ? technicalTerms : undefined,
         });
 
         if (options.json) {
-          writeJson(
-            buildSearchJsonPayload({
-              repoPath,
-              informationRequest,
-              technicalTerms,
-              response,
-            }),
-          );
+          writeJson({
+            tool: 'codebase-retrieval',
+            repo_path: repoPath,
+            information_request: informationRequest,
+            technical_terms: technicalTerms,
+            text: result.text,
+            ...(result.data || {}),
+          });
           return;
         }
 
-        writeText(joinToolText(response));
+        writeText(result.text);
       },
     );
 

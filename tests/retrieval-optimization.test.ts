@@ -13,7 +13,7 @@ function findDistModule(prefix: string): string {
   return path.join(DIST_DIR, fileName);
 }
 
-const codebaseRetrievalModule = await import(findDistModule('codebaseRetrieval-'));
+const codebaseRetrievalModule = await import(findDistModule('executeRetrieval-'));
 const searchServiceModule = await import(findDistModule('SearchService-'));
 
 const { buildRetrievalTelemetry, createRetrievalProgressReporter, resolveRetrievalQueries } =

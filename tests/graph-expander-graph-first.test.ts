@@ -156,7 +156,13 @@ test('GraphExpander prefers graph relations before import text fallback', async 
     const targetChunk = createChunkRecord(targetPath, 0, `${targetPath} > class HashService`);
     const fakeVectorStore = {
       getFileChunks: async (filePath: string) => (filePath === targetPath ? [targetChunk] : []),
-      getFilesChunks: async (_filePaths: string[]) => new Map<string, ChunkRecord[]>(),
+      getFilesChunks: async (filePaths: string[]) => {
+        const map = new Map<string, ChunkRecord[]>();
+        for (const fp of filePaths) {
+          if (fp === targetPath) map.set(fp, [targetChunk]);
+        }
+        return map;
+      },
     };
 
     const expander = new GraphExpander(projectId, createConfig());

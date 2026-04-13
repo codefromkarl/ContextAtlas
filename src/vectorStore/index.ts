@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as lancedb from '@lancedb/lancedb';
+import { logger } from '../utils/logger.js';
 import { resolveIndexPaths } from '../storage/layout.js';
 
 // ===========================================
@@ -51,6 +52,14 @@ export interface ChunkRecord {
 /** 向量搜索结果 */
 export interface SearchResult extends ChunkRecord {
   _distance: number;
+}
+
+// ===========================================
+// 工具函数
+// ===========================================
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ===========================================
@@ -112,56 +121,78 @@ export class VectorStore {
   }
 
   /**
-   * 单调版本更新：先插入新版本，再删除旧版本
+   * 单调版本更新：先插入新版本，再删除旧版本（带重试）
    *
    * 这保证了：
    * - 最坏情况（崩溃）是新旧版本共存（不缺失）
    * - 正常情况下旧版本被清理
    */
-  async upsertFile(filePath: string, newHash: string, records: ChunkRecord[]): Promise<void> {
+  async upsertFile(
+    filePath: string,
+    newHash: string,
+    records: ChunkRecord[],
+  ): Promise<{ failed: boolean }> {
     if (!this.db) throw new Error('VectorStore not initialized');
 
     if (records.length === 0) {
       // 如果没有新 chunks，也要删除旧版本（文件可能变成空/无法解析）
       await this.deleteFile(filePath);
-      return;
+      return { failed: false };
     }
 
-    // 1. 插入新版本
-    if (!this.table) {
-      await this.ensureTable(records);
-    } else {
-      await this.table.add(records as unknown as Record<string, unknown>[]);
+    const MAX_RETRIES = 2;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // 1. 插入新版本
+        if (!this.table) {
+          await this.ensureTable(records);
+        } else {
+          await this.table.add(records as unknown as Record<string, unknown>[]);
+        }
+
+        // 2. 删除旧版本（file_hash != newHash）
+        if (this.table) {
+          await this.table.delete(
+            `file_path = '${this.escapeString(filePath)}' AND file_hash != '${this.escapeString(newHash)}'`,
+          );
+        }
+
+        return { failed: false };
+      } catch (err) {
+        if (attempt === MAX_RETRIES) {
+          logger.error({ filePath, attempt, error: err }, 'VectorStore upsert 最终失败');
+          return { failed: true };
+        }
+        logger.warn({ filePath, attempt, error: err }, 'VectorStore upsert 重试');
+        await sleep(500 * (attempt + 1));
+      }
     }
 
-    // 2. 删除旧版本（file_hash != newHash）
-    if (this.table) {
-      await this.table.delete(
-        `file_path = '${this.escapeString(filePath)}' AND file_hash != '${this.escapeString(newHash)}'`,
-      );
-    }
+    return { failed: true };
   }
 
   /**
-   * 批量 upsert 多个文件（性能优化版，带分批机制）
+   * 批量 upsert 多个文件（性能优化版，带分批机制和重试）
    *
    * 流程：
    * 1. 将文件分成小批次（每批最多 BATCH_FILES 个文件或 BATCH_RECORDS 条记录）
-   * 2. 每批执行：插入新 records → 删除旧版本
+   * 2. 每批执行：插入新 records → 删除旧版本（失败时重试）
    *
    * 分批是必要的，因为 LanceDB native 模块在处理超大数据时可能崩溃
    *
    * @param files 文件列表，每个包含 path、hash 和 records
+   * @returns failedFiles 最终失败的文件列表
    */
   async batchUpsertFiles(
     files: Array<{ path: string; hash: string; records: ChunkRecord[] }>,
-  ): Promise<void> {
+  ): Promise<{ failedFiles: Array<{ path: string; hash: string }> }> {
     if (!this.db) throw new Error('VectorStore not initialized');
-    if (files.length === 0) return;
+    if (files.length === 0) return { failedFiles: [] };
 
     // 分批参数（经验值，避免 native 模块崩溃）
     const BATCH_FILES = 50; // 每批最多 50 个文件
     const BATCH_RECORDS = 5000; // 每批最多 5000 条 records
+    const MAX_BATCH_RETRIES = 2;
 
     // 构建批次
     const batches: Array<typeof files> = [];
@@ -187,8 +218,11 @@ export class VectorStore {
       batches.push(currentBatch);
     }
 
-    // 逐批处理
-    for (const batch of batches) {
+    // 逐批处理（带重试）
+    const failedFiles: Array<{ path: string; hash: string }> = [];
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
       // 收集本批次的所有 records
       const batchRecords: ChunkRecord[] = [];
       for (const file of batch) {
@@ -202,24 +236,44 @@ export class VectorStore {
         continue;
       }
 
-      // 1. 批量插入本批次的 records
-      if (!this.table) {
-        await this.ensureTable(batchRecords);
-      } else {
-        await this.table.add(batchRecords as unknown as Record<string, unknown>[]);
-      }
+      let success = false;
+      for (let attempt = 0; attempt <= MAX_BATCH_RETRIES; attempt++) {
+        try {
+          // 1. 批量插入本批次的 records
+          if (!this.table) {
+            await this.ensureTable(batchRecords);
+          } else {
+            await this.table.add(batchRecords as unknown as Record<string, unknown>[]);
+          }
 
-      // 2. 批量删除本批次的旧版本
-      if (this.table && batch.length > 0) {
-        const deleteConditions = batch
-          .map(
-            (f) =>
-              `(file_path = '${this.escapeString(f.path)}' AND file_hash != '${this.escapeString(f.hash)}')`,
-          )
-          .join(' OR ');
-        await this.table.delete(deleteConditions);
+          // 2. 批量删除本批次的旧版本
+          if (this.table && batch.length > 0) {
+            const deleteConditions = batch
+              .map(
+                (f) =>
+                  `(file_path = '${this.escapeString(f.path)}' AND file_hash != '${this.escapeString(f.hash)}')`,
+              )
+              .join(' OR ');
+            await this.table.delete(deleteConditions);
+          }
+
+          success = true;
+          break;
+        } catch (err) {
+          if (attempt === MAX_BATCH_RETRIES) {
+            logger.error({ batchIndex, attempt, error: err }, 'VectorStore 批量写入最终失败');
+            for (const file of batch) {
+              failedFiles.push({ path: file.path, hash: file.hash });
+            }
+          } else {
+            logger.warn({ batchIndex, attempt, error: err }, 'VectorStore 批量写入重试');
+            await sleep(500 * (attempt + 1));
+          }
+        }
       }
     }
+
+    return { failedFiles };
   }
 
   /**
@@ -373,7 +427,10 @@ export class VectorStore {
    * 转义字符串（防止 SQL 注入）
    */
   private escapeString(str: string): string {
-    return str.replace(/'/g, "''");
+    return str
+      .replace(/\\/g, '\\\\')      // 转义反斜杠（LanceDB 可能解释）
+      .replace(/'/g, "''")          // SQL 标准单引号转义
+      .replace(/[\x00-\x1f]/g, ''); // 移除控制字符
   }
 
   /**

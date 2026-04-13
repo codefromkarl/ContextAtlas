@@ -12,7 +12,7 @@ test('README top navigation links expose docs index, latest update, and delivery
 
   const expectedLinks = [
     'docs/README.md',
-    'docs/changelog/2026-04-09.md',
+    'docs/changelog/2026-04-10.md',
     'docs/archive/deliveries/2026-04-09-index-and-memory/delivery-bundle.md',
   ];
 

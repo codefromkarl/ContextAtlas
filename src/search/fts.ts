@@ -549,6 +549,10 @@ function generateVariants(token: string): string[] {
   return variants;
 }
 
+// segmentQuery LRU 缓存
+const SEGMENT_CACHE_MAX = 64;
+const segmentCache = new Map<string, string[]>();
+
 /**
  * 混合分词策略
  * 1. 提取代码特征 (CamelCase, snake_case, dots)
@@ -558,6 +562,15 @@ function generateVariants(token: string): string[] {
  * 导出供 SearchService 复用，确保召回和评分逻辑一致
  */
 export function segmentQuery(query: string): string[] {
+  // 检查缓存
+  const cacheKey = query.toLowerCase().trim();
+  const cached = segmentCache.get(cacheKey);
+  if (cached) {
+    segmentCache.delete(cacheKey);
+    segmentCache.set(cacheKey, cached); // Move to end (LRU)
+    return cached;
+  }
+
   const uniqueTokens = new Set<string>();
 
   // A. 清理
@@ -605,7 +618,16 @@ export function segmentQuery(query: string): string[] {
     }
   }
 
-  return Array.from(uniqueTokens);
+  const tokens = Array.from(uniqueTokens);
+
+  // 写入缓存
+  segmentCache.set(cacheKey, tokens);
+  while (segmentCache.size > SEGMENT_CACHE_MAX) {
+    const oldest = segmentCache.keys().next().value;
+    if (oldest) segmentCache.delete(oldest);
+  }
+
+  return tokens;
 }
 
 /**
@@ -712,9 +734,17 @@ export function searchFilesFts(
 export function isFtsInitialized(db: Database.Database): boolean {
   const result = db
     .prepare(`
-        SELECT name FROM sqlite_master 
+        SELECT name FROM sqlite_master
         WHERE type='table' AND name='files_fts'
     `)
     .get();
   return !!result;
+}
+
+/**
+ * 清空 segmentQuery 缓存
+ * 供 closeAllCachedResources 调用
+ */
+export function clearSegmentCache(): void {
+  segmentCache.clear();
 }

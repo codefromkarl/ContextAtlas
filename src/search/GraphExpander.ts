@@ -393,24 +393,45 @@ export class GraphExpander {
       const importStrs = resolver.extract(row.content);
       if (importStrs.length === 0) continue;
 
-      // 4. 解析路径并获取 Chunk
+      // 4. 批量解析路径并获取 Chunks（N 次查询 → 1 次）
       const perFileLimit = depth === 0 ? importFilesPerSeed : Math.min(importFilesPerSeed, 2);
-      let importCount = 0;
       // 缓存已处理的 import，避免重复处理
       const processedImports = new Set<string>();
+      const importTargets = new Map<string, string>(); // importStr -> targetPath
 
+      // Phase A: 收集所有不重复的 targetPath
       for (const importStr of importStrs) {
-        if (importCount >= perFileLimit) break;
+        if (importTargets.size >= perFileLimit) break;
         if (processedImports.has(importStr)) continue;
         processedImports.add(importStr);
 
         // 核心: 使用解析器 + 全局文件索引进行解析
         // allFilePaths 在 expand() 入口处通过 loadFileIndex() 确保已加载
         const targetPath = resolver.resolve(importStr, filePath, this.allFilePaths as Set<string>);
-
         if (!targetPath || targetPath === filePath) continue; // 排除引用自己
 
-        const importChunks = await this.vectorStore?.getFileChunks(targetPath);
+        importTargets.set(importStr, targetPath);
+      }
+
+      if (importTargets.size === 0) continue;
+
+      // Phase B: 一次性批量查询所有目标文件的 chunks
+      const allTargetPaths = Array.from(new Set(importTargets.values()));
+      const chunksByFile = await this.vectorStore?.getFilesChunks(allTargetPaths);
+      if (!chunksByFile) continue;
+
+      // Phase C: 按目标分配批量查询结果
+      const depthDecay = depth === 0 ? 1 : decayDepth;
+      let importCount = 0;
+      const seenTargetPaths = new Set<string>();
+
+      for (const [, targetPath] of importTargets) {
+        if (importCount >= perFileLimit) break;
+        // 同一 targetPath 只处理一次（多个 import 可能指向同一文件）
+        if (seenTargetPaths.has(targetPath)) continue;
+        seenTargetPaths.add(targetPath);
+
+        const importChunks = chunksByFile.get(targetPath);
         if (!importChunks || importChunks.length === 0) continue;
 
         const selectedChunks = this.selectImportChunks(
@@ -418,7 +439,6 @@ export class GraphExpander {
           chunksPerImportFile,
           queryTokens,
         );
-        const depthDecay = depth === 0 ? 1 : decayDepth;
 
         for (const chunk of selectedChunks) {
           const key = `${targetPath}#${chunk.chunk_index}`;
@@ -444,6 +464,13 @@ export class GraphExpander {
     return result;
   }
 
+  /**
+   * 基于 code graph 关系扩展（批量查询优化）
+   *
+   * Phase A: 收集所有下游目标的 filePath
+   * Phase B: 一次性批量查询所有目标文件的 chunks
+   * Phase C: 按目标分配结果并计算衰减分数
+   */
   private async expandGraphRelations(
     seeds: ScoredChunk[],
     existingKeys: Set<string>,
@@ -462,7 +489,8 @@ export class GraphExpander {
       return [];
     }
 
-    const results: ScoredChunk[] = [];
+    // Phase A: 收集所有不重复的下游目标
+    const targetsBySymbolId = new Map<string, { filePath: string; symbol: StoredSymbol }>();
     const seenTargets = new Set<string>();
 
     for (const symbol of resolvedSeedSymbols) {
@@ -472,31 +500,45 @@ export class GraphExpander {
 
       for (const relation of relations) {
         const target = relation.symbol!;
-        const targetKey = `${target.id}`;
+        const targetKey = target.id;
         if (seenTargets.has(targetKey)) continue;
         seenTargets.add(targetKey);
+        targetsBySymbolId.set(targetKey, { filePath: target.filePath, symbol: target });
+      }
+    }
 
-        const targetChunks = await this.vectorStore.getFileChunks(target.filePath);
-        if (!targetChunks || targetChunks.length === 0) continue;
+    if (targetsBySymbolId.size === 0) return [];
 
-        const prioritized = targetChunks.filter((chunk) => this.chunkMatchesSymbol(chunk, target));
-        const selectedChunks = this.selectImportChunks(
-          prioritized.length > 0 ? prioritized : targetChunks,
-          chunksPerImportFile,
-          queryTokens,
-        );
+    // Phase B: 批量查询所有目标文件的 chunks（N 次查询 → 1 次）
+    const allTargetPaths = Array.from(new Set(
+      Array.from(targetsBySymbolId.values()).map((t) => t.filePath),
+    ));
+    const chunksByFile = await this.vectorStore.getFilesChunks(allTargetPaths);
 
-        for (const chunk of selectedChunks) {
-          const key = `${target.filePath}#${chunk.chunk_index}`;
-          if (existingKeys.has(key)) continue;
-          results.push({
-            filePath: target.filePath,
-            chunkIndex: chunk.chunk_index,
-            score: seedScore * decayImport,
-            source: 'import',
-            record: { ...chunk, _distance: 0 },
-          });
-        }
+    // Phase C: 按目标分配批量查询结果
+    const results: ScoredChunk[] = [];
+
+    for (const [, { filePath, symbol: target }] of targetsBySymbolId) {
+      const targetChunks = chunksByFile.get(filePath);
+      if (!targetChunks || targetChunks.length === 0) continue;
+
+      const prioritized = targetChunks.filter((chunk) => this.chunkMatchesSymbol(chunk, target));
+      const selectedChunks = this.selectImportChunks(
+        prioritized.length > 0 ? prioritized : targetChunks,
+        chunksPerImportFile,
+        queryTokens,
+      );
+
+      for (const chunk of selectedChunks) {
+        const key = `${filePath}#${chunk.chunk_index}`;
+        if (existingKeys.has(key)) continue;
+        results.push({
+          filePath,
+          chunkIndex: chunk.chunk_index,
+          score: seedScore * decayImport,
+          source: 'import',
+          record: { ...chunk, _distance: 0 },
+        });
       }
     }
 
@@ -689,4 +731,15 @@ export async function getGraphExpander(
     expanders.set(key, expander);
   }
   return expander;
+}
+
+/**
+ * 关闭所有 GraphExpander 缓存实例
+ * 供 closeAllCachedResources 调用
+ */
+export function closeAllGraphExpanders(): void {
+  for (const expander of expanders.values()) {
+    expander.invalidateFileIndex();
+  }
+  expanders.clear();
 }

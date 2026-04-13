@@ -10,6 +10,9 @@ import {
 } from '../search/fts.js';
 import { resolveIndexPaths } from '../storage/layout.js';
 
+/** 单文件 content 最大存储字节数 (512KB) */
+const MAX_CONTENT_BYTES = 512 * 1024;
+
 /**
  * 文件元数据接口
  */
@@ -348,17 +351,21 @@ export function batchUpsert(db: Database.Database, files: FileMeta[]): void {
 
   const transaction = db.transaction((items: FileMeta[]) => {
     for (const item of items) {
-      insert.run(item.path, item.hash, item.mtime, item.size, item.content, item.language);
+      // 超大文件不存储 content，仅存元数据
+      const content = item.content && Buffer.byteLength(item.content, 'utf8') > MAX_CONTENT_BYTES
+        ? null
+        : item.content;
+      insert.run(item.path, item.hash, item.mtime, item.size, content, item.language);
     }
   });
 
   transaction(files);
 
-  // 同步 FTS 索引
-  // 使用类型守卫过滤 null，TypeScript 可以正确推断类型
+  // 同步 FTS 索引 - 大文件 content 已置 null，自然跳过
+  // 重新检查：只有 content 非空且不超过大小限制才加入 FTS
   const ftsFiles: Array<{ path: string; content: string }> = [];
   for (const f of files) {
-    if (f.content !== null) {
+    if (f.content !== null && Buffer.byteLength(f.content, 'utf8') <= MAX_CONTENT_BYTES) {
       ftsFiles.push({ path: f.path, content: f.content });
     }
   }
@@ -393,6 +400,47 @@ export function getAllPaths(db: Database.Database): string[] {
   return rows
     .map((row) => readStringField(row, 'path'))
     .filter((path): path is string => Boolean(path));
+}
+
+/**
+ * 获取单个文件的内容
+ * 用于需要按需加载 content 的场景（GraphExpander import 解析等）
+ */
+export function getFileContent(db: Database.Database, filePath: string): string | null {
+  const row = db.prepare('SELECT content FROM files WHERE path = ?').get(filePath) as
+    | { content: string | null }
+    | undefined;
+  return row?.content ?? null;
+}
+
+/**
+ * 清理超大 content 数据（维护工具）
+ * 供 ops 命令调用，回收 DB 空间
+ * @returns 被清理的文件数
+ */
+export function pruneLargeContent(db: Database.Database, maxBytes = MAX_CONTENT_BYTES): number {
+  const rows = db
+    .prepare('SELECT path, content FROM files WHERE content IS NOT NULL')
+    .all() as Array<{ path: string; content: string }>;
+
+  const toPrune: string[] = [];
+  for (const row of rows) {
+    if (Buffer.byteLength(row.content, 'utf8') > maxBytes) {
+      toPrune.push(row.path);
+    }
+  }
+
+  if (toPrune.length > 0) {
+    const stmt = db.prepare('UPDATE files SET content = NULL WHERE path = ?');
+    const transaction = db.transaction((paths: string[]) => {
+      for (const p of paths) {
+        stmt.run(p);
+      }
+    });
+    transaction(toPrune);
+  }
+
+  return toPrune.length;
 }
 
 /**

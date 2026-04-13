@@ -7,10 +7,12 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { closeAllCachedResources } from '../runtime/closeAllCachedResources.js';
 import { logger } from '../utils/logger.js';
 import { createToolDispatcher } from './registry/dispatcher.js';
 import { TOOLS } from './registry/tools.js';
 import { assertToolAllowed, filterToolsForToolset, getConfiguredMcpToolsetMode } from './registry/toolset.js';
+import { ensureEmbeddingGatewayForMcp } from './runtime/autoStartEmbeddingGateway.js';
 import { createCallToolHandler } from './runtime/callToolHandler.js';
 import { createListToolsHandler } from './runtime/listToolsHandler.js';
 
@@ -27,6 +29,8 @@ export { TOOLS } from './registry/tools.js';
  */
 export async function startMcpServer(): Promise<void> {
   logger.info({ name: SERVER_NAME }, '启动 MCP 服务器');
+
+  await ensureEmbeddingGatewayForMcp();
 
   const server = new Server(
     {
@@ -59,4 +63,20 @@ export async function startMcpServer(): Promise<void> {
   const transport = new StdioServerTransport();
   logger.info('MCP 服务器已启动，等待连接...');
   await server.connect(transport);
+
+  // Graceful shutdown: 确保信号处理时释放所有资源
+  const cleanup = async () => {
+    process.off('SIGINT', cleanup);
+    process.off('SIGTERM', cleanup);
+    try {
+      await closeAllCachedResources();
+      await server.close();
+      logger.info('MCP 服务器已优雅关闭');
+    } catch (err) {
+      logger.error({ err }, 'MCP 服务器关闭时出错');
+    }
+  };
+
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 }

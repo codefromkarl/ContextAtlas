@@ -11,13 +11,12 @@
  * - 连续成功 N 次后才提升并发数
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
+import os from 'node:os';
 import pLimit from 'p-limit';
 import { type EmbeddingConfig, getEmbeddingConfig } from '../config.js';
-import { resolveBaseDir } from '../runtimePaths.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeEmbeddingInput } from './unicode.js';
+import { acquireRateSlot } from './rateCoord.js';
 
 /** Embedding 请求体 */
 interface EmbeddingRequest {
@@ -158,98 +157,16 @@ class ProgressTracker {
   }
 }
 
-const BASE_DIR = resolveBaseDir();
-const GLOBAL_RATE_LIMIT_LOCK_DIR = path.join(BASE_DIR, 'embedding.rate.lock.d');
-const GLOBAL_RATE_LIMIT_STATE = path.join(BASE_DIR, 'embedding.rate.json');
-const GLOBAL_RATE_LIMIT_CHECK_INTERVAL_MS = 25;
-const GLOBAL_RATE_LIMIT_LOCK_TIMEOUT_MS = 10000;
-const GLOBAL_RATE_LIMIT_LOCK_WRITE_GRACE_MS = 2000;
 let globalRateSlotQueue: Promise<void> = Promise.resolve();
 
-interface GlobalRateState {
-  nextAllowedAt: number;
-}
-
-function removeStaleGlobalRateLock(): void {
-  try {
-    const stat = fs.statSync(GLOBAL_RATE_LIMIT_LOCK_DIR);
-    const ageMs = Date.now() - stat.mtimeMs;
-    if (ageMs > GLOBAL_RATE_LIMIT_LOCK_WRITE_GRACE_MS) {
-      fs.rmSync(GLOBAL_RATE_LIMIT_LOCK_DIR, { recursive: true, force: true });
-      logger.warn({ ageMs }, '移除异常全局速率锁');
-    }
-  } catch {
-    // 锁目录可能已被其他进程删除，忽略
-  }
-}
-
-async function acquireGlobalRateLock(): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < GLOBAL_RATE_LIMIT_LOCK_TIMEOUT_MS) {
-    try {
-      fs.mkdirSync(BASE_DIR, { recursive: true });
-      fs.mkdirSync(GLOBAL_RATE_LIMIT_LOCK_DIR);
-      return true;
-    } catch (err) {
-      const error = err as NodeJS.ErrnoException;
-      if (error.code === 'EEXIST') {
-        removeStaleGlobalRateLock();
-      } else {
-        logger.debug({ error: error.message }, '获取全局速率锁失败，重试中');
-      }
-      await sleep(GLOBAL_RATE_LIMIT_CHECK_INTERVAL_MS);
-    }
-  }
-
-  logger.warn(
-    { timeoutMs: GLOBAL_RATE_LIMIT_LOCK_TIMEOUT_MS },
-    '获取全局速率锁超时，降级为无锁模式',
-  );
-  return false;
-}
-
-function releaseGlobalRateLock(): void {
-  try {
-    fs.rmdirSync(GLOBAL_RATE_LIMIT_LOCK_DIR);
-  } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code !== 'ENOENT') {
-      logger.debug({ error: error.message }, '释放全局速率锁失败');
-    }
-  }
-}
+/** 进程标识：用于速率协调 DB 的 issuer 字段 */
+const RATE_ISSUER = `pid-${process.pid}@${os.hostname()}`;
 
 async function acquireGlobalRateSlotInner(minIntervalMs: number): Promise<void> {
   if (minIntervalMs <= 0) return;
 
-  const locked = await acquireGlobalRateLock();
-  if (!locked) return;
-
-  let waitMs = 0;
-  try {
-    let state: GlobalRateState = { nextAllowedAt: 0 };
-    try {
-      const raw = fs.readFileSync(GLOBAL_RATE_LIMIT_STATE, 'utf-8');
-      const parsed = JSON.parse(raw) as Partial<GlobalRateState>;
-      state.nextAllowedAt = Number.isFinite(parsed.nextAllowedAt)
-        ? Number(parsed.nextAllowedAt)
-        : 0;
-    } catch {
-      // 状态文件不存在或损坏时重置
-      state = { nextAllowedAt: 0 };
-    }
-
-    const now = Date.now();
-    const scheduledAt = Math.max(now, state.nextAllowedAt);
-    waitMs = Math.max(0, scheduledAt - now);
-
-    const nextState: GlobalRateState = {
-      nextAllowedAt: scheduledAt + minIntervalMs,
-    };
-    fs.writeFileSync(GLOBAL_RATE_LIMIT_STATE, JSON.stringify(nextState));
-  } finally {
-    releaseGlobalRateLock();
-  }
+  // SQLite 事务保证原子性，无需文件系统锁
+  const waitMs = acquireRateSlot(RATE_ISSUER, minIntervalMs);
 
   if (waitMs > 0) {
     await sleep(waitMs);

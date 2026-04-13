@@ -113,3 +113,12 @@ export async function getParser(language: string): Promise<Parser | null> {
 export function isLanguageSupported(language: string): boolean {
   return language in GRAMMAR_MODULES;
 }
+
+/**
+ * 释放所有缓存的解析器和语法资源
+ * 供 closeAllCachedResources 调用
+ */
+export function closeAllParsers(): void {
+  parserCache.clear();
+  loadedGrammars.clear();
+}

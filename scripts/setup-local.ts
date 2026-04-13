@@ -5,11 +5,13 @@ import path from 'node:path';
 import {
   applyLocalSetup,
   formatLocalSetupReport,
+  isLocalSetupMode,
   isLocalSetupToolset,
 } from '../src/setup/local.ts';
 
 interface CliOptions {
   dryRun: boolean;
+  mode: 'cli-skill' | 'mcp';
   toolset: 'full' | 'retrieval-only';
 }
 
@@ -23,6 +25,7 @@ try {
     homeDir: os.homedir(),
     repoRoot,
     nodeCommand: process.execPath,
+    mode: options.mode,
     toolset: options.toolset,
     dryRun: options.dryRun,
   });
@@ -35,6 +38,7 @@ try {
 
 function parseArgs(argv: string[]): CliOptions {
   let dryRun = false;
+  let mode: 'cli-skill' | 'mcp' | null = null;
   let toolset: 'full' | 'retrieval-only' = 'full';
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -55,11 +59,24 @@ function parseArgs(argv: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (arg === '--mode') {
+      const value = argv[index + 1];
+      if (!value || !isLocalSetupMode(value)) {
+        throw new Error('--mode requires cli-skill or mcp');
+      }
+      mode = value;
+      index += 1;
+      continue;
+    }
 
     throw new Error(`unknown argument: ${arg}`);
   }
 
-  return { dryRun, toolset };
+  if (!mode) {
+    throw new Error('--mode is required and must be cli-skill or mcp');
+  }
+
+  return { dryRun, mode, toolset };
 }
 
 function ensureBuildIfNeeded(repoRootPath: string, dryRun: boolean): void {

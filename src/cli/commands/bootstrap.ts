@@ -4,7 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultConfigEnvPath } from '../../runtimePaths.js';
 import { buildDefaultEnvContent } from '../../setup/defaultEnv.js';
-import { applyLocalSetup, formatLocalSetupReport, isLocalSetupToolset } from '../../setup/local.js';
+import {
+  applyLocalSetup,
+  formatLocalSetupReport,
+  isLocalSetupMode,
+  isLocalSetupToolset,
+} from '../../setup/local.js';
 import { exitWithError, writeText } from '../helpers.js';
 import { logger } from '../../utils/logger.js';
 import type { CommandRegistrar } from '../types.js';
@@ -84,10 +89,16 @@ export function registerBootstrapCommands(cli: CommandRegistrar): void {
   });
 
   cli
-    .command('setup:local', '一键配置本地 ContextAtlas skills、MCP 和提示词文档')
+    .command('setup:local', '按模式配置本地 ContextAtlas 接入')
     .option('--dry-run', '仅预览将要写入的文件')
+    .option('--mode <mode>', '接入模式: cli-skill 或 mcp')
     .option('--toolset <toolset>', 'MCP toolset: full 或 retrieval-only')
-    .action(async (options?: { dryRun?: boolean; toolset?: string }) => {
+    .action(async (options?: { dryRun?: boolean; mode?: string; toolset?: string }) => {
+      const mode = options?.mode;
+      if (!mode || !isLocalSetupMode(mode)) {
+        exitWithError('缺少或不支持的 --mode，可选值为 cli-skill 或 mcp');
+      }
+
       const toolset = options?.toolset ?? 'full';
       if (!isLocalSetupToolset(toolset)) {
         exitWithError(`不支持的 toolset: ${toolset}，可选值为 full 或 retrieval-only`);
@@ -98,6 +109,7 @@ export function registerBootstrapCommands(cli: CommandRegistrar): void {
           homeDir: os.homedir(),
           repoRoot: packageRoot,
           nodeCommand: process.execPath,
+          mode,
           toolset,
           dryRun: options?.dryRun ?? false,
         });

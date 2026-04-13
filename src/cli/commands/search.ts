@@ -6,6 +6,7 @@ import {
   writeJson,
   writeText,
 } from '../helpers.js';
+import { executeCodebaseRetrieval } from '../../application/retrieval/codebaseRetrieval.js';
 import { resolveBaseDir } from '../../runtimePaths.js';
 import type { CommandRegistrar } from '../types.js';
 import type { ToolTextResponse } from '../../mcp/response.js';
@@ -59,9 +60,7 @@ export function registerSearchCommands(cli: CommandRegistrar): void {
 
         const technicalTerms = splitCommaSeparated(options.technicalTerms);
 
-        const { handleCodebaseRetrieval } = await import('../../mcp/tools/codebaseRetrieval.js');
-
-        const response = await handleCodebaseRetrieval({
+        const response = await executeCodebaseRetrieval({
           repo_path: repoPath,
           information_request: informationRequest,
           technical_terms: technicalTerms.length > 0 ? technicalTerms : undefined,

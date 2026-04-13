@@ -23,11 +23,14 @@ const isDev = process.env.NODE_ENV === 'dev';
  *
  * 兼容两种启动方式：
  * 1. 显式子命令：contextatlas mcp
- * 2. 隐式 stdio：某些客户端仅执行 `contextatlas`（无参数，且 stdin/stdout 非 TTY）
+ * 2. 隐式 stdio：仅在 exposure mode 为 mcp 时，某些客户端仅执行 `contextatlas`
+ *    （无参数，且 stdin/stdout 非 TTY）
  */
+export const exposureMode = process.env.CONTEXTATLAS_EXPOSURE_MODE === 'mcp' ? 'mcp' : 'cli-skill';
 const hasMcpArg = process.argv.includes('mcp');
 const hasNoCliArgs = process.argv.slice(2).length === 0;
-const isImplicitStdioMcp = hasNoCliArgs && !process.stdin.isTTY && !process.stdout.isTTY;
+const isImplicitStdioMcp =
+  exposureMode === 'mcp' && hasNoCliArgs && !process.stdin.isTTY && !process.stdout.isTTY;
 
 // 为后续 CLI 解析兜底：隐式 MCP 模式下注入 mcp 子命令
 if (!hasMcpArg && isImplicitStdioMcp) {

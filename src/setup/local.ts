@@ -8,12 +8,14 @@ const CODEX_BLOCK_START = '# BEGIN CONTEXTATLAS MANAGED BLOCK';
 const CODEX_BLOCK_END = '# END CONTEXTATLAS MANAGED BLOCK';
 
 export type LocalSetupToolset = 'full' | 'retrieval-only';
+export type LocalSetupMode = 'cli-skill' | 'mcp';
 type FileAction = 'create' | 'update' | 'unchanged';
 
 export interface LocalSetupOptions {
   homeDir: string;
   repoRoot: string;
   nodeCommand: string;
+  mode: LocalSetupMode;
   toolset: LocalSetupToolset;
   dryRun: boolean;
   platform?: NodeJS.Platform;
@@ -29,6 +31,7 @@ export interface LocalSetupOperation {
 export interface LocalSetupReport {
   changed: boolean;
   dryRun: boolean;
+  mode: LocalSetupMode;
   platform: NodeJS.Platform;
   operations: LocalSetupOperation[];
 }
@@ -37,15 +40,31 @@ export function isLocalSetupToolset(value: string): value is LocalSetupToolset {
   return value === 'full' || value === 'retrieval-only';
 }
 
-export function buildPromptManagedBlock(): string {
+export function isLocalSetupMode(value: string): value is LocalSetupMode {
+  return value === 'cli-skill' || value === 'mcp';
+}
+
+export function buildPromptManagedBlock(mode: LocalSetupMode = 'mcp'): string {
+  const modeSpecificLines =
+    mode === 'cli-skill'
+      ? [
+          '- 代码搜索优先使用 ContextAtlas CLI；普通 Grep/Glob 仅作为补充。',
+          '- 处理新任务时先运行 `contextatlas search --json`，确认现有实现后再修改代码。',
+          '- 完成稳定功能或重构后，优先使用 `contextatlas memory:*` 或相关会话命令回写项目知识。',
+          '- ContextAtlas 配置文件位于 `~/.contextatlas/.env`，当前接入模式为 `cli-skill`。',
+        ]
+      : [
+          '- 代码搜索优先使用 ContextAtlas MCP；普通 Grep/Glob 仅作为补充。',
+          '- 处理新任务时先 `find_memory`，再 `codebase-retrieval`，确认现有实现后再修改代码。',
+          '- 完成稳定功能或重构后，优先使用 `record_memory` / `session_end` 回写项目知识。',
+          '- ContextAtlas 配置文件位于 `~/.contextatlas/.env`，MCP server 名称为 `contextatlas`。',
+        ];
+
   return [
     PROMPT_BLOCK_START,
-    '## ContextAtlas',
+    mode === 'cli-skill' ? '## ContextAtlas CLI' : '## ContextAtlas',
     '',
-    '- 代码搜索优先使用 ContextAtlas MCP；普通 Grep/Glob 仅作为补充。',
-    '- 处理新任务时先 `find_memory`，再 `codebase-retrieval`，确认现有实现后再修改代码。',
-    '- 完成稳定功能或重构后，优先使用 `record_memory` / `session_end` 回写项目知识。',
-    '- ContextAtlas 配置文件位于 `~/.contextatlas/.env`，MCP server 名称为 `contextatlas`。',
+    ...modeSpecificLines,
     '- 这个区块由 `contextatlas setup:local` 自动维护。',
     PROMPT_BLOCK_END,
     '',
@@ -87,6 +106,7 @@ export function upsertContextAtlasMcpJson(
     command: input.nodeCommand,
     args: [input.entryScript, 'mcp'],
     env: {
+      CONTEXTATLAS_EXPOSURE_MODE: 'mcp',
       CONTEXTATLAS_MCP_TOOLSET: input.toolset,
     },
   };
@@ -151,6 +171,25 @@ export function buildCodexSkillContent(): string {
   ].join('\n');
 }
 
+export function buildCodexCliSkillContent(): string {
+  return [
+    '---',
+    'name: contextatlas-cli',
+    'description: "Use ContextAtlas CLI JSON commands for semantic code retrieval and project memory before editing code."',
+    '---',
+    '',
+    '# ContextAtlas CLI',
+    '',
+    '优先用 ContextAtlas CLI 做代码理解，而不是猜文件路径。',
+    '',
+    '1. 新任务先运行 `contextatlas search --repo-path <repo> --information-request "<问题>" --json`。',
+    '2. 根据 JSON 结果继续阅读代码、定位边界和判断影响范围。',
+    '3. 需要保存知识时，运行 `contextatlas memory:*` 相关命令。',
+    '4. `~/.contextatlas/.env` 管理 embeddings 与 rerank 配置。',
+    '',
+  ].join('\n');
+}
+
 export function resolveClaudeDesktopConfigPath(input: {
   homeDir: string;
   platform: NodeJS.Platform;
@@ -181,7 +220,7 @@ export function resolveClaudeDesktopConfigPath(input: {
 
 export async function applyLocalSetup(options: LocalSetupOptions): Promise<LocalSetupReport> {
   const entryScript = path.join(options.repoRoot, 'dist', 'index.js');
-  const promptBlock = buildPromptManagedBlock();
+  const promptBlock = buildPromptManagedBlock(options.mode);
   const operations: LocalSetupOperation[] = [];
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
@@ -194,48 +233,50 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
     options.dryRun,
   );
 
-  const jsonTargets = [
-    {
-      path: path.join(options.homeDir, '.claude', 'mcp.json'),
-      description: 'Claude Code MCP config',
-    },
-    {
-      path: resolveClaudeDesktopConfigPath({
-        homeDir: options.homeDir,
-        platform,
-        env,
+  if (options.mode === 'mcp') {
+    const jsonTargets = [
+      {
+        path: path.join(options.homeDir, '.claude', 'mcp.json'),
+        description: 'Claude Code MCP config',
+      },
+      {
+        path: resolveClaudeDesktopConfigPath({
+          homeDir: options.homeDir,
+          platform,
+          env,
+        }),
+        description: 'Claude Desktop MCP config',
+      },
+      {
+        path: path.join(options.homeDir, '.gemini', 'settings.json'),
+        description: 'Gemini MCP config',
+      },
+    ];
+
+    for (const target of jsonTargets) {
+      const current = await readOptionalFile(target.path);
+      const next = upsertContextAtlasMcpJson(current, {
+        nodeCommand: options.nodeCommand,
+        entryScript,
+        toolset: options.toolset,
+      });
+      await queueWrite(operations, target.path, target.description, next, options.dryRun, current);
+    }
+
+    const codexConfigPath = path.join(options.homeDir, '.codex', 'config.toml');
+    const codexConfig = await readOptionalFile(codexConfigPath);
+    await queueWrite(
+      operations,
+      codexConfigPath,
+      'Codex MCP config',
+      upsertContextAtlasCodexConfig(codexConfig, {
+        nodeCommand: options.nodeCommand,
+        entryScript,
       }),
-      description: 'Claude Desktop MCP config',
-    },
-    {
-      path: path.join(options.homeDir, '.gemini', 'settings.json'),
-      description: 'Gemini MCP config',
-    },
-  ];
-
-  for (const target of jsonTargets) {
-    const current = await readOptionalFile(target.path);
-    const next = upsertContextAtlasMcpJson(current, {
-      nodeCommand: options.nodeCommand,
-      entryScript,
-      toolset: options.toolset,
-    });
-    await queueWrite(operations, target.path, target.description, next, options.dryRun, current);
+      options.dryRun,
+      codexConfig,
+    );
   }
-
-  const codexConfigPath = path.join(options.homeDir, '.codex', 'config.toml');
-  const codexConfig = await readOptionalFile(codexConfigPath);
-  await queueWrite(
-    operations,
-    codexConfigPath,
-    'Codex MCP config',
-    upsertContextAtlasCodexConfig(codexConfig, {
-      nodeCommand: options.nodeCommand,
-      entryScript,
-    }),
-    options.dryRun,
-    codexConfig,
-  );
 
   const promptTargets = [
     {
@@ -258,17 +299,20 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
     await queueWrite(operations, target.path, target.description, next, options.dryRun, current);
   }
 
-  await queueWrite(
-    operations,
-    path.join(options.homeDir, '.codex', 'skills', 'contextatlas-mcp', 'SKILL.md'),
-    'Codex ContextAtlas skill',
-    buildCodexSkillContent(),
-    options.dryRun,
-  );
+  if (options.mode === 'cli-skill') {
+    await queueWrite(
+      operations,
+      path.join(options.homeDir, '.codex', 'skills', 'contextatlas-cli', 'SKILL.md'),
+      'Codex ContextAtlas CLI skill',
+      buildCodexCliSkillContent(),
+      options.dryRun,
+    );
+  }
 
   return {
     changed: operations.some((operation) => operation.action !== 'unchanged'),
     dryRun: options.dryRun,
+    mode: options.mode,
     platform,
     operations,
   };
@@ -278,6 +322,7 @@ export function formatLocalSetupReport(report: LocalSetupReport): string {
   const lines = [
     'ContextAtlas Local Setup',
     `Mode: ${report.dryRun ? 'DRY-RUN' : 'APPLY'}`,
+    `Exposure Mode: ${report.mode}`,
     `Detected Platform: ${report.platform}`,
     '',
     'Resolved Paths:',

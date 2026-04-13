@@ -5,9 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   applyLocalSetup,
+  buildCodexCliSkillContent,
   buildCodexSkillContent,
   buildPromptManagedBlock,
   formatLocalSetupReport,
+  isLocalSetupMode,
   resolveClaudeDesktopConfigPath,
   upsertContextAtlasCodexConfig,
   upsertContextAtlasMcpJson,
@@ -90,10 +92,25 @@ test('buildCodexSkillContent documents the ContextAtlas workflow for Codex skill
   assert.match(text, /record_memory/);
 });
 
+test('buildCodexCliSkillContent documents the CLI-first ContextAtlas workflow for Codex skills', () => {
+  const text = buildCodexCliSkillContent();
+
+  assert.match(text, /name: contextatlas-cli/);
+  assert.match(text, /contextatlas search --repo-path <repo>/);
+  assert.doesNotMatch(text, /mcp__contextatlas__/);
+});
+
+test('isLocalSetupMode accepts only supported exposure modes', () => {
+  assert.equal(isLocalSetupMode('cli-skill'), true);
+  assert.equal(isLocalSetupMode('mcp'), true);
+  assert.equal(isLocalSetupMode('hybrid'), false);
+});
+
 test('formatLocalSetupReport shows detected platform and resolved target paths', () => {
   const text = formatLocalSetupReport({
     changed: true,
     dryRun: true,
+    mode: 'mcp',
     platform: 'darwin',
     operations: [
       {
@@ -147,7 +164,7 @@ test('resolveClaudeDesktopConfigPath selects the correct path for linux, macOS, 
   );
 });
 
-test('applyLocalSetup writes env, mcp configs, prompt docs, and codex skill into a fresh home directory', async () => {
+test('applyLocalSetup in mcp mode writes env, mcp configs, and prompt docs without CLI skill', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'contextatlas-local-setup-'));
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'contextatlas-local-repo-'));
   fs.mkdirSync(path.join(repoRoot, 'dist'), { recursive: true });
@@ -158,6 +175,7 @@ test('applyLocalSetup writes env, mcp configs, prompt docs, and codex skill into
       homeDir,
       repoRoot,
       nodeCommand: '/usr/bin/node',
+      mode: 'mcp',
       toolset: 'retrieval-only',
       dryRun: false,
       platform: 'linux',
@@ -177,6 +195,10 @@ test('applyLocalSetup writes env, mcp configs, prompt docs, and codex skill into
       claudeDesktop.mcpServers.contextatlas?.env?.CONTEXTATLAS_MCP_TOOLSET,
       'retrieval-only',
     );
+    assert.equal(
+      claudeDesktop.mcpServers.contextatlas?.env?.CONTEXTATLAS_EXPOSURE_MODE,
+      'mcp',
+    );
 
     const codexConfig = fs.readFileSync(path.join(homeDir, '.codex', 'config.toml'), 'utf8');
     assert.match(codexConfig, /\[mcp_servers\.contextatlas\]/);
@@ -190,14 +212,54 @@ test('applyLocalSetup writes env, mcp configs, prompt docs, and codex skill into
     const claudePrompt = fs.readFileSync(path.join(homeDir, '.claude', 'CLAUDE.md'), 'utf8');
     assert.match(claudePrompt, /codebase-retrieval/);
 
-    const skill = fs.readFileSync(
-      path.join(homeDir, '.codex', 'skills', 'contextatlas-mcp', 'SKILL.md'),
-      'utf8',
+    assert.equal(
+      fs.existsSync(path.join(homeDir, '.codex', 'skills', 'contextatlas-cli', 'SKILL.md')),
+      false,
     );
-    assert.match(skill, /project-memory-hub/);
 
     const envFile = fs.readFileSync(path.join(homeDir, '.contextatlas', '.env'), 'utf8');
     assert.match(envFile, /EMBEDDINGS_BASE_URL=https:\/\/api\.siliconflow\.cn\/v1\/embeddings/);
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('applyLocalSetup in cli-skill mode writes env, prompts, and CLI skill without MCP configs', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'contextatlas-local-setup-cli-'));
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'contextatlas-local-repo-cli-'));
+  fs.mkdirSync(path.join(repoRoot, 'dist'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'dist', 'index.js'), 'console.log("ok");\n');
+
+  try {
+    const report = await applyLocalSetup({
+      homeDir,
+      repoRoot,
+      nodeCommand: '/usr/bin/node',
+      mode: 'cli-skill',
+      toolset: 'full',
+      dryRun: false,
+      platform: 'linux',
+      env: {},
+    });
+
+    assert.equal(report.changed, true);
+
+    const skill = fs.readFileSync(
+      path.join(homeDir, '.codex', 'skills', 'contextatlas-cli', 'SKILL.md'),
+      'utf8',
+    );
+    assert.match(skill, /contextatlas search --repo-path <repo>/);
+
+    const codexPrompt = fs.readFileSync(path.join(homeDir, '.codex', 'AGENTS.md'), 'utf8');
+    assert.match(codexPrompt, /ContextAtlas CLI/);
+
+    assert.equal(fs.existsSync(path.join(homeDir, '.codex', 'config.toml')), false);
+    assert.equal(fs.existsSync(path.join(homeDir, '.claude', 'mcp.json')), false);
+    assert.equal(
+      fs.existsSync(path.join(homeDir, '.config', 'Claude', 'claude_desktop_config.json')),
+      false,
+    );
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });
     fs.rmSync(repoRoot, { recursive: true, force: true });
@@ -217,6 +279,7 @@ test('applyLocalSetup keeps an existing env file untouched', async () => {
       homeDir,
       repoRoot,
       nodeCommand: '/usr/bin/node',
+      mode: 'mcp',
       toolset: 'full',
       dryRun: false,
       platform: 'linux',
@@ -243,6 +306,7 @@ test('applyLocalSetup writes Claude Desktop config to platform-specific macOS an
       homeDir: macHome,
       repoRoot,
       nodeCommand: '/usr/bin/node',
+      mode: 'mcp',
       toolset: 'full',
       dryRun: false,
       platform: 'darwin',
@@ -258,6 +322,7 @@ test('applyLocalSetup writes Claude Desktop config to platform-specific macOS an
       homeDir: winHome,
       repoRoot,
       nodeCommand: 'C:\\node.exe',
+      mode: 'mcp',
       toolset: 'full',
       dryRun: false,
       platform: 'win32',

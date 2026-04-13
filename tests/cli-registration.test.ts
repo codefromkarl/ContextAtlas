@@ -80,6 +80,7 @@ test('registerBootstrapCommands registers startup-oriented commands', () => {
   const registered = Array.from(cli.commands.keys());
 
   assert.deepEqual(registered, ['init', 'start [path]', 'mcp', 'setup:local']);
+  assert.ok(cli.commands.get('setup:local')?.options.includes('--mode <mode>'));
 });
 
 test('buildDefaultEnvContent emits SiliconFlow-first embedding gateway example', () => {

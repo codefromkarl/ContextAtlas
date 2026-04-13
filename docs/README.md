@@ -42,6 +42,7 @@
 
 ## 更新日志
 
+- [更新总结模板](./changelog/TEMPLATE.md)
 - [2026-04-10](./changelog/2026-04-10.md)
 - [2026-04-09](./changelog/2026-04-09.md)
 - [2026-04-08](./changelog/2026-04-08.md)
@@ -53,6 +54,7 @@
 - [路线图执行清单](./plans/roadmap-checklist.md)
 - [后续任务执行清单](./plans/next-tasks-execution-checklist.md)
 - [Mempalace 吸收执行计划](./plans/mempalace-absorption-execution-plan.md)
+- [接入模式解耦重构计划](./plans/exposure-mode-separation-plan.md)
 
 ## 历史归档
 

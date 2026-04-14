@@ -276,7 +276,6 @@ export function evaluateAlerts(
   const metrics = extractMetrics(healthReport);
   const triggered: AlertEvent[] = [];
   const resolved: AlertEvent[] = [];
-  const active: AlertEvent[] = [];
 
   for (const rule of cfg.rules) {
     if (!rule.enabled) continue;

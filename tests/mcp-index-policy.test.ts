@@ -5,7 +5,7 @@ import {
   parseBooleanFlag,
   resolveAutoIndexScope,
   shouldContinueQueryWithExistingIndexOnLockConflict,
-} from '../src/mcp/tools/indexPolicy.ts';
+} from '../src/application/retrieval/indexPolicy.ts';
 
 test('parseBooleanFlag 支持常见真假值', () => {
   assert.equal(parseBooleanFlag(undefined, true), true);

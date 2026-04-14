@@ -8,13 +8,12 @@ import crypto from 'node:crypto';
 import { MemoryStore } from '../../memory/MemoryStore.js';
 import type {
   CheckpointListPayload,
-  ContextBlock,
   TaskCheckpoint,
 } from '../../memory/types.js';
 import {
   buildCheckpointContextBlock,
   buildCheckpointJsonPayload,
-} from '../../mcp/tools/checkpointBundles.js';
+} from './checkpointBundles.js';
 import type { ResponseFormat, MemoryToolResponse } from './memoryTypes.js';
 
 // ===========================================

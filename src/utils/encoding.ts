@@ -5,7 +5,7 @@ import iconv from 'iconv-lite';
 /**
  * 支持的编码列表（按优先级排序）
  */
-const _SUPPORTED_ENCODINGS = [
+export const SUPPORTED_ENCODINGS = [
   'UTF-8',
   'UTF-16 LE',
   'UTF-16 BE',

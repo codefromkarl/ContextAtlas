@@ -24,7 +24,6 @@ import type {
   LongTermMemoryItem,
   LongTermMemoryScope,
   LongTermMemorySearchResult,
-  LongTermMemoryStatus,
   LongTermMemoryType,
   MemoryCatalog,
   ProjectProfile,

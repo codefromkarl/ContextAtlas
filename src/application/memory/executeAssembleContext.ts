@@ -16,7 +16,7 @@ import type {
 import type { AssemblyProfileName } from '../../memory/MemoryRouter.js';
 import { MemoryStore } from '../../memory/MemoryStore.js';
 import { logger } from '../../utils/logger.js';
-import { buildWakeupLayers, formatWakeupLayersText, type WakeupLayersBundle } from '../../mcp/tools/wakeupLayers.js';
+import { buildWakeupLayers, formatWakeupLayersText, type WakeupLayersBundle } from './wakeupLayers.js';
 import type { ResponseFormat, MemoryToolResponse } from './memoryTypes.js';
 import { executeLoadModuleMemory } from './executeModuleMemory.js';
 import { executeLoadCheckpoint } from './executeCheckpoints.js';
@@ -154,6 +154,7 @@ interface AssembledContextJsonPayload {
     moduleMemory: {
       candidateCount: number;
       selectedCount: number;
+      selectedModules: string[];
       maxResults: number;
       selectionStrategy: 'mmr' | 'ranked';
       routeStrategy: string;
@@ -267,6 +268,7 @@ export async function executeAssembleContext(
       moduleMemory: modulePayload?.routing ? {
         candidateCount: modulePayload.routing.candidateCount,
         selectedCount: modulePayload.routing.selectedCount,
+        selectedModules: modulePayload.routing.selectedModules,
         maxResults: modulePayload.assembly.maxResults,
         selectionStrategy: modulePayload.routing.selectionStrategy,
         routeStrategy: modulePayload.routing.routeStrategy,
@@ -331,6 +333,7 @@ export async function executeAssembleContext(
       moduleMemory: modulePayload?.routing ? {
         candidateCount: modulePayload.routing.candidateCount,
         selectedCount: modulePayload.routing.selectedCount,
+        selectedModules: modulePayload.routing.selectedModules,
         maxResults: modulePayload.assembly.maxResults,
         selectionStrategy: modulePayload.routing.selectionStrategy,
         routeStrategy: modulePayload.routing.routeStrategy,
@@ -350,6 +353,7 @@ export async function executeAssembleContext(
         ? {
             candidateCount: modulePayload.routing.candidateCount,
             selectedCount: modulePayload.routing.selectedCount,
+            selectedModules: modulePayload.routing.selectedModules,
             maxResults: modulePayload.assembly.maxResults,
             selectionStrategy: modulePayload.routing.selectionStrategy,
             routeStrategy: modulePayload.routing.routeStrategy,

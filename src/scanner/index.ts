@@ -547,7 +547,6 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
       processingBatches.length > 0 ? processFiles(rootPath, processingBatches[0], knownFiles) : null;
 
     for (let batchIndex = 0; batchIndex < processingBatches.length; batchIndex++) {
-      const batch = processingBatches[batchIndex];
       const batchResults = await pendingBatchResults!;
       const nextBatch = processingBatches[batchIndex + 1];
       pendingBatchResults = nextBatch ? processFiles(rootPath, nextBatch, knownFiles) : null;

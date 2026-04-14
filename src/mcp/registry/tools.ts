@@ -1,30 +1,4 @@
 import { createResponseFormatInputSchemaProperty } from '../tools/responseFormat.js';
-import {
-  assembleContextSchema,
-  codebaseRetrievalSchema,
-  createCheckpointSchema,
-  deleteMemorySchema,
-  listCheckpointsSchema,
-  loadCheckpointSchema,
-  findMemorySchema,
-  getDependencyChainSchema,
-  getProjectProfileSchema,
-  linkMemoriesSchema,
-  listMemoryCatalogSchema,
-  loadModuleMemorySchema,
-  maintainMemoryCatalogSchema,
-  manageLongTermMemorySchema,
-  manageProjectsSchema,
-  querySharedMemoriesSchema,
-  recordDecisionSchema,
-  recordLongTermMemorySchema,
-  recordMemorySchema,
-  recordResultFeedbackSchema,
-  sessionEndSchema,
-  suggestPhaseBoundarySchema,
-  suggestMemorySchema,
-  prepareHandoffSchema,
-} from '../tools/index.js';
 
 const responseFormatProperty = createResponseFormatInputSchemaProperty();
 

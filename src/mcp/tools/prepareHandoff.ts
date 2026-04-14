@@ -5,23 +5,6 @@
  */
 
 import { z } from 'zod';
-import type {
-  CheckpointHandoffBundle,
-  CheckpointResumeBundle,
-  CheckpointToolPayloadWithBundles,
-  ContextBlock,
-  DecisionRecord,
-  FeatureMemory,
-  ResolvedLongTermMemoryItem,
-  TaskCheckpoint,
-} from '../../memory/types.js';
-import {
-  buildCheckpointContextBlock,
-  buildCheckpointHandoff,
-  buildCheckpointHandoffBundle,
-  buildCheckpointResumeBundle,
-  buildCheckpointSummary,
-} from './checkpointBundles.js';
 import { responseFormatSchema } from './responseFormat.js';
 
 export const prepareHandoffSchema = z.object({
@@ -34,31 +17,6 @@ export const prepareHandoffSchema = z.object({
 });
 
 export type PrepareHandoffInput = z.infer<typeof prepareHandoffSchema>;
-
-type PrepareHandoffPayload = Omit<CheckpointToolPayloadWithBundles, 'tool' | 'savedTo'> & {
-  tool: 'prepare_handoff';
-  handoffSummary: {
-    checkpointId: string;
-    title: string;
-    goal: string;
-    phase: TaskCheckpoint['phase'];
-    summary: string;
-    referencedBlockIds: string[];
-    resolvedBlockCount: number;
-    unresolvedBlockIds: string[];
-    unresolvedQuestions: string[];
-    nextSteps: string[];
-    keyFindings: string[];
-    activeBlockCount: number;
-    exploredRefCount: number;
-    keyFindingCount: number;
-    unresolvedQuestionCount: number;
-    nextStepCount: number;
-  };
-  referencedBlockIds: string[];
-  unresolvedBlockIds: string[];
-  nextSteps: string[];
-};
 
 export async function handlePrepareHandoff(
   args: PrepareHandoffInput,

@@ -9,8 +9,6 @@ import { resolveBaseDir } from '../runtimePaths.js';
 import {
   listIndexUsage,
   listToolUsage,
-  type IndexUsageRecord,
-  type ToolUsageRecord,
 } from '../usage/usageTracker.js';
 
 export interface OpsMetricsRepoInput {

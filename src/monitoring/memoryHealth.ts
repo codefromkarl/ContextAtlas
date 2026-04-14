@@ -14,8 +14,6 @@ import type {
   LongTermMemoryScope,
   ResolvedLongTermMemoryItem,
 } from '../memory/types.js';
-import { resolveBaseDir } from '../runtimePaths.js';
-import { logger } from '../utils/logger.js';
 
 // ===========================================
 // Types

@@ -120,7 +120,7 @@ function normalizeHfFeatureExtractionEmbeddings(
   return parsed;
 }
 
-function buildOpenAiEmbeddingResponse(input: string | string[], model: string, embeddings: number[][]): string {
+function buildOpenAiEmbeddingResponse(_input: string | string[], model: string, embeddings: number[][]): string {
   return JSON.stringify({
     object: 'list',
     data: embeddings.map((embedding, index) => ({

@@ -71,18 +71,6 @@ function mutateRepoForIncremental(repoRoot: string, count: number): void {
   }
 }
 
-function emptyScanStats(totalFiles: number): ScanStats {
-  return {
-    totalFiles,
-    added: 0,
-    modified: 0,
-    unchanged: totalFiles,
-    deleted: 0,
-    skipped: 0,
-    errors: 0,
-  };
-}
-
 export async function runIndexBenchmark(input: {
   size: IndexBenchmarkSize;
   scenario: IndexBenchmarkScenario;

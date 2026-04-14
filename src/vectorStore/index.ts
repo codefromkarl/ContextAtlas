@@ -69,15 +69,11 @@ function sleep(ms: number): Promise<void> {
 export class VectorStore {
   private db: lancedb.Connection | null = null;
   private table: lancedb.Table | null = null;
-  private projectId: string;
   private dbPath: string;
   private vectorDim: number;
-  private snapshotId: string | null | undefined;
 
   constructor(projectId: string, vectorDim = 1024, snapshotId?: string | null) {
-    this.projectId = projectId;
     this.vectorDim = vectorDim;
-    this.snapshotId = snapshotId;
     this.dbPath = resolveIndexPaths(projectId, { snapshotId }).vectorPath;
   }
 
@@ -236,7 +232,6 @@ export class VectorStore {
         continue;
       }
 
-      let success = false;
       for (let attempt = 0; attempt <= MAX_BATCH_RETRIES; attempt++) {
         try {
           // 1. 批量插入本批次的 records
@@ -257,7 +252,6 @@ export class VectorStore {
             await this.table.delete(deleteConditions);
           }
 
-          success = true;
           break;
         } catch (err) {
           if (attempt === MAX_BATCH_RETRIES) {

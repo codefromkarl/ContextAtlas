@@ -17,12 +17,9 @@ import {
 import { createSearchPipelineCallbacks } from './SearchPipelineCallbacks.js';
 import type { BuildContextPackOptions } from './SearchPipelineSupport.js';
 import { DEFAULT_CONFIG } from './config.js';
-import { classifyQueryIntent, deriveQueryAwareSearchConfig } from './QueryIntentClassifier.js';
-import { applySmartCutoff, selectRerankPoolCandidates } from './RerankPolicy.js';
 import type { ContextPack, SearchConfig } from './types.js';
 import {
   initializeSearchDependencies,
-  type SearchDependencyLoaders,
 } from './runtime/initializeSearchDependencies.js';
 import {
   createSearchRuntimeContext,

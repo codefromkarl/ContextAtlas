@@ -21,7 +21,7 @@ import {
   buildCheckpointHandoffBundle,
   buildCheckpointResumeBundle,
   buildCheckpointSummary,
-} from '../../mcp/tools/checkpointBundles.js';
+} from './checkpointBundles.js';
 import type { ResponseFormat, MemoryToolResponse } from './memoryTypes.js';
 
 // ===========================================

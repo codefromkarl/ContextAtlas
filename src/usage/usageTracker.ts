@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { expandHome, resolveBaseDir, resolveUsageDbPathFromEnv } from '../runtimePaths.js';
+import { resolveBaseDir, resolveUsageDbPathFromEnv } from '../runtimePaths.js';
 
 const DEFAULT_USAGE_DB_FILE = 'usage-tracker.db';
 
@@ -45,9 +45,6 @@ export interface IndexUsageRecord extends IndexUsageInput {
   timestamp: string;
   day: string;
 }
-
-type ToolUsageRow = Record<string, unknown>;
-type IndexUsageRow = Record<string, unknown>;
 
 const TOOL_USAGE_STATUS: ToolUsageRecord['status'][] = ['success', 'error'];
 const TOOL_INDEX_STATE: NonNullable<ToolUsageRecord['indexState']>[] = ['missing', 'ready', 'unknown'];

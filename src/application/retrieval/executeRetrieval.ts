@@ -16,7 +16,7 @@ import { resolveBaseDir } from '../../runtimePaths.js';
 import type { ContextPack } from '../../search/types.js';
 import { hasIndexedData } from '../../storage/layout.js';
 import { logger } from '../../utils/logger.js';
-import { getMcpIndexPolicy, resolveAutoIndexScope } from '../../mcp/tools/indexPolicy.js';
+import { getMcpIndexPolicy, resolveAutoIndexScope } from './indexPolicy.js';
 import { buildColdStartLexicalFallbackPack } from './coldStartFallback.js';
 import {
   buildRetrievalResultCard,

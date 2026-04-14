@@ -5,12 +5,7 @@
  */
 
 import { z } from 'zod';
-import type { AssemblyProfileName } from '../../memory/MemoryRouter.js';
-import type { TaskCheckpoint } from '../../memory/types.js';
 import { responseFormatSchema } from './responseFormat.js';
-
-type AssembleContextPhase = TaskCheckpoint['phase'];
-type AssembleContextSource = 'default' | 'phase' | 'profile' | 'checkpoint';
 
 const phaseSchema = z.enum([
   'overview',

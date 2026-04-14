@@ -373,7 +373,7 @@ async function recordOpsVerificationOutcome(
     confidence: 1,
     lastVerifiedAt: new Date().toISOString(),
   });
-  return { id: memory.id };
+  return { id: memory.memory.id };
 }
 
 export async function applyOpsActionWithVerification(

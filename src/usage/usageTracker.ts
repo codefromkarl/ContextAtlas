@@ -104,7 +104,7 @@ function readEnumField<T extends string>(
   allowed: readonly T[],
 ): T | undefined {
   const value = readField(row, key);
-  return typeof value === 'string' && allowed.some((item) => item === value) ? value : undefined;
+  return typeof value === 'string' && allowed.some((item) => item === value) ? (value as T) : undefined;
 }
 
 function getBaseDir(): string {

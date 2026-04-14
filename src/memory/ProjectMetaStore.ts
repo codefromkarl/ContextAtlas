@@ -46,13 +46,13 @@ export class ProjectMetaStore {
 
   async readCheckpoint(checkpointId: string): Promise<TaskCheckpoint | null> {
     const raw = this.hub.getProjectMeta(this.projectId, `checkpoint:${checkpointId}`);
-    return this.parseJson<TaskCheckpoint>(raw, null);
+    return this.parseJson<TaskCheckpoint>(raw, null as TaskCheckpoint | null);
   }
 
   async listCheckpoints(): Promise<TaskCheckpoint[]> {
     const rows = this.hub.listProjectMeta(this.projectId, 'checkpoint:');
     return rows
-      .map((row) => this.parseJson<TaskCheckpoint>(row.meta_value, null))
+      .map((row) => this.parseJson<TaskCheckpoint>(row.meta_value, null as TaskCheckpoint | null))
       .filter((value): value is TaskCheckpoint => value !== null)
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   }
@@ -64,7 +64,7 @@ export class ProjectMetaStore {
 
   async readCatalog(): Promise<MemoryCatalog | null> {
     const raw = this.hub.getProjectMeta(this.projectId, this.catalogMetaKey);
-    return this.parseJson<MemoryCatalog>(raw, null);
+    return this.parseJson<MemoryCatalog>(raw, null as MemoryCatalog | null);
   }
 
   async saveGlobal(type: GlobalMemoryType, data: Record<string, unknown>): Promise<string> {
@@ -85,13 +85,13 @@ export class ProjectMetaStore {
 
   async readGlobal(type: string): Promise<GlobalMemory | null> {
     const raw = this.hub.getProjectMeta(this.projectId, `${this.globalMetaPrefix}${type}`);
-    return this.parseJson<GlobalMemory>(raw, null);
+    return this.parseJson<GlobalMemory>(raw, null as GlobalMemory | null);
   }
 
   async listGlobals(): Promise<GlobalMemory[]> {
     const rows = this.hub.listProjectMeta(this.projectId, this.globalMetaPrefix);
     return rows
-      .map((row) => this.parseJson<GlobalMemory>(row.meta_value, null))
+      .map((row) => this.parseJson<GlobalMemory>(row.meta_value, null as GlobalMemory | null))
       .filter((value): value is GlobalMemory => value !== null);
   }
 
@@ -99,7 +99,7 @@ export class ProjectMetaStore {
     return this.hub.listProjectMeta(this.projectId, keyPrefix);
   }
 
-  private parseJson<T>(input: string | null, fallback: T): T {
+  private parseJson<T>(input: string | null, fallback: T | null): T | null {
     if (!input) {
       return fallback;
     }

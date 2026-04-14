@@ -22,7 +22,7 @@ interface RedisCacheStoreInput {
 
 async function defaultCreateRedisClient(url: string): Promise<EmbeddingGatewayRedisClient> {
   const { createClient } = await import('redis');
-  return createClient({ url }) as EmbeddingGatewayRedisClient;
+  return createClient({ url }) as unknown as EmbeddingGatewayRedisClient;
 }
 
 export class RedisEmbeddingGatewayCacheStore implements EmbeddingGatewayCacheStore {

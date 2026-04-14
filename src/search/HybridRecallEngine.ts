@@ -191,6 +191,8 @@ export class HybridRecallEngine {
           vectorCount: vectorResults.length,
           lexicalCount: lexicalResults.length,
           fusedCount: vectorResults.length,
+          rerankInputCount: 0,
+          queryIntent: 'balanced',
         },
         timingMs: {
           retrieveVector,
@@ -210,6 +212,8 @@ export class HybridRecallEngine {
         vectorCount: vectorResults.length,
         lexicalCount: lexicalResults.length,
         fusedCount: fused.length,
+        rerankInputCount: 0,
+        queryIntent: 'balanced',
       },
       timingMs: {
         retrieveVector,

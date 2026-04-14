@@ -158,7 +158,8 @@ export function buildWakeupLayers(input: WakeupLayersInput): WakeupLayersBundle 
       blockCount: codeBlocks.length,
       blockIds: codeBlocks.map((block) => block.id),
       highlights:
-        input.routing.codebaseRetrieval?.nextInspectionSuggestions.length > 0
+        input.routing.codebaseRetrieval?.nextInspectionSuggestions &&
+        input.routing.codebaseRetrieval.nextInspectionSuggestions.length > 0
           ? input.routing.codebaseRetrieval.nextInspectionSuggestions.slice(0, 5)
           : [`References: ${input.summary.references}`],
     },

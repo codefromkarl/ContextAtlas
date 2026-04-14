@@ -292,7 +292,7 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
 
     for (const target of jsonTargets) {
       const current = await readOptionalFile(target.path);
-      const next = upsertContextAtlasMcpJson(current, {
+      const next = upsertContextAtlasMcpJson(current ?? undefined, {
         nodeCommand: options.nodeCommand,
         entryScript,
         toolset: options.toolset,
@@ -306,7 +306,7 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
       operations,
       codexConfigPath,
       'Codex MCP config',
-      upsertContextAtlasCodexConfig(codexConfig, {
+      upsertContextAtlasCodexConfig(codexConfig ?? undefined, {
         nodeCommand: options.nodeCommand,
         entryScript,
       }),

@@ -425,12 +425,12 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
         goal: String(options.goal),
         phase,
         summary: String(options.summary),
-        activeBlockIds: splitCommaSeparated(options['active-block-ids']),
-        exploredRefs: splitCommaSeparated(options['explored-refs']),
-        supportingRefs: splitCommaSeparated(options['supporting-refs']),
-        keyFindings: splitCommaSeparated(options['key-findings']),
-        unresolvedQuestions: splitCommaSeparated(options['unresolved-questions']),
-        nextSteps: splitCommaSeparated(options['next-steps']),
+        activeBlockIds: splitCommaSeparated(typeof options['active-block-ids'] === 'string' ? options['active-block-ids'] : undefined),
+        exploredRefs: splitCommaSeparated(typeof options['explored-refs'] === 'string' ? options['explored-refs'] : undefined),
+        supportingRefs: splitCommaSeparated(typeof options['supporting-refs'] === 'string' ? options['supporting-refs'] : undefined),
+        keyFindings: splitCommaSeparated(typeof options['key-findings'] === 'string' ? options['key-findings'] : undefined),
+        unresolvedQuestions: splitCommaSeparated(typeof options['unresolved-questions'] === 'string' ? options['unresolved-questions'] : undefined),
+        nextSteps: splitCommaSeparated(typeof options['next-steps'] === 'string' ? options['next-steps'] : undefined),
         format: options.json ? 'json' : 'text',
       });
       writeText(joinToolText(response));

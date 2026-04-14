@@ -107,7 +107,7 @@ export async function executeRecordLongTermMemory(
     scope: resolvedScope,
     factKey: args.factKey,
     links: args.links,
-    tags: args.tags,
+    tags: args.tags ?? [],
   });
 
   const { memory, action } = await store.appendLongTermMemoryItem({

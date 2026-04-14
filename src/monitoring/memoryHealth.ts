@@ -94,20 +94,20 @@ function analyzeLongTermFreshness(
   let stale = 0;
   let expired = 0;
 
-  const byType: Record<string, { total: number; active: number; stale: number; expired: number }> = {};
-  const byScope: Record<string, { total: number; active: number; stale: number; expired: number }> = {};
+  const byType: Record<string, { total: number; active: number; stale: number; expired: number; superseded: number }> = {};
+  const byScope: Record<string, { total: number; active: number; stale: number; expired: number; superseded: number }> = {};
 
   for (const item of items) {
     if (item.status === 'active') active++;
     else if (item.status === 'stale') stale++;
     else if (item.status === 'expired') expired++;
 
-    const typeBucket = byType[item.type] || { total: 0, active: 0, stale: 0, expired: 0 };
+    const typeBucket = byType[item.type] || { total: 0, active: 0, stale: 0, expired: 0, superseded: 0 };
     typeBucket.total++;
     typeBucket[item.status]++;
     byType[item.type] = typeBucket;
 
-    const scopeBucket = byScope[item.scope] || { total: 0, active: 0, stale: 0, expired: 0 };
+    const scopeBucket = byScope[item.scope] || { total: 0, active: 0, stale: 0, expired: 0, superseded: 0 };
     scopeBucket.total++;
     scopeBucket[item.status]++;
     byScope[item.scope] = scopeBucket;

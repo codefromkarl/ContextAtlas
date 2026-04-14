@@ -196,7 +196,7 @@ function toTask(row: unknown): IndexTask {
     finishedAt: readNumberField(row, 'finished_at') ?? null,
     attempts: readNumberField(row, 'attempts') ?? 0,
     lastError: readStringField(row, 'last_error') ?? null,
-    executionHint: parseExecutionHint(row.execution_hint_json),
+    executionHint: parseExecutionHint((row as Record<string, unknown>).execution_hint_json),
   };
 }
 

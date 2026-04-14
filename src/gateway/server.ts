@@ -300,6 +300,13 @@ async function validateGatewayUpstreams(config: EmbeddingGatewayConfig): Promise
   const providers = config.upstreams.map((provider) => ({
     ...provider,
     disabledUntil: 0,
+    metrics: {
+      requests: 0,
+      successes: 0,
+      failures: 0,
+      totalLatencyMs: 0,
+      cooldowns: 0,
+    },
   }));
 
   for (const logicalModel of validationModels) {
@@ -486,7 +493,7 @@ export function createEmbeddingGatewayServer(
         return;
       }
 
-      const cacheKey = buildEmbeddingGatewayCacheKey(payload as Record<string, unknown>);
+      const cacheKey = buildEmbeddingGatewayCacheKey(payload as unknown as Record<string, unknown>);
       const cached = await cache.get(cacheKey);
       if (cached) {
         sendResponse(res, cached, 'hit');

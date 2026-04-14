@@ -25,8 +25,8 @@ export function registerMemoryFeatureCommands(cli: CommandRegistrar): void {
     .command('memory:suggest <name>', '建议记录功能记忆，默认不直接落库')
     .option('--files <files>', '相关文件（逗号分隔）')
     .action(async (name: string, options: Record<string, string | undefined>) => {
-      const { handleSuggestMemory } = await import('../../mcp/tools/autoRecord.js');
-      const response = await handleSuggestMemory({
+      const { executeSuggestMemory } = await import('../../application/memory/executeAutoRecord.js');
+      const response = await executeSuggestMemory({
         moduleName: name,
         files: splitCommaSeparated(options.files),
       });
@@ -49,8 +49,8 @@ export function registerMemoryFeatureCommands(cli: CommandRegistrar): void {
       '确认状态：suggested | agent-inferred | human-confirmed',
     )
     .action(async (name: string, options: Record<string, string | undefined>) => {
-      const { handleRecordMemory } = await import('../../mcp/tools/projectMemory.js');
-      const response = await handleRecordMemory(
+      const { executeRecordMemory } = await import('../../application/memory/executeProjectMemory.js');
+      const response = await executeRecordMemory(
         {
           name,
           responsibility: options.desc || '',

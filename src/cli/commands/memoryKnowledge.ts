@@ -75,8 +75,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       }
 
       const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
-      const { handleRecordLongTermMemory } = await import('../../mcp/tools/longTermMemory.js');
-      const response = await handleRecordLongTermMemory(
+      const { executeRecordLongTermMemory } = await import('../../application/memory/executeLongTermMemory.js');
+      const response = await executeRecordLongTermMemory(
         {
           type: options.type as
             | 'user'
@@ -135,8 +135,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       }
 
       const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
-      const { handleRecordAgentDiary } = await import('../../mcp/tools/agentDiary.js');
-      const response = await handleRecordAgentDiary(
+      const { executeRecordAgentDiary } = await import('../../application/memory/executeAgentDiary.js');
+      const response = await executeRecordAgentDiary(
         {
           agent_name: String(options.agent),
           entry: String(options.entry),
@@ -167,8 +167,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       }
 
       const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
-      const { handleReadAgentDiary } = await import('../../mcp/tools/agentDiary.js');
-      const response = await handleReadAgentDiary(
+      const { executeReadAgentDiary } = await import('../../application/memory/executeAgentDiary.js');
+      const response = await executeReadAgentDiary(
         {
           agent_name: String(options.agent),
           topic: typeof options.topic === 'string' ? options.topic : undefined,
@@ -199,8 +199,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       }
 
       const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
-      const { handleFindAgentDiary } = await import('../../mcp/tools/agentDiary.js');
-      const response = await handleFindAgentDiary(
+      const { executeFindAgentDiary } = await import('../../application/memory/executeAgentDiary.js');
+      const response = await executeFindAgentDiary(
         {
           query: String(options.query),
           agent_name: typeof options.agent === 'string' ? options.agent : undefined,
@@ -233,8 +233,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
       }
 
       const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
-      const { handleManageLongTermMemory } = await import('../../mcp/tools/longTermMemory.js');
-      const response = await handleManageLongTermMemory(
+      const { executeManageLongTermMemory } = await import('../../application/memory/executeLongTermMemory.js');
+      const response = await executeManageLongTermMemory(
         {
           action: 'invalidate',
           types: [
@@ -288,8 +288,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
           exitWithError('缺少 --outcome / --target-type / --query');
         }
 
-        const { handleRecordResultFeedback } = await import('../../mcp/tools/feedbackLoop.js');
-        const response = await handleRecordResultFeedback(
+        const { executeRecordResultFeedback } = await import('../../application/memory/executeFeedbackLoop.js');
+        const response = await executeRecordResultFeedback(
           {
             outcome: options.outcome as 'helpful' | 'not-helpful' | 'memory-stale' | 'wrong-module',
             targetType: options.targetType as
@@ -319,8 +319,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     .option('--rationale <rationale>', '决策理由')
     .option('--consequences <consequences>', '后果（逗号分隔）')
     .action(async (id: string, options: Record<string, string | undefined>) => {
-      const { handleRecordDecision } = await import('../../mcp/tools/projectMemory.js');
-      const response = await handleRecordDecision(
+      const { executeRecordDecision } = await import('../../application/memory/executeProjectMemory.js');
+      const response = await executeRecordDecision(
         {
           id,
           title: options.title || '',
@@ -418,8 +418,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
         exitWithError(`不支持的 --phase: ${phase}`);
       }
 
-      const { handleCreateCheckpoint } = await import('../../mcp/tools/checkpoints.js');
-      const response = await handleCreateCheckpoint({
+      const { executeCreateCheckpoint } = await import('../../application/memory/executeCheckpoints.js');
+      const response = await executeCreateCheckpoint({
         repo_path: options.repo ? path.resolve(String(options.repo)) : process.cwd(),
         title: String(options.title),
         goal: String(options.goal),
@@ -441,8 +441,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     .option('--repo <path>', '目标仓库路径（默认当前目录）')
     .option('--json', '以 JSON 输出结果')
     .action(async (checkpointId: string, options: Record<string, string | boolean | undefined>) => {
-      const { handleLoadCheckpoint } = await import('../../mcp/tools/checkpoints.js');
-      const response = await handleLoadCheckpoint({
+      const { executeLoadCheckpoint } = await import('../../application/memory/executeCheckpoints.js');
+      const response = await executeLoadCheckpoint({
         repo_path: options.repo ? path.resolve(String(options.repo)) : process.cwd(),
         checkpoint_id: checkpointId,
         format: options.json ? 'json' : 'text',
@@ -455,8 +455,8 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     .option('--repo <path>', '目标仓库路径（默认当前目录）')
     .option('--json', '以 JSON 输出结果')
     .action(async (options: Record<string, string | boolean | undefined>) => {
-      const { handleListCheckpoints } = await import('../../mcp/tools/checkpoints.js');
-      const response = await handleListCheckpoints({
+      const { executeListCheckpoints } = await import('../../application/memory/executeCheckpoints.js');
+      const response = await executeListCheckpoints({
         repo_path: options.repo ? path.resolve(String(options.repo)) : process.cwd(),
         format: options.json ? 'json' : 'text',
       });

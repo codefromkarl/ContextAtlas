@@ -1,6 +1,11 @@
 /**
  * Embedding 客户端
  *
+ * 支持任何 OpenAI-compatible Embedding API：
+ * - SiliconFlow (默认): EMBEDDINGS_BASE_URL 指向 SiliconFlow 端点
+ * - Ollama 本地: EMBEDDINGS_BASE_URL=http://localhost:11434/v1/embeddings
+ * - vLLM / LocalAI: EMBEDDINGS_BASE_URL 指向对应 /v1/embeddings 端点
+ *
  * 调用 SiliconFlow Embedding API，将文本转换为向量
  * 支持并发控制、批量处理和智能速率限制
  *

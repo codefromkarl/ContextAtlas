@@ -82,6 +82,30 @@ export interface RerankerConfig {
   topN: number;
 }
 
+export type RerankProvider = 'api' | 'ollama';
+
+export interface OllamaRerankerConfig {
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+export function getRerankProvider(): RerankProvider {
+  const provider = process.env.RERANK_PROVIDER;
+  if (provider === 'ollama') return 'ollama';
+  return 'api';
+}
+
+export function getOllamaRerankerConfig(): OllamaRerankerConfig {
+  return {
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+    model: process.env.OLLAMA_RERANK_MODEL || 'qwen2.5-coder:7b',
+    maxTokens: parseInt(process.env.OLLAMA_RERANK_MAX_TOKENS || '512', 10),
+    timeoutMs: parseInt(process.env.OLLAMA_RERANK_TIMEOUT_MS || '30000', 10),
+  };
+}
+
 export interface IndexUpdateStrategyConfig {
   churnThreshold: number;
   costThresholdRatio: number;
@@ -176,7 +200,7 @@ export function getEmbeddingConfig(): EmbeddingConfig {
   const globalMinIntervalMs = parseInt(process.env.EMBEDDINGS_GLOBAL_MIN_INTERVAL_MS || '200', 10);
 
   if (!apiKey) {
-    throw new Error('EMBEDDINGS_API_KEY 环境变量未设置');
+    throw new Error('EMBEDDINGS_API_KEY 环境变量未设置（本地 Ollama 可设置为 "ollama"）');
   }
   if (!baseUrl) {
     throw new Error('EMBEDDINGS_BASE_URL 环境变量未设置');

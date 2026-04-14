@@ -1,3 +1,16 @@
+/**
+ * Query Intent Classifier
+ *
+ * Classifies search queries into intent categories and derives
+ * intent-aware search configurations with tuned RRF weights.
+ *
+ * Weight profiles by intent:
+ * - symbol_lookup: wVec=0.35, wLex=0.65 (code identifiers matched lexically)
+ * - navigation:    wVec=0.30, wLex=0.70 (path-based queries are purely lexical)
+ * - conceptual:    wVec=0.55, wLex=0.45 (natural language benefits from semantics)
+ * - balanced:      wVec=base, wLex=base (default, reads from env or hardcoded)
+ */
+
 import { segmentQuery } from './fts.js';
 import type { QueryIntent, SearchConfig } from './types.js';
 

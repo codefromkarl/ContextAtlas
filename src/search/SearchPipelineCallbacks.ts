@@ -1,4 +1,5 @@
-import { getRerankerClient, type RerankUsage } from '../api/reranker.js';
+import { type RerankUsage } from '../api/reranker.js';
+import { getRerankerBackend } from '../api/rerankerRouter.js';
 import { logger } from '../utils/logger.js';
 import { getGraphExpander } from './GraphExpander.js';
 import { selectRerankPoolCandidates } from './RerankPolicy.js';
@@ -33,7 +34,7 @@ export function createSearchPipelineCallbacks(input: {
         return { chunks: [], inputCount: 0 };
       }
 
-      const reranker = getRerankerClient();
+      const reranker = getRerankerBackend();
       const queryTokens = input.extractQueryTokens(query);
       const rerankPool = selectRerankPoolCandidates(candidates, config);
       const textExtractor = (chunk: ScoredChunk): string =>

@@ -11,9 +11,9 @@ import {
   type BuildContextPackOptions,
 } from './SearchPipelineSupport.js';
 import { applySmartCutoff } from './RerankPolicy.js';
+import { initAuditLog, writeAuditEntry } from './retrievalAuditLog.js';
 import type {
   ContextPack,
-  RetrievalStats,
   SearchConfig,
 } from './types.js';
 
@@ -103,6 +103,29 @@ export async function buildContextPackFromRuntime(
     files,
     packStats: packResult.stats,
   });
+
+  // Audit log — best-effort, never breaks retrieval
+  if (runtime.db) {
+    try {
+      initAuditLog(runtime.db);
+      writeAuditEntry(runtime.db, {
+        query,
+        intent: request.queryIntent,
+        lexicalStrategy: retrieved.stats.lexicalStrategy,
+        vectorCount: retrieved.stats.vectorCount,
+        lexicalCount: retrieved.stats.lexicalCount,
+        fusedCount: retrieved.stats.fusedCount,
+        rerankedCount: reranked.chunks.length,
+        seedCount: seeds.length,
+        expandedCount: expanded.length,
+        totalMs: Object.values(timingMs).reduce((sum, ms) => sum + ms, 0),
+        rerankProvider: process.env.RERANK_PROVIDER || 'api',
+        topSeedPaths: seeds.slice(0, 5).map((s) => s.filePath),
+      });
+    } catch {
+      // Audit log is best-effort
+    }
+  }
 
   return {
     query,

@@ -132,6 +132,7 @@ export function initChunksFts(db: Database.Database): void {
   if (!tableExists) {
     // 创建 chunk 级 FTS 表
     // chunk_id, file_path, chunk_index 为 UNINDEXED（不参与全文搜索，但可返回）
+    // language, symbols 为可搜索列（用于按语言/符号名过滤）
     db.exec(`
             CREATE VIRTUAL TABLE chunks_fts USING fts5(
                 chunk_id UNINDEXED,
@@ -139,6 +140,8 @@ export function initChunksFts(db: Database.Database): void {
                 chunk_index UNINDEXED,
                 breadcrumb,
                 content,
+                language,
+                symbols,
                 tokenize='${tokenizer}'
             );
         `);
@@ -172,15 +175,25 @@ export function batchInsertChunkFts(
     chunkIndex: number;
     breadcrumb: string;
     content: string;
+    language?: string;
+    symbols?: string;
   }>,
 ): void {
   const insertStmt = db.prepare(
-    'INSERT INTO chunks_fts(chunk_id, file_path, chunk_index, breadcrumb, content) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO chunks_fts(chunk_id, file_path, chunk_index, breadcrumb, content, language, symbols) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
 
   const transaction = db.transaction((items: typeof chunks) => {
     for (const item of items) {
-      insertStmt.run(item.chunkId, item.filePath, item.chunkIndex, item.breadcrumb, item.content);
+      insertStmt.run(
+        item.chunkId,
+        item.filePath,
+        item.chunkIndex,
+        item.breadcrumb,
+        item.content,
+        item.language || '',
+        item.symbols || '',
+      );
     }
   });
 
@@ -199,6 +212,8 @@ export function replaceChunksFtsForFiles(
     chunkIndex: number;
     breadcrumb: string;
     content: string;
+    language?: string;
+    symbols?: string;
   }>,
 ): void {
   if (filePaths.length > 0) {
@@ -220,6 +235,8 @@ export function batchUpsertChunkFts(
     chunkIndex: number;
     breadcrumb: string;
     content: string;
+    language?: string;
+    symbols?: string;
   }>,
 ): void {
   const filePaths = [...new Set(chunks.map((chunk) => chunk.filePath))];

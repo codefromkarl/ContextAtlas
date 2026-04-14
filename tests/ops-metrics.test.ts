@@ -240,9 +240,13 @@ test('ops:metrics CLI 在未显式传 log-dir 时默认读取 baseDir/logs', () 
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
 
+  // 使用当天日期，避免日志被 Logger.cleanupOldLogs 在启动时自动清理
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+
   try {
     recordToolUsage({
-      timestamp: '2026-04-05T09:00:00.000Z',
+      timestamp: `${todayStr}T09:00:00.000Z`,
       source: 'mcp',
       toolName: 'codebase-retrieval',
       projectId: 'proj-metrics-default-log',
@@ -258,8 +262,8 @@ test('ops:metrics CLI 在未显式传 log-dir 时默认读取 baseDir/logs', () 
     const logsDir = path.join(baseDir, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(logsDir, 'app.2026-04-05.log'),
-      `2026-04-05 09:00:00 [INFO] MCP codebase-retrieval 完成 ${JSON.stringify({
+      path.join(logsDir, `app.${todayStr}.log`),
+      `${todayStr} 09:00:00 [INFO] MCP codebase-retrieval 完成 ${JSON.stringify({
         requestId: 'req-default-log',
         projectId: 'proj-metrics-default-log',
         totalMs: 321,

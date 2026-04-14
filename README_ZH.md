@@ -133,7 +133,10 @@ npm install -g @codefromkarl/context-atlas
 
 ```bash
 contextatlas init
-contextatlas setup:local
+# 选择接入模式：
+contextatlas setup:local --mode cli-skill   # 终端 + skill 集成
+# 或
+contextatlas setup:local --mode mcp         # MCP 客户端集成
 ```
 
 默认配置文件位置：
@@ -169,7 +172,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 - `contextatlas index:diagnose`：直接回显当前阈值和升级判定配置，适合排查“为什么升级成 full / 为什么仍保持 incremental”
 
 > `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
-> `setup:local` 会继续把 Claude / Codex / Gemini 所需的 MCP 配置、提示词文档和 Codex skill 一起写好。
+> `setup:local --mode <mode>` 仅写入所选模式的配置文件。模式选择指引见 [首次使用](./docs/guides/first-use.md)。
 
 更多配置与部署细节见 [部署手册](./docs/guides/deployment.md) 和 [CLI 文档](./docs/reference/cli.md)。
 
@@ -218,7 +221,14 @@ contextatlas mcp
 
 ## 接入方式
 
-### 1. 作为本地 CLI / Skill Backend
+ContextAtlas 支持两种互斥的接入模式，通过 `setup:local --mode <mode>` 选择：
+
+- **cli-skill**：终端 + skill 集成，所有操作通过 `contextatlas` CLI 命令完成，不暴露 MCP server
+- **mcp**：MCP 客户端集成，通过 Claude Desktop、Cursor、Codex MCP 等标准工具协议调用
+
+详见 [首次使用](./docs/guides/first-use.md) 中的模式选择指引。
+
+### 1. 作为本地 CLI / Skill Backend（cli-skill 模式）
 
 适合：
 
@@ -240,7 +250,7 @@ contextatlas decision:list
 contextatlas health:full
 ```
 
-### 2. 作为 MCP Server
+### 2. 作为 MCP Server（mcp 模式）
 
 适合：
 
@@ -254,7 +264,10 @@ Claude Desktop 配置示例：
   "mcpServers": {
     "contextatlas": {
       "command": "contextatlas",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "env": {
+        "CONTEXTATLAS_EXPOSURE_MODE": "mcp"
+      }
     }
   }
 }

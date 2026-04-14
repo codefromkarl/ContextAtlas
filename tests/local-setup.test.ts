@@ -124,6 +124,7 @@ test('formatLocalSetupReport shows detected platform and resolved target paths',
         path: '/Users/alice/.codex/AGENTS.md',
       },
     ],
+    legacyWarnings: [],
   });
 
   assert.match(text, /Detected Platform: darwin/);
@@ -338,6 +339,40 @@ test('applyLocalSetup writes Claude Desktop config to platform-specific macOS an
   } finally {
     fs.rmSync(macHome, { recursive: true, force: true });
     fs.rmSync(winHome, { recursive: true, force: true });
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('applyLocalSetup reports legacy files from the other mode', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'contextatlas-legacy-'));
+  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'contextatlas-legacy-repo-'));
+  fs.mkdirSync(path.join(repoRoot, 'dist'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'dist', 'index.js'), 'console.log("ok");\n');
+
+  // Simulate an old contextatlas-mcp skill from a previous mcp-mode setup
+  const legacySkillDir = path.join(homeDir, '.codex', 'skills', 'contextatlas-mcp');
+  fs.mkdirSync(legacySkillDir, { recursive: true });
+  fs.writeFileSync(path.join(legacySkillDir, 'SKILL.md'), 'old mcp skill');
+
+  try {
+    const report = await applyLocalSetup({
+      homeDir,
+      repoRoot,
+      nodeCommand: '/usr/bin/node',
+      mode: 'cli-skill',
+      toolset: 'full',
+      dryRun: false,
+      platform: 'linux',
+      env: {},
+    });
+
+    assert.equal(report.legacyWarnings.length, 1);
+    assert.match(report.legacyWarnings[0], /contextatlas-mcp/);
+
+    const text = formatLocalSetupReport(report);
+    assert.match(text, /Unmanaged Legacy Files/);
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
 });

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { exposureMode } from '../config.js';
 import { generateProjectId } from '../db/index.js';
 import { getActiveTask } from '../indexing/queue.js';
 import { hasIndexedData } from '../storage/layout.js';
@@ -25,6 +26,7 @@ export async function buildStartGuide(repoPath: string): Promise<string> {
     `- Repo: ${resolvedRepoPath}`,
     `- Project ID: ${projectId}`,
     `- Index Status: ${status}`,
+    `- Exposure Mode: ${exposureMode}`,
   ];
 
   if (activeTask) {
@@ -84,9 +86,24 @@ export async function buildStartGuide(repoPath: string): Promise<string> {
     '- Save project state: `contextatlas memory:record-long-term --type project-state --title "<标题>" --summary "<当前状态>"`',
   ];
 
+  const modeHintLines = exposureMode === 'cli-skill'
+    ? [
+        '### Mode: cli-skill',
+        '当前使用 CLI + skills 接入模式。所有操作通过 `contextatlas` 命令完成。',
+        '切换到 MCP 模式：`contextatlas setup:local --mode mcp`',
+      ]
+    : [
+        '### Mode: mcp',
+        '当前使用 MCP 接入模式。通过 MCP 客户端（Claude Desktop、Cursor 等）调用工具。',
+        '在 MCP 客户端中使用 `find_memory`、`codebase-retrieval`、`record_memory` 等工具。',
+        '切换到 CLI 模式：`contextatlas setup:local --mode cli-skill`',
+      ];
+
   return [
     ...introLines,
     ...nextLines,
+    '',
+    ...modeHintLines,
     '',
     ...flowLines,
     '',

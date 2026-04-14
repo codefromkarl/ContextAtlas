@@ -34,6 +34,8 @@ export interface LocalSetupReport {
   mode: LocalSetupMode;
   platform: NodeJS.Platform;
   operations: LocalSetupOperation[];
+  /** Files from the other mode that still exist on disk but are not managed by this mode. */
+  legacyWarnings: string[];
 }
 
 export function isLocalSetupToolset(value: string): value is LocalSetupToolset {
@@ -225,6 +227,34 @@ export function resolveClaudeDesktopConfigPath(input: {
   return path.join(xdgConfigHome, 'Claude', 'claude_desktop_config.json');
 }
 
+/**
+ * Detect files from the opposite mode that still exist on disk.
+ * These are informational only — never deleted automatically.
+ */
+async function detectLegacyFiles(homeDir: string, mode: LocalSetupMode): Promise<string[]> {
+  const warnings: string[] = [];
+
+  const candidates =
+    mode === 'cli-skill'
+      ? [
+          // MCP-mode artifacts that should not exist in cli-skill mode
+          path.join(homeDir, '.codex', 'skills', 'contextatlas-mcp', 'SKILL.md'),
+        ]
+      : [
+          // CLI-mode artifacts that should not exist in mcp mode
+          path.join(homeDir, '.codex', 'skills', 'contextatlas-cli', 'SKILL.md'),
+        ];
+
+  for (const candidate of candidates) {
+    const content = await readOptionalFile(candidate);
+    if (content !== null) {
+      warnings.push(candidate);
+    }
+  }
+
+  return warnings;
+}
+
 export async function applyLocalSetup(options: LocalSetupOptions): Promise<LocalSetupReport> {
   const entryScript = path.join(options.repoRoot, 'dist', 'index.js');
   const promptBlock = buildPromptManagedBlock(options.mode);
@@ -326,12 +356,16 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
     );
   }
 
+  // Detect legacy files from the other mode
+  const legacyWarnings = await detectLegacyFiles(options.homeDir, options.mode);
+
   return {
     changed: operations.some((operation) => operation.action !== 'unchanged'),
     dryRun: options.dryRun,
     mode: options.mode,
     platform,
     operations,
+    legacyWarnings,
   };
 }
 
@@ -349,6 +383,14 @@ export function formatLocalSetupReport(report: LocalSetupReport): string {
   for (const operation of report.operations) {
     lines.push(`- ${operation.action}: ${operation.description}`);
     lines.push(`  ${operation.path}`);
+  }
+
+  if (report.legacyWarnings.length > 0) {
+    lines.push('');
+    lines.push('Unmanaged Legacy Files (from other mode):');
+    for (const warning of report.legacyWarnings) {
+      lines.push(`  ⚠ ${warning}`);
+    }
   }
 
   return lines.join('\n');

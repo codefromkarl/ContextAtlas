@@ -1,6 +1,10 @@
+/**
+ * FeedbackLoop MCP Tool（Thin Adapter）
+ *
+ * Zod schema + 协议适配，业务逻辑在 application 层。
+ */
+
 import { z } from 'zod';
-import { MemoryStore } from '../../memory/MemoryStore.js';
-import { logger } from '../../utils/logger.js';
 import { responseFormatSchema } from './responseFormat.js';
 
 export const recordResultFeedbackSchema = z.object({
@@ -23,64 +27,6 @@ export async function handleRecordResultFeedback(
   args: RecordResultFeedbackInput,
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  logger.info(
-    { outcome: args.outcome, targetType: args.targetType, targetId: args.targetId },
-    'MCP record_result_feedback 调用开始',
-  );
-
-  const store = new MemoryStore(projectRoot);
-  const title =
-    args.title || `${args.targetType}:${args.targetId || 'general'}:${args.outcome}`;
-  const summary = [
-    `outcome=${args.outcome}`,
-    `targetType=${args.targetType}`,
-    args.targetId ? `target=${args.targetId}` : undefined,
-    `query=${args.query}`,
-    args.details ? `details=${args.details}` : undefined,
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
-  const { memory, action } = await store.appendLongTermMemoryItem({
-    type: 'feedback',
-    title,
-    summary,
-    why: args.details || `反馈用于修正 ${args.targetType} 结果质量`,
-    howToApply: `后续检索到 ${args.targetId || args.targetType} 时优先参考这条反馈`,
-    tags: ['feedback', args.outcome, args.targetType, ...(args.targetId ? [args.targetId] : [])],
-    scope: 'project',
-    source: 'user-explicit',
-    confidence: 1,
-    durability: 'stable',
-    provenance: [args.query, args.targetId || args.targetType],
-    lastVerifiedAt: new Date().toISOString(),
-  });
-
-  if (args.format === 'json') {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            {
-              tool: 'record_result_feedback',
-              write_action: action,
-              memory,
-            },
-            null,
-            2,
-          ),
-        },
-      ],
-    };
-  }
-
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `## Result Feedback Recorded\n\n- **Outcome**: ${args.outcome}\n- **Target Type**: ${args.targetType}\n- **Target ID**: ${args.targetId || 'N/A'}\n- **Saved Memory ID**: ${memory.id}`,
-      },
-    ],
-  };
+  const { executeRecordResultFeedback } = await import('../../application/memory/executeFeedbackLoop.js');
+  return executeRecordResultFeedback(args, projectRoot);
 }

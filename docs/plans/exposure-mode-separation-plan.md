@@ -407,15 +407,42 @@ setup 文件集合拆分后，旧用户本地环境可能遗留多余配置。
 - 通过 mode 控制而不是全局删除
 - 给 `mcp` 模式保留现有行为
 
+### Phase 7 - Memory 工具业务逻辑下沉 ✅ 已完成（2026-04-14）
+
+完成说明：全部 11 个 Memory MCP 工具的业务逻辑提取到 `src/application/memory/` 层。MCP adapter 保留为 thin adapter（Zod schema + 委托调用）。CLI 命令直接调用 application 层。同时修复全量 TypeScript 编译错误（31→0）。
+
+新增文件：
+
+- `src/application/memory/executeAgentDiary.ts`
+- `src/application/memory/executeAssembleContext.ts`
+- `src/application/memory/executeAutoRecord.ts`
+- `src/application/memory/executeCheckpoints.ts`
+- `src/application/memory/executeFeedbackLoop.ts`
+- `src/application/memory/executeLongTermMemory.ts`
+- `src/application/memory/executeMemoryHub.ts`
+- `src/application/memory/executeModuleMemory.ts`
+- `src/application/memory/executePrepareHandoff.ts`
+- `src/application/memory/executeProjectMemory.ts`
+- `src/application/memory/executeSuggestPhaseBoundary.ts`
+- `src/application/memory/memoryTypes.ts`
+
+验收：
+
+- ✅ CLI 不再 import `src/mcp/tools/*` 中的 memory 工具 handler
+- ✅ MCP tools 仅保留 Zod schema + thin delegation
+- ✅ 全量 TypeScript 编译 0 错误
+- ✅ 架构文档已同步
+
 ## 完成定义
 
 当满足以下条件时，可认为本重构完成：
 
-- CLI 与 MCP 共享 application/use case，而不是互相依赖
-- 用户可明确选择 `cli-skill` 或 `mcp`
-- setup、skill、prompt、运行时行为与所选模式一致
-- 文档与测试不再把混搭路径当作默认方案
-- 兼容层被限制在可删除的过渡边界内
+- ✅ CLI 与 MCP 共享 application/use case，而不是互相依赖
+- ✅ 用户可明确选择 `cli-skill` 或 `mcp`
+- ✅ setup、skill、prompt、运行时行为与所选模式一致
+- ✅ 文档与测试不再把混搭路径当作默认方案
+- ✅ 兼容层被限制在可删除的过渡边界内
+- ✅ Memory 工具业务逻辑下沉到 application 层，MCP adapter 为 thin adapter
 
 ## 推荐执行顺序
 

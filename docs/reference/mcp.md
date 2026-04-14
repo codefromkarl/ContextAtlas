@@ -1,8 +1,32 @@
 # MCP 工具参考
 
-如果你是第一次接入 ContextAtlas，建议先读 [首次使用](../guides/first-use.md)，确认默认 CLI 入口和索引状态，再配置 MCP。
+本文档描述 MCP 接入模式。如果你只需要终端命令行，请参考 [CLI 参考](./cli.md)。
 
 ## 配置
+
+### setup
+
+运行以下命令完成 MCP 模式的全部初始化：
+
+```bash
+contextatlas setup:local --mode mcp
+```
+
+该命令会写入以下文件：
+
+| 文件 | 说明 |
+|------|------|
+| `~/.contextatlas/.env` | 共享配置 |
+| `~/.claude/mcp.json` | MCP 模式 |
+| Claude Desktop MCP config | MCP 模式 |
+| `~/.gemini/settings.json` | MCP 模式 |
+| `~/.codex/config.toml` | MCP block，MCP 模式 |
+| `~/.claude/CLAUDE.md` | prompt block，共享 |
+| `~/.codex/AGENTS.md` | prompt block，共享 |
+| `~/.gemini/GEMINI.md` | prompt block，共享 |
+| `~/.codex/skills/contextatlas-mcp/SKILL.md` | MCP 模式 |
+
+注意：MCP 模式下 **不会** 写入 CLI skill 文件。
 
 ### Claude Desktop
 
@@ -263,3 +287,9 @@ contextatlas mcp
   "format": "json"
 }
 ```
+
+## 与 CLI 模式的区别
+
+- **MCP 模式**通过标准 MCP 协议暴露工具，适合 MCP 客户端（Claude Desktop、Gemini、Codex 等）直接调用。
+- **CLI 模式**通过 `contextatlas` 命令行操作，适合终端使用和 skill 集成。
+- 两种模式的 `setup` 互斥：`setup:local --mode mcp` 不会写入 CLI skill 文件，`setup:local --mode cli` 不会写入 MCP 配置。

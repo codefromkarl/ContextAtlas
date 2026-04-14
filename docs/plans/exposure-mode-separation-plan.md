@@ -191,7 +191,9 @@ setup / docs / generated assets
 - ✅ `codebase-retrieval` 与 CLI 搜索共享同一 application use case
 - ✅ 现有检索结果语义保持不变（13 个 codebase-retrieval 测试全部通过）
 
-### Phase 2 - setup 模式化
+### Phase 2 - setup 模式化 ✅ 已完成
+
+完成说明：`--mode` 为必填参数，缺少时硬错误退出。输出文件按模式严格互斥。测试按模式拆分。
 
 目标：
 
@@ -248,7 +250,9 @@ setup / docs / generated assets
 - ✅ skill 文本中不再出现 MCP tool 名称（cli-skill 模式）
 - ✅ MCP 模式下生成 contextatlas-mcp skill
 
-### Phase 4 - 运行时模式隔离
+### Phase 4 - 运行时模式隔离 ✅ 已完成
+
+完成说明：`start` 命令输出包含 exposure mode 提示和模式推荐路径。cli-skill 模式不进入 MCP stdio。测试覆盖 mode-isolation 行为。
 
 目标：
 
@@ -272,7 +276,9 @@ setup / docs / generated assets
 - `mcp` 模式保留现有 stdio 能力
 - `cli-skill` 模式下 shell 自动化仍可稳定使用 JSON 命令输出
 
-### Phase 5 - 文档与参考面分离
+### Phase 5 - 文档与参考面分离 ✅ 已完成
+
+完成说明：CLI/MCP 参考文档、部署指南、首次使用指南、README 均已按模式分离。不存在"一键全配好"描述。
 
 目标：
 
@@ -301,7 +307,9 @@ setup / docs / generated assets
 - CLI 文档不再默认要求 MCP
 - MCP 文档不再隐含 skill 依赖
 
-### Phase 6 - 兼容层收口与清理
+### Phase 6 - 兼容层收口与清理 ✅ 已完成（兼容层保持硬错误，跳过 6.1 兼容提示）
+
+完成说明：旧文件检测功能已加入 setup report。Phase 6.1（兼容 warning）跳过，保持硬错误。计划文档已更新。
 
 目标：
 

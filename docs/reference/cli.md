@@ -5,25 +5,20 @@
 ```bash
 npm install -g @codefromkarl/context-atlas
 contextatlas init
-contextatlas setup:local
+contextatlas setup:local --mode cli-skill
 ```
 
 配置文件位于 `~/.contextatlas/.env`，详见 [README.md](../../README.md#配置)。
 
-`contextatlas setup:local` 会幂等写入本地接入所需文件：
+`contextatlas setup:local --mode cli-skill` 会幂等写入本地接入所需文件：
 
-- `~/.contextatlas/.env`
-- `~/.claude/mcp.json`
-- Claude Desktop 配置
-  Linux: `~/.config/Claude/claude_desktop_config.json`
-  macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-  Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- `~/.gemini/settings.json`
-- `~/.codex/config.toml`
-- `~/.claude/CLAUDE.md` / `~/Claude.md`（择一）
-- `~/.codex/AGENTS.md` / `~/.codex/AGENT.md`（择一）
-- `~/.gemini/GEMINI.md`
-- `~/.codex/skills/contextatlas-mcp/SKILL.md`
+- `~/.contextatlas/.env`（共享）
+- `~/.claude/CLAUDE.md` / `~/Claude.md`（共享）
+- `~/.codex/AGENTS.md` / `~/.codex/AGENT.md`（共享）
+- `~/.gemini/GEMINI.md`（共享）
+- `~/.codex/skills/contextatlas-cli/SKILL.md`（cli-skill 独有）
+
+注意：`cli-skill` 模式不会写入 MCP 配置文件（如 `mcp.json`、Claude Desktop 配置等）。
 
 产品身份映射：
 
@@ -32,6 +27,15 @@ contextatlas setup:local
 - CLI 命令：`contextatlas`
 
 如果你是第一次接入，先看 [首次使用](../guides/first-use.md)。
+
+## 接入模式
+
+ContextAtlas 有两种互斥接入模式：
+
+- **`cli-skill`** — CLI 模式，适合终端交互、shell 脚本和本地 agent skill 集成。`setup:local --mode cli-skill` 只写入 CLI skill 相关文件，不写入 MCP 配置。
+- **`mcp`** — MCP 模式，适合 Claude Desktop、Cursor 等 MCP 客户端。`setup:local --mode mcp` 只写入 MCP 配置文件（`mcp.json`、Claude Desktop 配置等）和 MCP skill 文件，详见 [MCP.md](../reference/mcp.md)。
+
+两种模式的 setup 互斥，各自只写入对应模式的文件。已存在另一模式的文件不会被删除，但不会被覆盖或更新。
 
 ## 检索与索引
 
@@ -78,7 +82,7 @@ contextatlas search \
 
 - `contextatlas search --json` 会输出脚本友好的结构化载荷，包含查询参数、原始 `content` 数组和拼接后的 `text`
 - 交互式 TTY 下直接执行 `contextatlas` 会显示 `start` 引导
-- 非 TTY 环境下直接执行 `contextatlas` 会自动切换到 MCP stdio 模式，便于 Claude Desktop / Cursor 之类客户端直接拉起
+- 非 TTY 环境下，`contextatlas` 的行为由 `CONTEXTATLAS_EXPOSURE_MODE` 控制：`cli-skill` 模式下仍输出帮助或 `start` 引导；`mcp` 模式下才会进入隐式 MCP stdio
 
 `contextatlas start [path]` 现在会直接给出默认闭环入口：
 
@@ -417,7 +421,7 @@ contextatlas alert:config --reset
 contextatlas mcp
 ```
 
-MCP 工具详情见 [MCP.md](../reference/mcp.md)。
+如需 MCP 模式接入，请使用 `contextatlas setup:local --mode mcp` 进行初始化。MCP 工具详情见 [MCP.md](../reference/mcp.md)。
 
 ## 开发命令
 

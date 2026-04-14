@@ -133,7 +133,10 @@ Initialize the config directory and example environment file first:
 
 ```bash
 contextatlas init
-contextatlas setup:local
+# Choose your integration mode:
+contextatlas setup:local --mode cli-skill   # Terminal + skill integration
+# OR
+contextatlas setup:local --mode mcp         # MCP client integration
 ```
 
 Default config file location:
@@ -168,7 +171,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 - `INDEX_UPDATE_MIN_FILES` / `INDEX_UPDATE_MIN_CHANGED_FILES`: require both repo size and change size to clear a minimum bar before escalation is allowed
 
 > `init` writes an editable example `.env`, including default SiliconFlow endpoints and recommended model settings.
-> `setup:local` also wires Claude / Codex / Gemini MCP configs, prompt docs, and the Codex ContextAtlas skill in one step.
+> `setup:local --mode <mode>` writes only the configuration files for the selected mode. See [First use guide](./docs/guides/first-use.md) for mode selection guidance.
 
 ## Quick start
 
@@ -213,9 +216,13 @@ contextatlas daemon start
 contextatlas mcp
 ```
 
+> If you want MCP client integration, run `contextatlas setup:local --mode mcp` first.
+
 ## Integration modes
 
 ### 1. As a local CLI / skill backend
+
+Set up with `contextatlas setup:local --mode cli-skill`.
 
 Useful for:
 
@@ -238,6 +245,8 @@ contextatlas health:full
 ```
 
 ### 2. As an MCP server
+
+Set up with `contextatlas setup:local --mode mcp`.
 
 Useful for:
 

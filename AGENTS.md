@@ -35,10 +35,23 @@ contextatlas mcp             # 启动 MCP 服务端
 搜索: Query → Vector+FTS Recall → RRF Fusion → Rerank → GraphExpander → ContextPacker
 ```
 
+### Architecture Layers
+
+```
+CLI commands  →  application layer  →  memory/search domain  →  storage
+MCP adapters  →  (Zod schema only)  →  (business logic)      →  (SQLite/LanceDB)
+```
+
+MCP tools (`src/mcp/tools/`) are thin adapters: Zod schema validation + protocol formatting.
+Business logic lives in `src/application/` (memory, retrieval) and `src/memory/` (domain).
+CLI commands (`src/cli/commands/`) call application layer directly, bypassing MCP adapters.
+
 ### Key Modules
 
 | Module | Location | Responsibility |
 |--------|----------|----------------|
+| **Application Layer** | `src/application/memory/` | Memory 工具业务逻辑，CLI 和 MCP adapter 统一入口 |
+| **Retrieval Application** | `src/application/retrieval/` | 检索用例编排，结果卡片渲染 |
 | **SearchService** | `src/search/SearchService.ts` | 搜索总编排层，串联 recall、rerank、cutoff、expand、pack |
 | **HybridRecallEngine** | `src/search/HybridRecallEngine.ts` | 混合召回执行层，负责向量/词法召回、FTS 降级与 RRF 融合 |
 | **RerankPolicy** | `src/search/RerankPolicy.ts` | rerank 池选择与 Smart TopK cutoff 策略 |

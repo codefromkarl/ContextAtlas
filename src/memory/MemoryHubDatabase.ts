@@ -102,6 +102,29 @@ export interface LongTermMemoryRow {
   updated_at: string;
 }
 
+export interface DeleteProjectResult {
+  projectId: string;
+  featureMemories: number;
+  memoryRelations: number;
+  sharedIndexEntries: number;
+  decisionRecords: number;
+  longTermMemories: number;
+  metaEntries: number;
+}
+
+export interface CleanupGhostResult {
+  projectsRemoved: number;
+  featureMemoriesRemoved: number;
+  longTermMemoriesRemoved: number;
+  ghosts: Array<{
+    projectId: string;
+    name: string;
+    path: string;
+    featureMemories: number;
+    longTermMemories: number;
+  }>;
+}
+
 export interface ProjectRepairReport {
   scannedProjects: number;
   repairedProjects: number;
@@ -642,6 +665,142 @@ export class MemoryHubDatabase {
 
     transaction();
     return report;
+  }
+
+  // ===========================================
+  // Project 删除与幽灵清理
+  // ===========================================
+
+  /**
+   * 级联删除项目及其所有关联数据
+   *
+   * 删除顺序（按 FK 依赖）：
+   * 1. memory_relations（引用 feature_memories）
+   * 2. shared_index（引用 feature_memories）
+   * 3. feature_memories（引用 projects）— FTS 触发器自动同步
+   * 4. decision_records（引用 projects）
+   * 5. long_term_memories（引用 projects）— FTS 触发器自动同步
+   * 6. project_memory_meta（引用 projects）
+   * 7. projects
+   */
+  deleteProject(projectId: string): DeleteProjectResult {
+    const result: DeleteProjectResult = {
+      projectId,
+      featureMemories: 0,
+      memoryRelations: 0,
+      sharedIndexEntries: 0,
+      decisionRecords: 0,
+      longTermMemories: 0,
+      metaEntries: 0,
+    };
+
+    const tx = this.db.transaction(() => {
+      // 获取该项目的所有 feature memory IDs（用于清理 relations）
+      const memoryIds = this.db
+        .prepare('SELECT id FROM feature_memories WHERE project_id = ?')
+        .all(projectId)
+        .map((r: any) => r.id as number);
+
+      // 1. 删除引用该项目 feature memories 的 relations
+      if (memoryIds.length > 0) {
+        const placeholders = memoryIds.map(() => '?').join(',');
+        const delRelations = this.db.prepare(
+          `DELETE FROM memory_relations WHERE from_memory_id IN (${placeholders}) OR to_memory_id IN (${placeholders})`,
+        );
+        const relResult = delRelations.run(...memoryIds, ...memoryIds);
+        result.memoryRelations = relResult.changes;
+      }
+
+      // 2. 删除引用该项目 feature memories 的 shared_index
+      if (memoryIds.length > 0) {
+        const placeholders = memoryIds.map(() => '?').join(',');
+        const delShared = this.db.prepare(
+          `DELETE FROM shared_index WHERE memory_id IN (${placeholders})`,
+        );
+        const sharedResult = delShared.run(...memoryIds);
+        result.sharedIndexEntries = sharedResult.changes;
+      }
+
+      // 3. 删除 feature memories（FTS 触发器自动同步）
+      const delFeatures = this.db.prepare('DELETE FROM feature_memories WHERE project_id = ?');
+      result.featureMemories = delFeatures.run(projectId).changes;
+
+      // 4. 删除 decision records
+      const delDecisions = this.db.prepare('DELETE FROM decision_records WHERE project_id = ?');
+      result.decisionRecords = delDecisions.run(projectId).changes;
+
+      // 5. 删除 long term memories（FTS 触发器自动同步）
+      const delLongTerm = this.db.prepare('DELETE FROM long_term_memories WHERE project_id = ?');
+      result.longTermMemories = delLongTerm.run(projectId).changes;
+
+      // 6. 删除 project_memory_meta
+      const delMeta = this.db.prepare('DELETE FROM project_memory_meta WHERE project_id = ?');
+      result.metaEntries = delMeta.run(projectId).changes;
+
+      // 7. 删除 project 本身
+      const delProject = this.db.prepare('DELETE FROM projects WHERE id = ?');
+      delProject.run(projectId);
+    });
+
+    tx();
+    logger.info({ projectId, result }, '项目及关联数据已级联删除');
+    return result;
+  }
+
+  /**
+   * 清理幽灵项目（路径不存在的项目）
+   *
+   * @param options.mode - 'all' 清理所有不存在路径的项目；'tmp' 仅清理 /tmp 路径项目
+   */
+  cleanupGhostProjects(options: { mode: 'all' | 'tmp' } = { mode: 'tmp' }): CleanupGhostResult {
+    const projects = this.listProjects();
+    const ghostProjects: Array<{ id: string; name: string; path: string }> = [];
+
+    for (const project of projects) {
+      const isTmp = project.path.startsWith('/tmp/') || project.path.startsWith('/var/folders/');
+      const pathExists = fs.existsSync(project.path);
+
+      if (options.mode === 'tmp') {
+        if (isTmp) {
+          ghostProjects.push({ id: project.id, name: project.name, path: project.path });
+        }
+      } else {
+        if (!pathExists) {
+          ghostProjects.push({ id: project.id, name: project.name, path: project.path });
+        }
+      }
+    }
+
+    const totalDeleted: CleanupGhostResult = {
+      projectsRemoved: 0,
+      featureMemoriesRemoved: 0,
+      longTermMemoriesRemoved: 0,
+      ghosts: [],
+    };
+
+    for (const ghost of ghostProjects) {
+      const result = this.deleteProject(ghost.id);
+      totalDeleted.projectsRemoved++;
+      totalDeleted.featureMemoriesRemoved += result.featureMemories;
+      totalDeleted.longTermMemoriesRemoved += result.longTermMemories;
+      totalDeleted.ghosts.push({
+        projectId: ghost.id,
+        name: ghost.name,
+        path: ghost.path,
+        featureMemories: result.featureMemories,
+        longTermMemories: result.longTermMemories,
+      });
+    }
+
+    logger.info(
+      {
+        mode: options.mode,
+        removed: totalDeleted.projectsRemoved,
+        featuresRemoved: totalDeleted.featureMemoriesRemoved,
+      },
+      '幽灵项目清理完成',
+    );
+    return totalDeleted;
   }
 
   // ===========================================

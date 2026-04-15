@@ -18,10 +18,17 @@ async function withTempHub(
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cw-memory-hub-'));
   const projectRoot = path.join(tempDir, 'project');
   const dbPath = path.join(tempDir, 'memory-hub.db');
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = tempDir;
 
   try {
     await run(projectRoot, dbPath);
   } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
     MemoryStore.resetSharedHubForTests();
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -297,8 +304,7 @@ test('executeManageProjects returns message when no projects registered', async 
       format: 'text',
     });
 
-    // Just check that we get a response about projects (may contain accumulated projects)
-    assert.match(response.content[0].text, /Registered Projects/);
+    assert.match(response.content[0].text, /No projects registered|Registered Projects/);
   });
 });
 

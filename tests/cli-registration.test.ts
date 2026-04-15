@@ -166,6 +166,7 @@ test('registerHubProjectCommands registers project-admin hub commands', () => {
     'hub:register-project <path>',
     'hub:list-projects',
     'hub:stats',
+    'hub:cleanup-ghost',
     'hub:repair-project-identities',
   ]);
 });

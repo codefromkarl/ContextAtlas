@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { writeJson } from '../helpers.js';
 import path from 'node:path';
 import type { CommandRegistrar } from '../types.js';
@@ -67,6 +68,73 @@ export function registerHubProjectCommands(cli: CommandRegistrar): void {
       logger.info(`  关系数：${Number(stats.totalRelations)}`);
       logger.info(`  决策数：${Number(stats.totalDecisions)}`);
       logger.info(`  分类统计：${JSON.stringify(stats.byCategory)}`);
+    });
+
+  cli
+    .command('hub:cleanup-ghost', '清理幽灵项目（路径不存在的项目及其记忆）')
+    .option('--mode <mode>', '清理模式：tmp（仅 /tmp 路径）或 all（所有不存在路径）', { default: 'tmp' })
+    .option('--dry-run', '仅预览，不执行删除')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: { mode?: string; dryRun?: boolean; json?: boolean }) => {
+      const { MemoryHubDatabase } = await import('../../memory/MemoryHubDatabase.js');
+      const mode = options.mode === 'all' ? 'all' : 'tmp';
+      const db = new MemoryHubDatabase();
+
+      try {
+        if (options.dryRun) {
+          const projects = db.listProjects();
+          const ghosts = projects.filter((p) => {
+            if (mode === 'tmp') {
+              return p.path.startsWith('/tmp/') || p.path.startsWith('/var/folders/');
+            }
+            return !fs.existsSync(p.path);
+          });
+
+          const result = {
+            mode: 'dry-run' as const,
+            cleanupMode: mode,
+            ghostCount: ghosts.length,
+            ghosts: ghosts.map((g) => ({ id: g.id, name: g.name, path: g.path })),
+          };
+          db.close();
+
+          if (options.json) {
+            writeJson(result);
+            return;
+          }
+
+          logger.info(`幽灵项目预览 (mode=${mode}):`);
+          logger.info(`  待清理项目数：${ghosts.length}`);
+          for (const g of ghosts.slice(0, 20)) {
+            logger.info(`  - ${g.name} (${g.id})`);
+            logger.info(`    路径：${g.path}`);
+          }
+          if (ghosts.length > 20) {
+            logger.info(`  ... 及其他 ${ghosts.length - 20} 个`);
+          }
+          logger.info('');
+          logger.info('执行清理: contextatlas hub:cleanup-ghost --mode ' + mode);
+          return;
+        }
+
+        const result = db.cleanupGhostProjects({ mode });
+        db.close();
+
+        if (options.json) {
+          writeJson({ mode: 'apply', cleanupMode: mode, ...result });
+          return;
+        }
+
+        logger.info(`幽灵项目清理完成 (mode=${mode}):`);
+        logger.info(`  删除项目数：${result.projectsRemoved}`);
+        logger.info(`  删除功能记忆数：${result.featureMemoriesRemoved}`);
+        logger.info(`  删除长期记忆数：${result.longTermMemoriesRemoved}`);
+      } catch (err) {
+        const error = err as Error;
+        db.close();
+        logger.error(`清理失败: ${error.message}`);
+        process.exit(1);
+      }
     });
 
   cli

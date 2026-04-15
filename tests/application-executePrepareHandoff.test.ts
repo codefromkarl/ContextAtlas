@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { executePrepareHandoff } from '../src/application/memory/executePrepareHandoff.js';
 import { executeCreateCheckpoint } from '../src/application/memory/executeCheckpoints.js';
+import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.js';
 import { MemoryStore } from '../src/memory/MemoryStore.js';
 
 async function withTempProject(
@@ -13,10 +14,13 @@ async function withTempProject(
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cw-prepare-handoff-'));
   const projectRoot = path.join(tempDir, 'project');
   mkdirSync(projectRoot, { recursive: true });
-
+  const hub = new MemoryHubDatabase(path.join(tempDir, 'memory-hub.db'));
+  MemoryStore.setSharedHubForTests(hub);
   try {
     await run(projectRoot);
   } finally {
+    MemoryStore.resetSharedHubForTests();
+    hub.close();
     rmSync(tempDir, { recursive: true, force: true });
   }
 }

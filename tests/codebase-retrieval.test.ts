@@ -7,6 +7,7 @@ import { batchUpsert, generateProjectId, initDb } from '../src/db/index.js';
 import { GraphStore } from '../src/graph/index.js';
 import { getActiveTask } from '../src/indexing/queue.js';
 import { handleCodebaseRetrieval } from '../src/mcp/tools/codebaseRetrieval.js';
+import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.js';
 import { MemoryStore } from '../src/memory/MemoryStore.js';
 import { scan } from '../src/scanner/index.js';
 import { SearchService } from '../src/search/SearchService.js';
@@ -32,6 +33,7 @@ test('handleCodebaseRetrieval completes success path with combined query telemet
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -171,6 +173,7 @@ test('handleCodebaseRetrieval completes success path with combined query telemet
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -192,6 +195,7 @@ test('handleCodebaseRetrieval annotates retrieval-stage fetch failures', async (
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -268,6 +272,7 @@ test('handleCodebaseRetrieval annotates retrieval-stage fetch failures', async (
     } else {
       process.env.RERANK_MODEL = previousEnv.RERANK_MODEL;
     }
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -293,6 +298,7 @@ test('handleCodebaseRetrieval formats default result card with memory and decisi
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -494,6 +500,7 @@ test('handleCodebaseRetrieval formats default result card with memory and decisi
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -536,6 +543,7 @@ test('handleCodebaseRetrieval appends graph context summary when include_graph_c
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -689,6 +697,7 @@ test('handleCodebaseRetrieval appends graph context summary when include_graph_c
     process.env.RERANK_BASE_URL = previousEnv.RERANK_BASE_URL;
     process.env.RERANK_MODEL = previousEnv.RERANK_MODEL;
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -711,6 +720,7 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -890,6 +900,7 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -912,6 +923,7 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -1021,6 +1033,7 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -1046,6 +1059,7 @@ test('handleCodebaseRetrieval surfaces stale and conflict status for feature mem
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -1174,6 +1188,7 @@ test('handleCodebaseRetrieval surfaces stale and conflict status for feature mem
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -1208,6 +1223,7 @@ test('handleCodebaseRetrieval returns lexical fallback when project is not index
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   delete process.env.EMBEDDINGS_API_KEY;
   delete process.env.EMBEDDINGS_BASE_URL;
@@ -1239,6 +1255,7 @@ test('handleCodebaseRetrieval returns lexical fallback when project is not index
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -1264,6 +1281,7 @@ test('handleCodebaseRetrieval enqueues indexing and still returns lexical fallba
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'true';
   delete process.env.EMBEDDINGS_API_KEY;
   delete process.env.EMBEDDINGS_BASE_URL;
@@ -1299,6 +1317,7 @@ test('handleCodebaseRetrieval enqueues indexing and still returns lexical fallba
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -1324,6 +1343,7 @@ test('handleCodebaseRetrieval skips auto-enqueue when indexed repo is already up
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'true';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -1381,6 +1401,7 @@ test('handleCodebaseRetrieval skips auto-enqueue when indexed repo is already up
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -1404,6 +1425,7 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -1523,6 +1545,7 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -1544,6 +1567,7 @@ test('handleCodebaseRetrieval returns lightweight overview text without full cod
   };
 
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
   process.env.MCP_AUTO_INDEX = 'false';
   process.env.EMBEDDINGS_API_KEY = 'test-key';
   process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
@@ -1633,6 +1657,7 @@ test('handleCodebaseRetrieval returns lightweight overview text without full cod
       }
     }
 
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });

@@ -14,6 +14,7 @@ import {
   planOpsAction,
   type OpsApplyInput,
 } from '../src/monitoring/opsApply.ts';
+import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
 import { MemoryStore } from '../src/memory/MemoryStore.ts';
 import { prepareWritableSnapshot, commitSnapshot } from '../src/storage/layout.ts';
 import { VectorStore } from '../src/vectorStore/index.ts';
@@ -211,39 +212,47 @@ test('applyOpsActionPlan 可以重建当前仓库的 memory catalog', async () =
   fs.mkdirSync(path.join(repoRoot, 'src', 'search'), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, 'src', 'search', 'SearchService.ts'), 'export const x = 1;\n');
 
-  const store = new MemoryStore(repoRoot);
-  await store.saveFeature({
-    name: 'SearchService',
-    responsibility: 'search pipeline',
-    location: { dir: 'src/search', files: ['SearchService.ts'] },
-    api: { exports: ['x'], endpoints: [] },
-    dependencies: { imports: [], external: [] },
-    dataFlow: 'query -> result',
-    keyPatterns: ['search'],
-    lastUpdated: new Date().toISOString(),
-    confirmationStatus: 'human-confirmed',
-  });
+  const hub = new MemoryHubDatabase(path.join(baseDir, 'memory-hub.db'));
+  MemoryStore.setSharedHubForTests(hub);
+  try {
+    const store = new MemoryStore(repoRoot);
+    await store.saveFeature({
+      name: 'SearchService',
+      responsibility: 'search pipeline',
+      location: { dir: 'src/search', files: ['SearchService.ts'] },
+      api: { exports: ['x'], endpoints: [] },
+      dependencies: { imports: [], external: [] },
+      dataFlow: 'query -> result',
+      keyPatterns: ['search'],
+      lastUpdated: new Date().toISOString(),
+      confirmationStatus: 'human-confirmed',
+    });
 
-  const result = await applyOpsActionPlan({
-    actionId: 'rebuild-memory-catalog',
-    title: 'Rebuild memory catalog',
-    command: 'contextatlas memory:rebuild-catalog',
-    severity: 'medium',
-    reason: 'catalog 不一致',
-    kind: 'memory-rebuild-catalog',
-    repoPath: repoRoot,
-  });
+    const result = await applyOpsActionPlan({
+      actionId: 'rebuild-memory-catalog',
+      title: 'Rebuild memory catalog',
+      command: 'contextatlas memory:rebuild-catalog',
+      severity: 'medium',
+      reason: 'catalog 不一致',
+      kind: 'memory-rebuild-catalog',
+      repoPath: repoRoot,
+    });
 
-  const catalog = await store.readCatalog();
-  assert.equal(result.status, 'applied');
-  assert.ok(catalog);
-  assert.ok(catalog?.modules['searchservice']);
+    const catalog = await store.readCatalog();
+    assert.equal(result.status, 'applied');
+    assert.ok(catalog);
+    assert.ok(catalog?.modules['searchservice']);
+  } finally {
+    MemoryStore.resetSharedHubForTests();
+    hub.close();
+  }
 });
 
 test('applyOpsActionPlan 可以按 projectId 重建 chunk FTS', async () => {
   const baseDir = createTempBaseDir('cw-ops-apply-fts-');
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
 
   try {
     const repoRoot = path.join(baseDir, 'repo');
@@ -310,6 +319,7 @@ test('applyOpsActionPlan 可以按 projectId 重建 chunk FTS', async () => {
     } else {
       process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
     }
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -464,6 +474,7 @@ test('ops:apply CLI 支持 dry-run 预览 start-daemon 动作', () => {
   const baseDir = createTempBaseDir('cw-ops-apply-cli-');
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
 
   try {
     const repoRoot = path.join(baseDir, 'repo');
@@ -500,6 +511,7 @@ test('ops:apply CLI 支持 dry-run 预览 start-daemon 动作', () => {
     } else {
       process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
     }
+    MemoryStore.resetSharedHubForTests();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });

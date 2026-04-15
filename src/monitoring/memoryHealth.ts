@@ -59,11 +59,17 @@ export interface ProjectMemoryScore {
   issues: string[];
 }
 
+export interface GhostProjectSummary {
+  totalGhostProjects: number;
+  excludedFromAnalysis: number;
+}
+
 export interface MemoryHealthReport {
   longTermFreshness: LongTermMemoryFreshness;
   featureMemoryHealth: FeatureMemoryHealth;
   catalogConsistency: CatalogConsistency;
   projectScores: ProjectMemoryScore[];
+  ghostProjects?: GhostProjectSummary;
   overall: {
     status: 'healthy' | 'degraded' | 'unhealthy';
     issues: string[];
@@ -275,6 +281,13 @@ function buildOverallAssessment(report: MemoryHealthReport): void {
     }
   }
 
+  // Ghost project recommendation
+  if (report.ghostProjects && report.ghostProjects.totalGhostProjects > 0) {
+    recommendations.push(
+      `清理 ${report.ghostProjects.totalGhostProjects} 个幽灵项目: contextatlas hub:cleanup-ghost${report.ghostProjects.totalGhostProjects > 10 ? ' --mode tmp' : ' --mode all'}`,
+    );
+  }
+
   const status: 'healthy' | 'degraded' | 'unhealthy' =
     issues.length === 0
       ? 'healthy'
@@ -290,16 +303,27 @@ function buildOverallAssessment(report: MemoryHealthReport): void {
 // ===========================================
 
 export async function analyzeMemoryHealth(
-  options: { projectRoots?: string[]; staleDays?: number } = {},
+  options: { projectRoots?: string[]; staleDays?: number; excludeGhostProjects?: boolean } = {},
 ): Promise<MemoryHealthReport> {
   const hub = new MemoryHubDatabase();
   try {
     const allowedProjectRoots = options.projectRoots?.length
       ? new Set(options.projectRoots.map((projectRoot) => path.resolve(projectRoot)))
       : null;
+    const excludeGhosts = options.excludeGhostProjects !== false; // default true
     // 1. Long-term memory freshness (across all projects)
     let allLongTermItems: ResolvedLongTermMemoryItem[] = [];
-    const projects = hub.listProjects().filter((project) => {
+    let allProjects = hub.listProjects();
+
+    // Ghost project filtering
+    let ghostProjectCount = 0;
+    if (excludeGhosts) {
+      const before = allProjects.length;
+      allProjects = allProjects.filter((project) => fs.existsSync(project.path));
+      ghostProjectCount = before - allProjects.length;
+    }
+
+    const projects = allProjects.filter((project) => {
       if (!allowedProjectRoots) {
         return true;
       }
@@ -417,6 +441,9 @@ export async function analyzeMemoryHealth(
       featureMemoryHealth,
       catalogConsistency,
       projectScores,
+      ghostProjects: ghostProjectCount > 0
+        ? { totalGhostProjects: ghostProjectCount, excludedFromAnalysis: ghostProjectCount }
+        : undefined,
       overall: { status: 'healthy', issues: [], recommendations: [] },
     };
 
@@ -475,6 +502,14 @@ export function formatMemoryHealthReport(report: MemoryHealthReport): string {
     lines.push(`  Stale in Catalog: ${cc.staleInCatalog.join(', ')}`);
   }
   lines.push('');
+
+  // Ghost projects
+  if (report.ghostProjects && report.ghostProjects.totalGhostProjects > 0) {
+    lines.push('Ghost Projects:');
+    lines.push(`  Excluded from analysis: ${report.ghostProjects.excludedFromAnalysis}`);
+    lines.push(`  Hint: run 'contextatlas hub:cleanup-ghost' to remove`);
+    lines.push('');
+  }
 
   // Project scores
   if (report.projectScores.length > 0) {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { DecisionStore } from '../src/memory/DecisionStore.ts';
 import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.ts';
+import { MemoryStore } from '../src/memory/MemoryStore.ts';
 import { MemoryStoreBootstrap } from '../src/memory/MemoryStoreBootstrap.ts';
 import { LongTermMemoryService } from '../src/memory/LongTermMemoryService.ts';
 import { ProjectMetaStore } from '../src/memory/ProjectMetaStore.ts';
@@ -31,10 +32,14 @@ function withTempHub(
     name: 'ContextAtlas Global User Memory',
   }).id;
 
+  // Prevent MemoryStore from writing to production hub
+  MemoryStore.setSharedHubForTests(hub);
+
   return (async () => {
     try {
       await run({ tempDir, projectRoot, projectId, globalProjectId, hub });
     } finally {
+      MemoryStore.resetSharedHubForTests();
       hub.close();
       rmSync(tempDir, { recursive: true, force: true });
     }

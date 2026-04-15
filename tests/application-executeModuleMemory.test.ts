@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { executeLoadModuleMemory } from '../src/application/memory/executeModuleMemory.js';
+import { MemoryHubDatabase } from '../src/memory/MemoryHubDatabase.js';
 import { MemoryRouter } from '../src/memory/MemoryRouter.js';
 import { MemoryStore } from '../src/memory/MemoryStore.js';
 
@@ -13,10 +14,13 @@ async function withTempProject(
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cw-module-memory-'));
   const projectRoot = path.join(tempDir, 'project');
   mkdirSync(projectRoot, { recursive: true });
-
+  const hub = new MemoryHubDatabase(path.join(tempDir, 'memory-hub.db'));
+  MemoryStore.setSharedHubForTests(hub);
   try {
     await run(projectRoot);
   } finally {
+    MemoryStore.resetSharedHubForTests();
+    hub.close();
     rmSync(tempDir, { recursive: true, force: true });
   }
 }

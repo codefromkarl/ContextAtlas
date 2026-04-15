@@ -138,6 +138,41 @@ export function registerHubProjectCommands(cli: CommandRegistrar): void {
     });
 
   cli
+    .command('hub:cleanup-stale-indexes', '清理无 current/snapshots 的遗留索引目录')
+    .option('--dry-run', '仅预览，不执行删除')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: { dryRun?: boolean; json?: boolean }) => {
+      const { cleanupStaleIndexes } = await import('../../monitoring/indexHealth.js');
+      const result = cleanupStaleIndexes({ dryRun: options.dryRun });
+
+      if (options.json) {
+        writeJson({ mode: options.dryRun ? 'dry-run' : 'apply', ...result });
+        return;
+      }
+
+      if (options.dryRun) {
+        logger.info(`遗留索引目录预览:`);
+        logger.info(`  扫描目录数：${result.scanned}`);
+        logger.info(`  可清理数：${result.staleCount}`);
+        logger.info(`  可释放空间：${(result.freedBytes / 1024 / 1024).toFixed(1)} MB`);
+        for (const p of result.staleProjects.slice(0, 20)) {
+          logger.info(`  - ${p.id} (${(p.sizeBytes / 1024).toFixed(0)} KB)`);
+        }
+        if (result.staleProjects.length > 20) {
+          logger.info(`  ... 及其他 ${result.staleProjects.length - 20} 个`);
+        }
+        logger.info('');
+        logger.info('执行清理: contextatlas hub:cleanup-stale-indexes');
+        return;
+      }
+
+      logger.info(`遗留索引目录清理完成:`);
+      logger.info(`  扫描目录数：${result.scanned}`);
+      logger.info(`  删除目录数：${result.removedCount}`);
+      logger.info(`  释放空间：${(result.freedBytes / 1024 / 1024).toFixed(1)} MB`);
+    });
+
+  cli
     .command('hub:repair-project-identities', '修复历史项目 ID 到规范化路径派生 ID')
     .option('--dry-run', '仅输出将要执行的修复计划，不修改数据库')
     .option('--json', '以 JSON 输出结果，便于脚本消费')

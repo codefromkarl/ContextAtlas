@@ -161,7 +161,7 @@ function analyzeQueueHealth(projectId?: string): QueueHealth {
   };
 }
 
-async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promise<SnapshotHealth> {
+async function analyzeSnapshotHealth(projectId: string, baseDir?: string, quick?: boolean): Promise<SnapshotHealth> {
   const projectDir = path.join(baseDir || resolveBaseDir(), projectId);
   const snapshotsDir = path.join(projectDir, 'snapshots');
   const currentPointer = path.join(projectDir, 'current');
@@ -252,7 +252,7 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
   }
 
   let vectorChunkCount = 0;
-  if (hasVectorIndex) {
+  if (hasVectorIndex && !quick) {
     try {
       const store = new VectorStore(projectId, 1024, currentSnapshotId);
       await store.init();
@@ -264,8 +264,8 @@ async function analyzeSnapshotHealth(projectId: string, baseDir?: string): Promi
   }
 
   const chunkFtsCoverage =
-    vectorChunkCount > 0 ? Number((chunkFtsCount / vectorChunkCount).toFixed(3)) : null;
-  const strategySummary = await resolveStrategySummary(latestTaskContext?.repoPath ?? null);
+    !quick && vectorChunkCount > 0 ? Number((chunkFtsCount / vectorChunkCount).toFixed(3)) : null;
+  const strategySummary = quick ? null : await resolveStrategySummary(latestTaskContext?.repoPath ?? null);
 
   return {
     projectId,
@@ -440,6 +440,73 @@ function analyzeDaemonHealth(): DaemonHealth {
   };
 }
 
+export interface StaleCleanupResult {
+  scanned: number;
+  staleCount: number;
+  removedCount: number;
+  freedBytes: number;
+  staleProjects: Array<{ id: string; path: string; sizeBytes: number }>;
+}
+
+export function cleanupStaleIndexes(
+  options: { baseDir?: string; dryRun?: boolean } = {},
+): StaleCleanupResult {
+  const baseDir = options.baseDir || resolveBaseDir();
+  if (!fs.existsSync(baseDir)) {
+    return { scanned: 0, staleCount: 0, removedCount: 0, freedBytes: 0, staleProjects: [] };
+  }
+
+  const staleProjects: Array<{ id: string; path: string; sizeBytes: number }> = [];
+
+  for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || ['logs', 'snapshots'].includes(entry.name)) continue;
+
+    const projectDir = path.join(baseDir, entry.name);
+    const hasCurrent = fs.existsSync(path.join(projectDir, 'current'));
+    const hasSnapshots = fs.existsSync(path.join(projectDir, 'snapshots'));
+
+    // 有 current 或 snapshots 的都是活跃项目，跳过
+    if (hasCurrent || hasSnapshots) continue;
+
+    // 无 current 且无 snapshots → 幽灵目录
+    // 但必须至少有 index.db 才算（排除空目录）
+    if (!fs.existsSync(path.join(projectDir, 'index.db'))) continue;
+
+    const sizeBytes = dirSize(projectDir);
+    staleProjects.push({ id: entry.name, path: projectDir, sizeBytes });
+  }
+
+  const scanned = fs.readdirSync(baseDir, { withFileTypes: true }).filter(
+    (e) => e.isDirectory() && !['logs', 'snapshots'].includes(e.name),
+  ).length;
+
+  if (options.dryRun) {
+    return {
+      scanned,
+      staleCount: staleProjects.length,
+      removedCount: 0,
+      freedBytes: 0,
+      staleProjects,
+    };
+  }
+
+  let freedBytes = 0;
+  let removedCount = 0;
+  for (const stale of staleProjects) {
+    freedBytes += stale.sizeBytes;
+    fs.rmSync(stale.path, { recursive: true, force: true });
+    removedCount++;
+  }
+
+  return {
+    scanned,
+    staleCount: staleProjects.length,
+    removedCount,
+    freedBytes,
+    staleProjects,
+  };
+}
+
 function discoverProjectIds(baseDir?: string): string[] {
   const dir = baseDir || resolveBaseDir();
   if (!fs.existsSync(dir)) return [];
@@ -461,16 +528,18 @@ function discoverProjectIds(baseDir?: string): string[] {
 }
 
 export async function analyzeIndexHealth(
-  options: { baseDir?: string; projectIds?: string[] } = {},
+  options: { baseDir?: string; projectIds?: string[]; quick?: boolean } = {},
 ): Promise<IndexHealthReport> {
   const baseDir = options.baseDir || resolveBaseDir();
-  const projectIds =
-    options.projectIds && options.projectIds.length > 0
-      ? options.projectIds
-      : discoverProjectIds(baseDir);
+  const hasExplicitProjects = options.projectIds && options.projectIds.length > 0;
+  const projectIds = hasExplicitProjects ? options.projectIds! : discoverProjectIds(baseDir);
   const queue = analyzeQueueHealth(projectIds.length === 1 ? projectIds[0] : undefined);
 
-  const snapshots = await Promise.all(projectIds.map((id) => analyzeSnapshotHealth(id, baseDir)));
+  // quick 模式 + 无显式项目列表 → 跳过 snapshot 扫描（只查 queue + daemon）
+  const skipSnapshots = options.quick && !hasExplicitProjects;
+  const snapshots = skipSnapshots
+    ? []
+    : await Promise.all(projectIds.map((id) => analyzeSnapshotHealth(id, baseDir, options.quick)));
   const daemon = analyzeDaemonHealth();
 
   const issues: string[] = [];

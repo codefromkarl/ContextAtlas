@@ -358,6 +358,179 @@ test('health:check --project-id scopes queue noise to the requested project', ()
   }
 });
 
+test('analyzeIndexHealth quick mode skips VectorStore and strategy analysis', async () => {
+  const baseDir = createTempBaseDir();
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  const projectId = 'proj-quick-mode';
+
+  // 创建完整快照（含向量索引）
+  const prepared = prepareWritableSnapshot(projectId, baseDir);
+  const db = initDb(projectId, prepared.snapshotId);
+  db.prepare(
+    'INSERT INTO files(path, hash, mtime, size, content, language, vector_index_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run('src/a.ts', 'h1', Date.now(), 10, 'export const a = 1;', 'typescript', 'h1');
+  db.close();
+
+  const vectorStore = new VectorStore(projectId, 1024, prepared.snapshotId);
+  await vectorStore.init();
+  await vectorStore.batchUpsertFiles([
+    {
+      path: 'src/a.ts',
+      hash: 'h1',
+      records: [
+        {
+          chunk_id: 'src/a.ts#h1#0',
+          file_path: 'src/a.ts',
+          file_hash: 'h1',
+          chunk_index: 0,
+          vector: Array.from({ length: 1024 }, () => 0),
+          display_code: 'export const a = 1;',
+          vector_text: '// Context: src/a.ts\nexport const a = 1;',
+          language: 'typescript',
+          breadcrumb: 'src/a.ts',
+          start_index: 0,
+          end_index: 10,
+          raw_start: 0,
+          raw_end: 10,
+          vec_start: 0,
+          vec_end: 10,
+        },
+      ],
+    },
+  ]);
+  await vectorStore.close();
+  commitSnapshot(projectId, prepared.snapshotId, baseDir);
+
+  // 记录一个已完成的任务（使 strategySummary 有数据）
+  enqueueIndexTask({
+    projectId,
+    repoPath: '/repos/proj-quick-mode',
+    scope: 'full',
+    reason: 'test',
+    requestedBy: 'test',
+  });
+  const task = pickNextQueuedTask();
+  markTaskDone(task!.taskId);
+
+  // quick mode 应跳过重操作
+  const report = await analyzeIndexHealth({
+    baseDir,
+    projectIds: [projectId],
+    quick: true,
+  });
+
+  const snap = report.snapshots[0];
+
+  // 基本信息仍完整
+  assert.equal(snap.hasCurrentSnapshot, true);
+  assert.equal(snap.hasIndexDb, true);
+  assert.equal(snap.hasVectorIndex, true);
+  assert.equal(snap.fileCount, 1);
+  assert.equal(snap.dbIntegrity, 'ok');
+  assert.equal(snap.lastSuccessfulScope, 'full');
+
+  // quick 模式跳过的字段
+  assert.equal(snap.vectorChunkCount, 0, 'vectorChunkCount should be 0 in quick mode');
+  assert.equal(snap.chunkFtsCoverage, null, 'chunkFtsCoverage should be null in quick mode');
+  assert.equal(snap.strategySummary, null, 'strategySummary should be null in quick mode');
+
+  // chunk FTS 相关：quick 模式仍查 SQLite（轻量），但不因 vectorCount=0 误报
+  assert.ok(
+    !report.overall.issues.some((i) => i.includes('chunk FTS 覆盖不足')),
+    'quick mode should not report chunk FTS coverage issues',
+  );
+});
+
+test('health:check --quick CLI flag skips snapshot scan and returns fast', () => {
+  const baseDir = makeBaseDir();
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+
+  try {
+    const start = Date.now();
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'health:check', '--json', '--quick'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+        },
+      },
+    );
+    const elapsed = Date.now() - start;
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.ok(payload.overall);
+    assert.ok(payload.queue);
+    assert.ok(payload.daemon);
+    // quick + 无显式 projectIds → 跳过 snapshot 扫描
+    assert.ok(Array.isArray(payload.snapshots));
+    assert.equal(payload.snapshots.length, 0);
+    // 应在 3 秒内完成（无文件系统扫描）
+    assert.ok(elapsed < 3000, `Expected <3s but took ${elapsed}ms`);
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('health:check --project-id --quick only inspects the target project with no vector overhead', async () => {
+  const baseDir = createTempBaseDir();
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  const projectId = 'proj-fast-path';
+
+  // 创建目标项目
+  const prepared = prepareWritableSnapshot(projectId, baseDir);
+  const db = initDb(projectId, prepared.snapshotId);
+  db.prepare(
+    'INSERT INTO files(path, hash, mtime, size, content, language, vector_index_hash) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run('src/b.ts', 'h2', Date.now(), 20, 'export const b = 2;', 'typescript', 'h2');
+  db.close();
+  commitSnapshot(projectId, prepared.snapshotId, baseDir);
+
+  // 用 CLI 验证 --project-id + --quick 组合
+  const start = Date.now();
+  const result = spawnSync(
+    'node',
+    ['--import', 'tsx', 'src/index.ts', 'health:check', '--json', '--project-id', projectId, '--quick'],
+    {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CONTEXTATLAS_BASE_DIR: baseDir,
+      },
+    },
+  );
+  const elapsed = Date.now() - start;
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+
+  // 只检查目标项目
+  assert.equal(payload.snapshots.length, 1);
+  assert.equal(payload.snapshots[0].projectId, projectId);
+
+  // quick 模式跳过 vector/strategy
+  assert.equal(payload.snapshots[0].vectorChunkCount, 0);
+  assert.equal(payload.snapshots[0].strategySummary, null);
+
+  // 基本信息仍完整
+  assert.equal(payload.snapshots[0].hasCurrentSnapshot, true);
+  assert.equal(payload.snapshots[0].fileCount, 1);
+
+  // 应该在 5 秒内完成（无 VectorStore 开销）
+  assert.ok(elapsed < 5000, `Expected <5s but took ${elapsed}ms`);
+});
+
 test('health:full CLI 输出稳定 JSON 结构', () => {
   const baseDir = makeBaseDir();
   const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;

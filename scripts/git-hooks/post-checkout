@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# ContextAtlas post-checkout hook — 后台自动检测并修复当前项目索引健康
+#
+# 触发条件：git checkout / git switch（分支切换）
+# 行为：后台异步执行，不阻塞 git 操作
+#   1. 快速健康检查 (--quick, ~300ms)
+#   2. 若状态异常，自动修复安全项
+#   3. 幽灵清理每 24 小时最多执行一次
+#   4. 输出写入 ~/.cache/contextatlas/hooks.log
+
+# 快速路径：只对分支切换触发（$3=1 表示分支切换）
+if [ "${3:-0}" != "1" ]; then
+  exit 0
+fi
+
+# 快速路径：检查是否有 contextatlas CLI
+if ! command -v contextatlas &>/dev/null; then
+  exit 0
+fi
+
+# 防抖：如果最近 60 秒内已触发过，跳过
+LOCK_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/contextatlas"
+mkdir -p "$LOCK_DIR"
+LOCK_FILE="$LOCK_DIR/.hook-debounce"
+if [ -f "$LOCK_FILE" ]; then
+  LAST_RUN=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  ELAPSED=$((NOW - LAST_RUN))
+  if [ "$ELAPSED" -lt 60 ]; then
+    exit 0
+  fi
+fi
+touch "$LOCK_FILE"
+
+# 后台异步执行，不阻塞 git
+nohup bash -c '
+  LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/contextatlas"
+  LOG_FILE="$LOG_DIR/hooks.log"
+  CLEANUP_LOCK="$LOG_DIR/.cleanup-daily"
+
+  echo "[$(date -Iseconds)] post-checkout triggered (quick mode)" >> "$LOG_FILE"
+
+  HEALTH=$(contextatlas health:check --quick --json 2>>"$LOG_FILE") || {
+    echo "[$(date -Iseconds)] health:check failed, skipping" >> "$LOG_FILE"
+    exit 0
+  }
+
+  STATUS=$(echo "$HEALTH" | node -e "
+    try {
+      const d = JSON.parse(require('"'"'fs'"'"').readFileSync('"'"'/dev/stdin'"'"','"'"'utf8'"'"'));
+      process.stdout.write(d.overall?.status || '"'"'unknown'"'"');
+    } catch { process.stdout.write('"'"'error'"'"'); }
+  " 2>/dev/null) || STATUS="error"
+
+  if [ "$STATUS" = "healthy" ]; then
+    echo "[$(date -Iseconds)] health: healthy, skipping" >> "$LOG_FILE"
+    exit 0
+  fi
+
+  echo "[$(date -Iseconds)] health: $STATUS, auto-maintaining..." >> "$LOG_FILE"
+
+  # 1. 幽灵清理（每 24 小时最多一次）
+  NOW=$(date +%s)
+  RUN_CLEANUP=false
+  if [ -f "$CLEANUP_LOCK" ]; then
+    LAST_CLEANUP=$(stat -c %Y "$CLEANUP_LOCK" 2>/dev/null || echo 0)
+    ELAPSED=$((NOW - LAST_CLEANUP))
+    if [ "$ELAPSED" -gt 86400 ]; then
+      RUN_CLEANUP=true
+    fi
+  else
+    RUN_CLEANUP=true
+  fi
+
+  if [ "$RUN_CLEANUP" = true ]; then
+    touch "$CLEANUP_LOCK"
+    # 先检查有没有，再清理
+    STALE_COUNT=$(contextatlas hub:cleanup-stale-indexes --dry-run --json 2>/dev/null | node -e "
+      try {
+        const d = JSON.parse(require('"'"'fs'"'"').readFileSync('"'"'/dev/stdin'"'"','"'"'utf8'"'"'));
+        process.stdout.write(String(d.staleCount || 0));
+      } catch { process.stdout.write('"'"'0'"'"'); }
+    " 2>/dev/null || echo "0")
+
+    echo "[$(date -Iseconds)] stale check: $STALE_COUNT stale directories" >> "$LOG_FILE"
+
+    if [ "$STALE_COUNT" -gt 0 ]; then
+      contextatlas hub:cleanup-ghost --mode tmp --json &>/dev/null
+      contextatlas hub:cleanup-stale-indexes --json &>/dev/null
+      echo "[$(date -Iseconds)] ghost cleanup done ($STALE_COUNT removed)" >> "$LOG_FILE"
+    else
+      contextatlas hub:cleanup-ghost --mode tmp --json &>/dev/null
+      echo "[$(date -Iseconds)] ghost cleanup done (hub only, no stale dirs)" >> "$LOG_FILE"
+    fi
+  else
+    echo "[$(date -Iseconds)] cleanup skipped (daily throttle)" >> "$LOG_FILE"
+  fi
+
+  # 2. 重建当前项目 catalog
+  contextatlas memory:rebuild-catalog &>/dev/null
+  echo "[$(date -Iseconds)] catalog rebuild done" >> "$LOG_FILE"
+
+  # 3. 记录告警（最多 5 条）
+  echo "$HEALTH" | node -e "
+    try {
+      const d = JSON.parse(require('"'"'fs'"'"').readFileSync('"'"'/dev/stdin'"'"','"'"'utf8'"'"'));
+      const alerts = d.overall?.issues || [];
+      alerts.slice(0, 5).forEach(a => console.log('"'"'  alert: '"'"' + a));
+    } catch {}
+  " 2>/dev/null >> "$LOG_FILE" || true
+
+  echo "[$(date -Iseconds)] maintenance complete" >> "$LOG_FILE"
+' &>/dev/null &
+
+exit 0

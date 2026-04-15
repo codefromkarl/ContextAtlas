@@ -38,14 +38,16 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
   cli
     .command('health:check', '检查索引系统健康状态（队列/快照/守护进程）')
     .option('--project-id <id>', '按项目 ID 过滤')
+    .option('--quick', '快速模式：跳过 VectorStore 和策略分析')
     .option('--json', '以 JSON 输出报告')
-    .action(async (options: { projectId?: string; json?: boolean }) => {
+    .action(async (options: { projectId?: string; quick?: boolean; json?: boolean }) => {
       const { analyzeIndexHealth, formatIndexHealthReport } = await import(
         '../../monitoring/indexHealth.js'
       );
       try {
         const report = await analyzeIndexHealth({
           projectIds: options.projectId ? [options.projectId] : undefined,
+          quick: options.quick,
         });
         if (options.json) {
           writeJson(report);

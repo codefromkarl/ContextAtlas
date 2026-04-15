@@ -33,6 +33,7 @@
 
 ## Updates
 
+- `2026-04-15`: added git hook auto-maintenance with `--quick` health check (260x speedup), stale index cleanup CLI, and three-layer hook protection (debounce + quick mode + daily throttle).
 - `2026-04-10`: `codebase-retrieval` now includes the lightweight direct graph summary by default, with MCP metadata, tests, and changelog docs updated in sync.
 - `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
 - `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
@@ -288,6 +289,7 @@ ContextAtlas focuses on **what context to provide**, not how the task should be 
 
 | Document | Purpose |
 |------|------|
+| [2026-04-15 update summary](./docs/changelog/2026-04-15.md) | Quick health check, stale index cleanup, and git hook auto-maintenance |
 | [Docs index](./docs/README.md) | Unified entry for stable docs, plans, changelog, and archived delivery material |
 | [2026-04-10 update summary](./docs/changelog/2026-04-10.md) | Default-on graph context for codebase retrieval plus MCP/docs sync |
 | [First use guide](./docs/guides/first-use.md) | Fast onboarding path for the default `contextatlas` loop |

@@ -258,6 +258,10 @@ contextatlas profile:import-omc --force
 ```bash
 contextatlas hub:register-project /path/to/project --name "My Project"
 contextatlas hub:list-projects
+contextatlas hub:cleanup-ghost --mode tmp --dry-run    # 预览 Hub 注册表中的幽灵项目
+contextatlas hub:cleanup-ghost --mode tmp               # 清理 Hub 注册表幽灵项目
+contextatlas hub:cleanup-stale-indexes --dry-run --json # 预览无 current/snapshots 的遗留索引目录
+contextatlas hub:cleanup-stale-indexes --json            # 清理遗留索引目录
 contextatlas hub:save-memory <projectId> "SearchService" --desc "检索编排 facade" --dir "src/search"
 contextatlas hub:search --category search
 contextatlas hub:fts "向量 搜索"
@@ -287,6 +291,7 @@ contextatlas usage:index-report --days 7 --project-id <projectId>
 # 索引健康度
 contextatlas health:check
 contextatlas health:check --json
+contextatlas health:check --quick --json           # 快速模式：跳过 VectorStore/策略分析（~0.3s）
 contextatlas health:check --project-id <projectId>
 contextatlas health:full
 contextatlas health:full --json

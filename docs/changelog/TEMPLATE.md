@@ -1,8 +1,17 @@
+---
+date: YYYY-MM-DD
+summary_en: "One-line summary in English, used in README.md Updates section."
+summary_zh: "一行中文摘要，用于 README_ZH.md 更新记录段。"
+---
+
 # ContextAtlas 更新总结（YYYY-MM-DD）
+
+> **必填**: 每个 changelog 文件顶部必须有 YAML frontmatter，包含 `date`、`summary_en`、`summary_zh` 三个字段。
+> 运行 `pnpm docs:sync` 会自动读取这些字段生成 README.md、README_ZH.md 和 docs/README.md 的更新日志段。
 
 本轮更新围绕一个核心收口目标展开：
 
-> 用一句话概括这次更新的核心意图。建议写成“要把什么能力从什么状态推进到什么状态”。
+> 用一句话概括这次更新的核心意图。建议写成"要把什么能力从什么状态推进到什么状态"。
 
 ## 一、为什么要更新
 

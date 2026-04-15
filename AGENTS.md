@@ -86,3 +86,4 @@ CLI commands (`src/cli/commands/`) call application layer directly, bypassing MC
 - 使用 tsup 打包
 - Node.js >= 20
 - pnpm 作为包管理器
+- 写完 `docs/changelog/YYYY-MM-DD.md` 后，必须运行 `pnpm docs:sync` 同步 README.md、README_ZH.md 和 docs/README.md 的更新日志段

@@ -43,11 +43,16 @@
 ## 更新日志
 
 - [更新总结模板](./changelog/TEMPLATE.md)
+
+<!-- AUTO:changelog-index-start -->
+- [2026-04-15](./changelog/2026-04-15.md)
+- [2026-04-14](./changelog/2026-04-14.md)
 - [2026-04-10](./changelog/2026-04-10.md)
 - [2026-04-09](./changelog/2026-04-09.md)
 - [2026-04-08](./changelog/2026-04-08.md)
 - [2026-04-07](./changelog/2026-04-07.md)
 - [2026-04-06](./changelog/2026-04-06.md)
+<!-- AUTO:changelog-index-end -->
 
 ## 计划与清单
 

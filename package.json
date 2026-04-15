@@ -47,7 +47,8 @@
     "release:gate": "node --import tsx scripts/release-gate.ts",
     "smoke:release": "node --import tsx scripts/release-smoke.ts",
     "ci:verify": "pnpm release:gate",
-    "setup:local": "node --import tsx scripts/setup-local.ts"
+    "setup:local": "node --import tsx scripts/setup-local.ts",
+    "docs:sync": "node --import tsx scripts/sync-changelog.ts"
   },
   "dependencies": {
     "@keqingmoe/tree-sitter": "^0.26.2",

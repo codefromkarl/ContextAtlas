@@ -33,12 +33,15 @@
 
 ## Updates
 
+<!-- AUTO:changelog-en-start -->
 - `2026-04-15`: added git hook auto-maintenance with `--quick` health check (260x speedup), stale index cleanup CLI, and three-layer hook protection (debounce + quick mode + daily throttle).
+- `2026-04-14`: extracted 11 Memory MCP tools' business logic to application layer, completing three-layer architecture separation (CLI / MCP adapter → application → domain), and fixed all 31 TypeScript compilation errors.
 - `2026-04-10`: `codebase-retrieval` now includes the lightweight direct graph summary by default, with MCP metadata, tests, and changelog docs updated in sync.
-- `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
-- `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
-- `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
 - `2026-04-09`: added churn / cost-aware index planning, moved long-term memory into dedicated tables + FTS5, and finished default-path hardening, threshold configuration, ops alert threshold alignment, and doc sync.
+- `2026-04-08`: added the embedding gateway, local caching and multi-upstream routing, plus Hugging Face integration and MCP context lifecycle tools.
+- `2026-04-07`: improved the indexing pipeline with lighter planning, snapshot copy reduction, queue observability, fallback hardening, and repeatable benchmarks.
+- `2026-04-06`: tightened the default user path, memory governance, and operational visibility to make first use, feedback loops, and health checks clearer.
+<!-- AUTO:changelog-en-end -->
 
 ## Contents
 

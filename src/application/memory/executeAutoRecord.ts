@@ -42,7 +42,7 @@ function resolveProjectRoot(projectId?: string): string {
     return path.resolve(projectId);
   }
 
-  const db = new MemoryHubDatabase();
+  const db = MemoryHubDatabase.getDefault();
   try {
     const project = db.getProject(projectId);
     if (!project?.path) {

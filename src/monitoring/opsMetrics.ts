@@ -148,7 +148,7 @@ function parseFeedbackOutcome(summary: string): string | null {
 async function collectProjectStaleRates(
   staleDays?: number,
 ): Promise<Map<string, { projectName: string; staleMemoryRate: number; correctionRate: number }>> {
-  const hub = new MemoryHubDatabase();
+  const hub = MemoryHubDatabase.getDefault();
   try {
     const projects = hub.listProjects();
     const result = new Map<
@@ -207,7 +207,7 @@ async function collectProjectStaleRates(
 async function collectModuleQualityDistribution(
   staleDays?: number,
 ): Promise<OpsMetricsReport['moduleQualityDistribution']> {
-  const hub = new MemoryHubDatabase();
+  const hub = MemoryHubDatabase.getDefault();
   try {
     const projects = hub.listProjects();
     const result: OpsMetricsReport['moduleQualityDistribution'] = [];
@@ -285,7 +285,7 @@ async function collectGovernanceSummary(
     },
   };
 
-  const hub = new MemoryHubDatabase();
+  const hub = MemoryHubDatabase.getDefault();
   try {
     const projects = hub.listProjects();
     for (const project of projects) {

@@ -42,10 +42,12 @@ export class MemoryStore {
 
   static setSharedHubForTests(hub: MemoryHubDatabase | null): void {
     MemoryStore.sharedHub = hub;
+    MemoryHubDatabase.setTestOverride(hub);
   }
 
   static resetSharedHubForTests(): void {
     MemoryStore.sharedHub = null;
+    MemoryHubDatabase.setTestOverride(null);
   }
 
   private readonly projectRoot: string;

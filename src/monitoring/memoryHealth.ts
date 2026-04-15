@@ -305,7 +305,7 @@ function buildOverallAssessment(report: MemoryHealthReport): void {
 export async function analyzeMemoryHealth(
   options: { projectRoots?: string[]; staleDays?: number; excludeGhostProjects?: boolean } = {},
 ): Promise<MemoryHealthReport> {
-  const hub = new MemoryHubDatabase();
+  const hub = MemoryHubDatabase.getDefault();
   try {
     const allowedProjectRoots = options.projectRoots?.length
       ? new Set(options.projectRoots.map((projectRoot) => path.resolve(projectRoot)))

@@ -105,7 +105,7 @@ export async function executeQuerySharedMemories(
     'MCP query_shared_memories 调用开始',
   );
 
-  const db = new MemoryHubDatabase();
+  const db = MemoryHubDatabase.getDefault();
 
   try {
     const normalizedQueryText = buildFtsPrefixQuery(effectiveQuery);
@@ -215,7 +215,7 @@ export async function executeLinkMemories(args: LinkMemoriesInput): Promise<Memo
 
   logger.info({ from, to, type }, 'MCP link_memories 调用开始');
 
-  const db = new MemoryHubDatabase();
+  const db = MemoryHubDatabase.getDefault();
 
   try {
     const fromMemory = db.getMemory(from.project, from.module);
@@ -266,7 +266,7 @@ export async function executeGetDependencyChain(
 
   logger.info({ project, module, recursive }, 'MCP get_dependency_chain 调用开始');
 
-  const db = new MemoryHubDatabase();
+  const db = MemoryHubDatabase.getDefault();
 
   try {
     const memory = db.getMemory(project, module);
@@ -359,7 +359,7 @@ export async function executeGetDependencyChain(
 }
 
 export async function executeManageProjects(args: ManageProjectsInput): Promise<MemoryToolResponse> {
-  const db = new MemoryHubDatabase();
+  const db = MemoryHubDatabase.getDefault();
 
   try {
     switch (args.action) {

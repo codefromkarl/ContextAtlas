@@ -151,6 +151,33 @@ const REPAIR_PLACEHOLDER_PREFIX = '__cw_repair__';
 export class MemoryHubDatabase {
   private db: Database.Database;
 
+  /**
+   * 测试覆盖实例 — 由 MemoryStore.setSharedHubForTests 同步设置
+   *
+   * 应用层通过 getDefault() 获取 hub 时会自动使用此覆盖实例，
+   * 从而确保测试隔离不需要在每个应用函数中单独处理。
+   */
+  private static testOverride: MemoryHubDatabase | null = null;
+
+  /** 设置测试覆盖（由 MemoryStore.setSharedHubForTests 调用） */
+  static setTestOverride(hub: MemoryHubDatabase | null): void {
+    MemoryHubDatabase.testOverride = hub;
+  }
+
+  /**
+   * 获取默认 hub 实例。
+   *
+   * 在测试环境下，使用测试覆盖实例的路径创建新连接（而非返回同一实例），
+   * 确保消费者可以安全地 close() 自己的连接而不影响其他调用方。
+   * 在生产环境下，等价于 `new MemoryHubDatabase()`。
+   */
+  static getDefault(): MemoryHubDatabase {
+    if (MemoryHubDatabase.testOverride) {
+      return new MemoryHubDatabase(MemoryHubDatabase.testOverride.dbPath);
+    }
+    return new MemoryHubDatabase();
+  }
+
   constructor(dbPath?: string) {
     this.dbPath = dbPath || resolveDefaultHubPath();
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
@@ -159,7 +186,8 @@ export class MemoryHubDatabase {
     this.initializeSchema();
   }
 
-  private dbPath: string;
+  /** 数据库文件路径（getDefault() 需读取以创建同路径新连接） */
+  readonly dbPath: string;
 
   /**
    * 初始化数据库 schema

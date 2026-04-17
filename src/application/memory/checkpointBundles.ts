@@ -27,6 +27,7 @@ export function buildCheckpointContextBlock(
       `Key findings: ${checkpoint.keyFindings.length > 0 ? checkpoint.keyFindings.join(' | ') : 'None'}`,
       `Unresolved questions: ${checkpoint.unresolvedQuestions.length > 0 ? checkpoint.unresolvedQuestions.join(' | ') : 'None'}`,
       `Next steps: ${checkpoint.nextSteps.length > 0 ? checkpoint.nextSteps.join(' | ') : 'None'}`,
+      `Architecture primary files: ${checkpoint.architecturePrimaryFiles && checkpoint.architecturePrimaryFiles.length > 0 ? checkpoint.architecturePrimaryFiles.join(' | ') : 'None'}`,
     ].join('\n'),
     priority: 'high',
     pinned: true,
@@ -59,6 +60,7 @@ export function buildCheckpointHandoff(
     keyFindings: checkpoint.keyFindings,
     unresolvedQuestions: checkpoint.unresolvedQuestions,
     nextSteps: checkpoint.nextSteps,
+    architecturePrimaryFiles: checkpoint.architecturePrimaryFiles || [],
     contextBlockId,
   };
 }

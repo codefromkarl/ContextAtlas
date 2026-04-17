@@ -19,6 +19,7 @@ export const createCheckpointSchema = z.object({
   keyFindings: z.array(z.string()).optional().default([]),
   unresolvedQuestions: z.array(z.string()).optional().default([]),
   nextSteps: z.array(z.string()).optional().default([]),
+  architecturePrimaryFiles: z.array(z.string()).optional().default([]),
   format: responseFormatSchema.optional().default('text'),
 });
 

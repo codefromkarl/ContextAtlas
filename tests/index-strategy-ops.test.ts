@@ -227,13 +227,30 @@ test('buildAlertEvaluationMetrics keeps alert:eval and health:full governance in
     projectScores: [],
   } as any;
 
-  assert.deepEqual(buildAlertEvaluationMetrics({ indexHealth, memoryHealth }), {
+  assert.deepEqual(buildAlertEvaluationMetrics({
+    indexHealth,
+    memoryHealth,
+    mcpProcessHealth: {
+      repoRoot: '/repo',
+      processCount: 2,
+      duplicateCount: 1,
+      processes: [],
+      overall: {
+        status: 'degraded',
+        issues: ['检测到 2 个 ContextAtlas MCP 进程'],
+        recommendations: ['contextatlas mcp:cleanup-duplicates --json'],
+      },
+    },
+  }), {
     ...indexHealth,
     memory: {
       staleRate: 0.5,
       expiredRate: 0.1,
       orphanedRate: 0.5,
       catalogInconsistent: true,
+    },
+    mcp: {
+      duplicateCount: 1,
     },
   });
 });

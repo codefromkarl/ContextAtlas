@@ -211,6 +211,8 @@ test('executeAssembleContext includes selected context summary', async () => {
     assert.ok(payload.selectedContext.summary);
     assert.equal(typeof payload.selectedContext.summary.totalBlocks, 'number');
     assert.equal(typeof payload.selectedContext.summary.references, 'number');
+    assert.ok(payload.routing.codebaseRetrieval);
+    assert.ok(Array.isArray(payload.routing.codebaseRetrieval.architecturePrimaryFiles));
   });
 });
 

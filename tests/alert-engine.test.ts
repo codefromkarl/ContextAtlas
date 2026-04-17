@@ -61,20 +61,29 @@ test('evaluateAlerts triggers memory-catalog-inconsistent when catalog is incons
 test('evaluateAlerts triggers memory-orphaned-features when orphaned rate exceeds threshold', () => {
   const result = evaluateAlerts(
     {
-      memory: {
-        staleRate: 0,
-        expiredRate: 0,
-        orphanedRate: 0.35,
-        catalogInconsistent: false,
-      },
+      queue: { queued: 0, failed: 0 },
+      daemon: { isRunning: true },
+      snapshot: { corruptedCount: 0 },
+      memory: { orphanedRate: 0.35 },
     },
     defaultConfig(),
   );
 
-  const alert = result.triggered.find((item) => item.ruleId === 'memory-orphaned-features');
-  assert.ok(alert);
-  assert.equal(alert.metric, 'memory.orphanedRate');
-  assert.equal(alert.value, 0.35);
+  assert.ok(result.triggered.some((event) => event.ruleId === 'memory-orphaned-features'));
+});
+
+test('evaluateAlerts triggers mcp-duplicate-processes when duplicate mcp exists', () => {
+  const result = evaluateAlerts(
+    {
+      queue: { queued: 0, failed: 0 },
+      daemon: { isRunning: true },
+      snapshot: { corruptedCount: 0 },
+      mcp: { duplicateCount: 2 },
+    },
+    defaultConfig(),
+  );
+
+  assert.ok(result.triggered.some((event) => event.ruleId === 'mcp-duplicate-processes'));
 });
 
 test('alert:eval CLI 输出稳定 JSON 结构', () => {

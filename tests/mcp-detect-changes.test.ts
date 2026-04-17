@@ -71,6 +71,7 @@ test('detect_changes MCP tool reports changed symbols and risk summary', async (
     assert.equal(payload.scope, 'staged');
     assert.ok(payload.changed_files.includes('src/user/UserService.ts'));
     assert.ok(payload.matches[0].symbols.some((entry: { symbol: { name: string } }) => entry.symbol.name === 'updatePassword'));
+    assert.ok(Array.isArray(payload.matches[0].symbols[0]?.invocations));
     assert.equal(typeof payload.risk_summary.level, 'string');
   } finally {
     fs.rmSync(rootPath, { recursive: true, force: true });

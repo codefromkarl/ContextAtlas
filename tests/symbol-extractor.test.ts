@@ -82,6 +82,14 @@ function hashLocal(value: string) {
         && relation.toId.includes('call:hashPassword'),
     ),
   );
+  assert.ok(
+    payload.invocations?.some(
+      (invocation) =>
+        invocation.enclosingSymbolId === updatePassword?.id
+        && invocation.calleeName === 'hashPassword'
+        && invocation.resolvedTargetId === null,
+    ),
+  );
   assert.ok(payload.unresolvedRefs?.includes('./crypto:hashPassword'));
 });
 
@@ -120,6 +128,11 @@ function hashPassword(value) {
   assert.ok(
     payload.relations.some(
       (relation) => relation.type === 'CALLS' && relation.toId.includes('hashPassword'),
+    ),
+  );
+  assert.ok(
+    payload.invocations?.some(
+      (invocation) => invocation.calleeName === 'hashPassword' && invocation.startLine >= 1,
     ),
   );
 });

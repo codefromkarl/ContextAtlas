@@ -91,6 +91,7 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
     .action(async (options: { staleDays?: string; json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
+      const { analyzeMcpProcessHealth } = await import('../../monitoring/mcpProcessHealth.js');
       const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
       const { buildAlertEvaluationMetrics, buildHealthFullReport } = await import(
         '../../monitoring/healthFull.js'
@@ -99,21 +100,23 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
       try {
         const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
 
-        const [indexHealth, memoryHealth] = await Promise.all([
+        const [indexHealth, memoryHealth, mcpProcessHealth] = await Promise.all([
           analyzeIndexHealth(),
           analyzeMemoryHealth({
             staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
           }),
+          Promise.resolve(analyzeMcpProcessHealth()),
         ]);
 
         const alertResult = evaluateAlerts(
-          buildAlertEvaluationMetrics({ indexHealth, memoryHealth }),
+          buildAlertEvaluationMetrics({ indexHealth, memoryHealth, mcpProcessHealth }),
         );
 
         if (options.json) {
           writeJson({
             indexHealth,
             memoryHealth,
+            mcpProcessHealth,
             alerts: alertResult,
           });
           return;
@@ -123,12 +126,77 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
           buildHealthFullReport({
             indexHealth,
             memoryHealth,
+            mcpProcessHealth,
             alerts: alertResult,
           }),
         );
       } catch (err) {
         const error = err as Error;
         exitWithError('系统健康检查失败', { error: error.message });
+      }
+    });
+
+  cli
+    .command('mcp:cleanup-duplicates', '清理重复的 ContextAtlas MCP 进程（默认 dry-run）')
+    .option('--repo-root <path>', '指定仓库根目录（默认当前目录）')
+    .option('--keep-pid <pid>', '显式指定要保留的 MCP 进程 PID')
+    .option('--force', '对 SIGTERM 后仍残留的重复进程补发 SIGKILL')
+    .option('--apply', '实际发送 SIGTERM 清理重复进程')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: { repoRoot?: string; keepPid?: string; force?: boolean; apply?: boolean; json?: boolean }) => {
+      const repoRoot = options.repoRoot ? path.resolve(options.repoRoot) : process.cwd();
+      const {
+        analyzeMcpProcessHealth,
+        executeMcpCleanup,
+      } = await import(
+        '../../monitoring/mcpProcessHealth.js'
+      );
+
+      try {
+        const report = analyzeMcpProcessHealth({ repoRoot });
+        const explicitKeepPid = options.keepPid ? Number.parseInt(options.keepPid, 10) : null;
+
+        if (explicitKeepPid !== null && !report.processes.some((processInfo) => processInfo.pid === explicitKeepPid)) {
+          exitWithError('指定的 keep pid 不存在于当前仓库 MCP 进程列表中', {
+            keepPid: explicitKeepPid,
+          });
+        }
+
+        const result = await executeMcpCleanup({
+          repoRoot,
+          keepPid: explicitKeepPid,
+          apply: Boolean(options.apply),
+          force: Boolean(options.force),
+        });
+
+        if (options.json) {
+          writeJson(result);
+          return;
+        }
+
+        if (result.duplicateCount === 0) {
+          writeText('未发现重复的 ContextAtlas MCP 进程。');
+          return;
+        }
+
+        if (options.apply && explicitKeepPid === null) {
+          writeText([
+            '检测到重复 MCP 进程，但出于安全考虑，`--apply` 需要配合 `--keep-pid` 显式指定保留对象。',
+            `建议保留 pid=${result.suggestedKeepPid ?? 'unknown'}`,
+            `可执行: contextatlas mcp:cleanup-duplicates --keep-pid ${result.suggestedKeepPid ?? '<pid>'} --apply${options.force ? ' --force' : ''}`,
+          ].join('\n'));
+          return;
+        }
+
+        const lines = [
+          options.apply ? '已发送清理重复 MCP 进程:' : 'Dry-run: 将清理以下重复 MCP 进程:',
+          ...result.duplicatePids.map((pid) => `- pid=${pid}`),
+          result.keptPid ? `保留 pid=${result.keptPid}` : '未发现可保留进程',
+        ];
+        writeText(lines.join('\n'));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('清理重复 MCP 进程失败', { error: error.message });
       }
     });
 

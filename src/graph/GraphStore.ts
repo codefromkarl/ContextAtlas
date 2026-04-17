@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type {
+  ExtractedInvocation,
   ExtractedRelation,
   ExtractedSymbol,
   GraphDirection,
@@ -12,6 +13,8 @@ export interface StoredSymbol extends ExtractedSymbol {}
 export interface StoredRelation extends ExtractedRelation {
   id: number;
 }
+
+export interface StoredInvocation extends ExtractedInvocation {}
 
 export interface GraphImpactEntry {
   symbol: StoredSymbol;
@@ -54,6 +57,18 @@ function mapSymbolRow(row: Record<string, unknown>): StoredSymbol {
   };
 }
 
+function mapInvocationRow(row: Record<string, unknown>): StoredInvocation {
+  return {
+    id: String(row.id),
+    filePath: String(row.file_path),
+    enclosingSymbolId: (row.enclosing_symbol_id as string | null) ?? null,
+    calleeName: String(row.callee_name),
+    resolvedTargetId: (row.resolved_target_id as string | null) ?? null,
+    startLine: Number(row.start_line),
+    endLine: Number(row.end_line),
+  };
+}
+
 function makePlaceholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
 }
@@ -80,6 +95,11 @@ export class GraphStore {
     const insertRelation = this.db.prepare(`
       INSERT INTO relations (from_id, to_id, type, confidence, reason)
       VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertInvocation = this.db.prepare(`
+      INSERT INTO invocations (
+        id, file_path, enclosing_symbol_id, callee_name, resolved_target_id, start_line, end_line
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     const insertFts = this.db.prepare(`
       INSERT INTO symbols_fts (symbol_id, name, file_path)
@@ -114,6 +134,18 @@ export class GraphStore {
           relation.reason ?? null,
         );
       }
+
+      for (const invocation of payload.invocations ?? []) {
+        insertInvocation.run(
+          invocation.id,
+          invocation.filePath,
+          invocation.enclosingSymbolId,
+          invocation.calleeName,
+          invocation.resolvedTargetId,
+          invocation.startLine,
+          invocation.endLine,
+        );
+      }
     });
 
     tx();
@@ -132,12 +164,16 @@ export class GraphStore {
           .prepare(`DELETE FROM relations WHERE from_id IN (${placeholders}) OR to_id IN (${placeholders})`)
           .run(...symbolIds, ...symbolIds);
         this.db
+          .prepare(`DELETE FROM invocations WHERE enclosing_symbol_id IN (${placeholders}) OR resolved_target_id IN (${placeholders})`)
+          .run(...symbolIds, ...symbolIds);
+        this.db
           .prepare(`DELETE FROM symbols_fts WHERE symbol_id IN (${placeholders})`)
           .run(...symbolIds);
       } else {
         this.db.prepare('DELETE FROM symbols_fts WHERE file_path = ?').run(filePath);
       }
 
+      this.db.prepare('DELETE FROM invocations WHERE file_path = ?').run(filePath);
       this.db.prepare('DELETE FROM symbols WHERE file_path = ?').run(filePath);
     });
 
@@ -205,6 +241,21 @@ export class GraphStore {
       | Record<string, unknown>
       | undefined;
     return row ? mapSymbolRow(row) : null;
+  }
+
+  getInvocationsBySymbol(symbolId: string): StoredInvocation[] {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT *
+          FROM invocations
+          WHERE enclosing_symbol_id = ? OR resolved_target_id = ?
+          ORDER BY start_line ASC, end_line ASC, callee_name ASC
+        `,
+      )
+      .all(symbolId, symbolId) as Record<string, unknown>[];
+
+    return rows.map(mapInvocationRow);
   }
 
   getImpact(symbolId: string, options: { direction?: GraphDirection; maxDepth?: number } = {}): GraphImpactEntry[] {

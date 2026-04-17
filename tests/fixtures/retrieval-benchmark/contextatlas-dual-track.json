@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "name": "contextatlas-dual-track",
+  "repoPathHint": "/home/yuanzhi/Develop/tools/ContextAtlas",
+  "cases": [
+    {
+      "id": "gateway-entrypoints",
+      "query": "定位 embedding gateway 的启动入口、setup local 配置写入逻辑、MCP 服务启动逻辑，以及默认启动 gateway 最合适的接入点。重点找 CLI 子命令 gateway:embeddings、setup-local 脚本、MCP server 启动与环境配置相关实现。",
+      "expectedFiles": [
+        "src/cli/commands/gateway.ts",
+        "src/gateway/server.ts"
+      ],
+      "tags": ["entry", "architecture"]
+    },
+    {
+      "id": "mcp-adapter-boundary",
+      "query": "Find the relationship between MCP tool handlers and underlying core services for code retrieval and memory. I need to know whether MCP is just a transport/adaptation layer or deeply coupled to the business logic.",
+      "technicalTerms": ["handleCodebaseRetrieval", "SearchService", "MemoryStore"],
+      "expectedFiles": [
+        "src/mcp/tools/codebaseRetrieval.ts",
+        "src/search/SearchService.ts",
+        "src/memory/MemoryStore.ts"
+      ],
+      "tags": ["architecture"]
+    },
+    {
+      "id": "cli-vs-mcp-mode",
+      "query": "Locate the actual CLI entrypoint, command registration, MCP server startup path, and any code that makes local CLI workflows primary while MCP is optional. Also find any references to skills, agents, or command-line-first usage.",
+      "technicalTerms": ["MCP", "cli", "Command"],
+      "expectedFiles": [
+        "src/index.ts",
+        "src/cli/registerCommands.ts"
+      ],
+      "tags": ["entry", "architecture"]
+    },
+    {
+      "id": "graph-query-tracer",
+      "query": "Trace the graph_query MCP tool and the execution tracer implementation it uses for downstream path traversal.",
+      "technicalTerms": ["handleGraphQuery", "ExecutionTracer"],
+      "expectedFiles": [
+        "src/mcp/tools/codeGraph.ts",
+        "src/graph/ExecutionTracer.ts"
+      ],
+      "tags": ["architecture", "graph"]
+    },
+    {
+      "id": "detect-changes-detector",
+      "query": "Find the detect_changes tool handler and the ChangeDetector logic it invokes.",
+      "technicalTerms": ["handleDetectChanges", "ChangeDetector"],
+      "expectedFiles": [
+        "src/mcp/tools/codeGraph.ts",
+        "src/graph/ChangeDetector.ts"
+      ],
+      "tags": ["architecture", "graph"]
+    },
+    {
+      "id": "usage-caller-path",
+      "query": "Find the code that calls recordToolUsage and the retrieval path around it.",
+      "technicalTerms": ["recordToolUsage", "executeRetrieval"],
+      "expectedFiles": [
+        "src/usage/usageTracker.ts",
+        "src/mcp/tools/codebaseRetrieval.ts"
+      ],
+      "tags": ["architecture", "graph"]
+    }
+  ]
+}

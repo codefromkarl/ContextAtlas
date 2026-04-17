@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import { responseFormatSchema } from './responseFormat.js';
 import { createRetrievalProgressReporter } from '../../application/retrieval/executeRetrieval.js';
+import type { RetrievalOutput } from '../../application/retrieval/retrievalTypes.js';
 
 // Re-export for backward compatibility
 export { createRetrievalProgressReporter };
@@ -74,7 +75,7 @@ export type ProgressCallback = (current: number, total?: number, message?: strin
 export async function handleCodebaseRetrieval(
   args: CodebaseRetrievalInput,
   onProgress?: ProgressCallback,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: true; data?: RetrievalOutput['data'] }> {
   const { executeRetrieval } = await import('../../application/retrieval/executeRetrieval.js');
   const reportProgress = createRetrievalProgressReporter(onProgress);
 
@@ -93,6 +94,7 @@ export async function handleCodebaseRetrieval(
   return {
     content: [{ type: 'text' as const, text: result.text }],
     ...(result.isError ? { isError: true } : {}),
+    ...(result.data ? { data: result.data } : {}),
   };
 }
 

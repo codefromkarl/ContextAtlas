@@ -130,23 +130,81 @@ export function initChunksFts(db: Database.Database): void {
     .get();
 
   if (!tableExists) {
-    // 创建 chunk 级 FTS 表
-    // chunk_id, file_path, chunk_index 为 UNINDEXED（不参与全文搜索，但可返回）
-    // language, symbols 为可搜索列（用于按语言/符号名过滤）
-    db.exec(`
-            CREATE VIRTUAL TABLE chunks_fts USING fts5(
-                chunk_id UNINDEXED,
-                file_path UNINDEXED,
-                chunk_index UNINDEXED,
-                breadcrumb,
-                content,
-                language,
-                symbols,
-                tokenize='${tokenizer}'
-            );
-        `);
-    logger.info(`创建 chunks_fts 表，tokenizer=${tokenizer}`);
+    createChunksFtsTable(db, tokenizer);
+    return;
   }
+
+  const requiredColumns = ['chunk_id', 'file_path', 'chunk_index', 'breadcrumb', 'content', 'language', 'symbols'];
+  const existingColumns = getTableColumnNames(db, 'chunks_fts');
+  const missingColumns = requiredColumns.filter((column) => !existingColumns.includes(column));
+
+  if (missingColumns.length > 0) {
+    rebuildLegacyChunksFts(db, tokenizer, existingColumns);
+    logger.warn(
+      { missingColumns },
+      '检测到旧版 chunks_fts schema，已自动重建兼容 language/symbols 列',
+    );
+  }
+}
+
+function createChunksFtsTable(db: Database.Database, tokenizer: FtsTokenizer): void {
+  // 创建 chunk 级 FTS 表
+  // chunk_id, file_path, chunk_index 为 UNINDEXED（不参与全文搜索，但可返回）
+  // language, symbols 为可搜索列（用于按语言/符号名过滤）
+  db.exec(`
+          CREATE VIRTUAL TABLE chunks_fts USING fts5(
+              chunk_id UNINDEXED,
+              file_path UNINDEXED,
+              chunk_index UNINDEXED,
+              breadcrumb,
+              content,
+              language,
+              symbols,
+              tokenize='${tokenizer}'
+          );
+      `);
+  logger.info(`创建 chunks_fts 表，tokenizer=${tokenizer}`);
+}
+
+function getTableColumnNames(db: Database.Database, tableName: string): string[] {
+  const rows = db
+    .prepare(`SELECT name FROM pragma_table_info(?) ORDER BY cid`)
+    .all(tableName) as Array<{ name: string }>;
+  return rows.map((row) => row.name);
+}
+
+function rebuildLegacyChunksFts(
+  db: Database.Database,
+  tokenizer: FtsTokenizer,
+  existingColumns: string[],
+): void {
+  const legacyTableName = 'chunks_fts_legacy';
+  const canCopyData = existingColumns.length > 0;
+  const commonColumns = ['chunk_id', 'file_path', 'chunk_index', 'breadcrumb', 'content']
+    .filter((column) => existingColumns.includes(column));
+
+  const transaction = db.transaction(() => {
+    db.exec(`ALTER TABLE chunks_fts RENAME TO ${legacyTableName}`);
+    createChunksFtsTable(db, tokenizer);
+
+    if (canCopyData && commonColumns.length > 0) {
+      const selectColumns = [
+        ...commonColumns,
+        `'' AS language`,
+        `'' AS symbols`,
+      ].join(', ');
+
+      db.exec(`
+        INSERT INTO chunks_fts(chunk_id, file_path, chunk_index, breadcrumb, content, language, symbols)
+        SELECT ${selectColumns}
+        FROM ${legacyTableName};
+      `);
+    }
+
+    db.exec(`DROP TABLE IF EXISTS ${legacyTableName}`);
+  });
+
+  transaction();
 }
 
 /**

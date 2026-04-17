@@ -1,6 +1,6 @@
 import type Parser from '@keqingmoe/tree-sitter';
 import { getLanguageSpec, type LanguageSpecConfig } from '../chunking/LanguageSpec.js';
-import type { ExtractedRelation, ExtractedSymbol, GraphWritePayload } from './types.js';
+import type { ExtractedInvocation, ExtractedRelation, ExtractedSymbol, GraphWritePayload } from './types.js';
 
 type SupportedGraphLanguage = 'typescript' | 'javascript';
 
@@ -38,8 +38,10 @@ export class SymbolExtractor {
     const symbols: ExtractedSymbol[] = [];
     const symbolNodes: SymbolNodeEntry[] = [];
     const relations: ExtractedRelation[] = [];
+    const invocations: ExtractedInvocation[] = [];
     const unresolvedRefs = new Set<string>();
     const relationKeys = new Set<string>();
+    const invocationKeys = new Set<string>();
 
     const pushRelation = (relation: ExtractedRelation, unresolvedRef?: string) => {
       const key = `${relation.fromId}|${relation.toId}|${relation.type}|${relation.reason ?? ''}`;
@@ -73,6 +75,13 @@ export class SymbolExtractor {
       for (const child of node.namedChildren) {
         visit(child, currentParent);
       }
+    };
+
+    const pushInvocation = (invocation: ExtractedInvocation) => {
+      const key = invocation.id;
+      if (invocationKeys.has(key)) return;
+      invocationKeys.add(key);
+      invocations.push(invocation);
     };
 
     visit(tree.rootNode, null);
@@ -137,8 +146,18 @@ export class SymbolExtractor {
       }
 
       if (entry.symbol.type === 'Function' || entry.symbol.type === 'Method') {
-        for (const calledName of this.collectCalls(entry.node)) {
+        for (const callSite of this.collectCalls(entry.node)) {
+          const calledName = callSite.name;
           const localTarget = symbolsByName.get(calledName);
+          pushInvocation({
+            id: `${entry.symbol.id}:call:${calledName}:${callSite.startLine}`,
+            filePath,
+            enclosingSymbolId: entry.symbol.id,
+            calleeName: calledName,
+            resolvedTargetId: localTarget?.id ?? null,
+            startLine: callSite.startLine,
+            endLine: callSite.endLine,
+          });
           if (localTarget) {
             pushRelation({
               fromId: entry.symbol.id,
@@ -165,6 +184,7 @@ export class SymbolExtractor {
     return {
       symbols,
       relations,
+      invocations,
       unresolvedRefs: Array.from(unresolvedRefs).sort(),
     };
   }
@@ -318,14 +338,18 @@ export class SymbolExtractor {
     return names;
   }
 
-  private collectCalls(node: Parser.SyntaxNode): string[] {
-    const names: string[] = [];
+  private collectCalls(node: Parser.SyntaxNode): Array<{ name: string; startLine: number; endLine: number }> {
+    const calls: Array<{ name: string; startLine: number; endLine: number }> = [];
 
     const visit = (current: Parser.SyntaxNode) => {
       if (current.type === 'call_expression') {
         const callee = current.namedChildren[0];
         if (callee && (callee.type === 'identifier' || callee.type === 'property_identifier')) {
-          names.push(callee.text);
+          calls.push({
+            name: callee.text,
+            startLine: current.startPosition.row + 1,
+            endLine: current.endPosition.row + 1,
+          });
         }
       }
       for (const child of current.namedChildren) {
@@ -337,7 +361,7 @@ export class SymbolExtractor {
       visit(child);
     }
 
-    return names;
+    return calls;
   }
 
   private makeExternalId(

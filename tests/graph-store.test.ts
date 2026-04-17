@@ -65,6 +65,17 @@ function createUserGraphPayload(filePath: string): GraphWritePayload {
         confidence: 1,
       },
     ],
+    invocations: [
+      {
+        id: `typescript:${filePath}:updatePassword:10:call:hashPassword:11`,
+        filePath,
+        enclosingSymbolId: `typescript:${filePath}:updatePassword:10`,
+        calleeName: 'hashPassword',
+        resolvedTargetId: `typescript:${filePath}:call:hashPassword`,
+        startLine: 11,
+        endLine: 11,
+      },
+    ],
   };
 }
 
@@ -107,6 +118,12 @@ test('GraphStore persists symbols, supports lookup, and traverses downstream imp
     assert.equal(impact[0]?.viaRelationType, 'HAS_METHOD');
     assert.equal(impact[1]?.symbol.name, 'hashPassword');
     assert.equal(impact[1]?.depth, 2);
+
+    const invocationRow = db.prepare(
+      'SELECT callee_name, enclosing_symbol_id FROM invocations WHERE file_path = ?',
+    ).get(filePath) as { callee_name: string; enclosing_symbol_id: string | null } | undefined;
+    assert.equal(invocationRow?.callee_name, 'hashPassword');
+    assert.match(invocationRow?.enclosing_symbol_id ?? '', /updatePassword/);
   } finally {
     closeDb(db);
     fs.rmSync(rootPath, { recursive: true, force: true });
@@ -131,6 +148,10 @@ test('GraphStore deleteFile removes file symbols and attached relations', () => 
       | { count: number }
       | undefined;
     assert.equal(relationRow?.count ?? -1, 0);
+    const invocationRow = db.prepare('SELECT COUNT(*) AS count FROM invocations').get() as
+      | { count: number }
+      | undefined;
+    assert.equal(invocationRow?.count ?? -1, 0);
   } finally {
     closeDb(db);
     fs.rmSync(rootPath, { recursive: true, force: true });

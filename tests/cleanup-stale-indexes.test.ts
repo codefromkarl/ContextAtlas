@@ -8,6 +8,10 @@ function createTempBaseDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cw-cleanup-stale-'));
 }
 
+async function waitForAsyncLogWrites(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+
 test('cleanupStaleIndexes removes directories without current or snapshots', async () => {
   const baseDir = createTempBaseDir();
   process.env.CONTEXTATLAS_BASE_DIR = baseDir;
@@ -45,6 +49,7 @@ test('cleanupStaleIndexes removes directories without current or snapshots', asy
     assert.ok(fs.existsSync(path.join(baseDir, 'not-a-project')), 'empty dir should be preserved');
   } finally {
     delete process.env.CONTEXTATLAS_BASE_DIR;
+    await waitForAsyncLogWrites();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -67,6 +72,7 @@ test('cleanupStaleIndexes dry-run does not delete anything', async () => {
     assert.ok(fs.existsSync(path.join(baseDir, staleId)), 'dry-run should not delete');
   } finally {
     delete process.env.CONTEXTATLAS_BASE_DIR;
+    await waitForAsyncLogWrites();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });
@@ -89,6 +95,7 @@ test('cleanupStaleIndexes preserves projects with snapshots directory', async ()
     assert.ok(fs.existsSync(path.join(baseDir, snapOnly)), 'project with snapshots should be preserved');
   } finally {
     delete process.env.CONTEXTATLAS_BASE_DIR;
+    await waitForAsyncLogWrites();
     fs.rmSync(baseDir, { recursive: true, force: true });
   }
 });

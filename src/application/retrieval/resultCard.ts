@@ -17,13 +17,14 @@ import type {
   FeatureMemory,
   ResolvedLongTermMemoryItem,
 } from '../../memory/types.js';
-import type { ContextPack, Segment } from '../../search/types.js';
+import type { ContextPack, QueryIntent, Segment } from '../../search/types.js';
 import { resolveCurrentSnapshotId } from '../../storage/layout.js';
 import { logger } from '../../utils/logger.js';
 import type {
   FeatureMemoryFreshness,
   OverviewData,
   ParsedFeedbackSignal,
+  RetrievalData,
   RetrievalGraphContextSummary,
   RetrievalGraphSymbolSummary,
   RetrievalResultCard,
@@ -1237,6 +1238,7 @@ export function buildOverviewData(
       totalSegments: pack.files.reduce((acc, file) => acc + file.segments.length, 0),
     },
     topFiles,
+    architecturePrimaryFiles: pack.architecturePrimaryFiles ?? [],
     references,
     expansionCandidates,
     nextInspectionSuggestions:
@@ -1251,6 +1253,7 @@ export function buildCheckpointCandidate(
   informationRequest: string,
   contextBlocks: ContextBlock[],
   resultCard: RetrievalResultCard,
+  architecturePrimaryFiles: string[],
 ): CheckpointCandidate {
   const now = new Date().toISOString();
   return {
@@ -1269,6 +1272,7 @@ export function buildCheckpointCandidate(
     keyFindings: resultCard.reasoning.slice(0, 5),
     unresolvedQuestions: [],
     nextSteps: resultCard.nextActions,
+    architecturePrimaryFiles,
     createdAt: now,
     updatedAt: now,
     source: 'retrieval',
@@ -1280,6 +1284,7 @@ export function buildCheckpointCandidate(
 export function buildBlockFirstPayload(
   contextBlocks: ContextBlock[],
   checkpointCandidate: CheckpointCandidate,
+  architecturePrimaryFiles: string[],
   nextInspectionSuggestions: string[],
 ): BlockFirstPayload {
   return {
@@ -1293,7 +1298,189 @@ export function buildBlockFirstPayload(
       })),
     ),
     checkpointCandidate,
+    architecturePrimaryFiles,
     nextInspectionSuggestions,
+  };
+}
+
+interface OverviewContextBlockSummary {
+  id: string;
+  type: ContextBlock['type'];
+  title: string;
+  summary: string;
+  priority: ContextBlock['priority'];
+  pinned: boolean;
+  expandable: boolean;
+  rank?: number;
+  provenanceRefs: string[];
+}
+
+interface OverviewCheckpointCandidateSummary {
+  id: string;
+  title: string;
+  goal: string;
+  phase: CheckpointCandidate['phase'];
+  summary: string;
+  architecturePrimaryFiles?: string[];
+  nextSteps: string[];
+  source?: CheckpointCandidate['source'];
+  confidence?: CheckpointCandidate['confidence'];
+}
+
+interface MinimalOverviewFileMatch {
+  filePath: string;
+  segmentCount: number;
+  lines: string[];
+}
+
+function compactText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars - 1)}…`;
+}
+
+function summarizeContextBlockForOverview(block: ContextBlock): OverviewContextBlockSummary {
+  return {
+    id: block.id,
+    type: block.type,
+    title: block.title,
+    summary: compactText(block.summary || block.content, 160),
+    priority: block.priority,
+    pinned: block.pinned,
+    expandable: block.expandable,
+    ...(typeof block.rank === 'number' ? { rank: block.rank } : {}),
+    provenanceRefs: block.provenance.slice(0, 3).map((item) => item.ref),
+  };
+}
+
+function summarizeCheckpointCandidateForOverview(
+  checkpointCandidate: CheckpointCandidate,
+): OverviewCheckpointCandidateSummary {
+  return {
+    id: checkpointCandidate.id,
+    title: checkpointCandidate.title,
+    goal: checkpointCandidate.goal,
+    phase: checkpointCandidate.phase,
+    summary: compactText(checkpointCandidate.summary, 200),
+    ...(checkpointCandidate.architecturePrimaryFiles
+      ? { architecturePrimaryFiles: checkpointCandidate.architecturePrimaryFiles }
+      : {}),
+    nextSteps: checkpointCandidate.nextSteps.slice(0, 5),
+    ...(checkpointCandidate.source ? { source: checkpointCandidate.source } : {}),
+    ...(checkpointCandidate.confidence ? { confidence: checkpointCandidate.confidence } : {}),
+  };
+}
+
+function pickOverviewContextBlocks(
+  contextBlocks: ContextBlock[],
+): OverviewContextBlockSummary[] {
+  const prioritized = contextBlocks
+    .filter((block) => block.type !== 'open-questions')
+    .slice()
+    .sort((a, b) => {
+      const pinDelta = Number(b.pinned) - Number(a.pinned);
+      if (pinDelta !== 0) return pinDelta;
+      const priorityOrder = { high: 3, medium: 2, low: 1 } as const;
+      const priorityDelta = priorityOrder[b.priority] - priorityOrder[a.priority];
+      if (priorityDelta !== 0) return priorityDelta;
+      return (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER);
+    })
+    .slice(0, 5);
+
+  return prioritized.map((block) => summarizeContextBlockForOverview(block));
+}
+
+function buildOverviewJsonPayload(input: {
+  responseMode: 'overview';
+  resultCard: RetrievalResultCard;
+  overview: OverviewData;
+  contextBlocks: ContextBlock[];
+  checkpointCandidate: CheckpointCandidate;
+  pack: ContextPack;
+}) {
+  const compactBlocks = pickOverviewContextBlocks(input.contextBlocks);
+  const compactReferences = input.overview.references.slice(0, 10);
+  const compactCheckpoint = summarizeCheckpointCandidateForOverview(input.checkpointCandidate);
+  const queryIntent = input.pack.debug?.retrievalStats?.queryIntent || 'balanced';
+
+  if (queryIntent === 'symbol_lookup' || queryIntent === 'navigation') {
+    const fileMatches: MinimalOverviewFileMatch[] = input.pack.files.slice(0, 5).map((file) => ({
+      filePath: file.filePath,
+      segmentCount: file.segments.length,
+      lines: file.segments.slice(0, 3).map((segment) => `L${segment.startLine}-${segment.endLine}`),
+    }));
+
+    return {
+      responseMode: input.responseMode,
+      detailLevel: 'minimal' as const,
+      queryIntent,
+      summary: input.overview.summary,
+      topFiles: input.overview.topFiles,
+      fileMatches,
+      architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+      nextInspectionSuggestions: input.overview.nextInspectionSuggestions.slice(0, 3),
+      blockFirst: {
+        schemaVersion: 1 as const,
+        detailLevel: 'minimal' as const,
+        queryIntent,
+        contextBlockCount: 0,
+        activeBlockIds: input.checkpointCandidate.activeBlockIds,
+        checkpointCandidate: compactCheckpoint,
+        architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+        nextInspectionSuggestions: input.overview.nextInspectionSuggestions.slice(0, 3),
+      },
+    };
+  }
+
+  return {
+    responseMode: input.responseMode,
+    summary: input.overview.summary,
+    graphContext: input.resultCard.graphContext,
+    topFiles: input.overview.topFiles,
+    architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+    contextBlockCount: compactBlocks.length,
+    contextBlockSummaries: compactBlocks,
+    expansionCandidates: input.overview.expansionCandidates,
+    nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+    blockFirst: {
+      schemaVersion: 1 as const,
+      contextBlockCount: compactBlocks.length,
+      activeBlockIds: input.checkpointCandidate.activeBlockIds,
+      checkpointCandidate: compactCheckpoint,
+      architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+      nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+    },
+  };
+}
+
+export function buildRetrievalData(input: {
+  repoPath: string;
+  informationRequest: string;
+  pack: ContextPack;
+  resultCard: RetrievalResultCard;
+}): RetrievalData {
+  const contextBlocks = buildContextBlocks(input.pack, input.resultCard);
+  const checkpointCandidate = buildCheckpointCandidate(
+    input.repoPath,
+    input.informationRequest,
+    contextBlocks,
+    input.resultCard,
+    input.pack.architecturePrimaryFiles ?? [],
+  );
+  const overview = buildOverviewData(input.pack, input.resultCard, contextBlocks);
+  const blockFirst = buildBlockFirstPayload(
+    contextBlocks,
+    checkpointCandidate,
+    overview.architecturePrimaryFiles,
+    input.resultCard.nextActions,
+  );
+
+  return {
+    contextPack: input.pack,
+    resultCard: input.resultCard,
+    contextBlocks,
+    checkpointCandidate,
+    blockFirst,
+    overview,
   };
 }
 
@@ -1327,24 +1514,23 @@ function formatRetrievalJson(
   },
 ): string {
   const { files, seeds } = pack;
-  const contextBlocks = buildContextBlocks(pack, resultCard);
-  const checkpointCandidate = buildCheckpointCandidate(options.repoPath, options.informationRequest, contextBlocks, resultCard);
-  const overview = buildOverviewData(pack, resultCard, contextBlocks);
-  const blockFirst = buildBlockFirstPayload(contextBlocks, checkpointCandidate, resultCard.nextActions);
+  const retrievalData = buildRetrievalData({
+    repoPath: options.repoPath,
+    informationRequest: options.informationRequest,
+    pack,
+    resultCard,
+  });
+  const { contextBlocks, checkpointCandidate, blockFirst, overview } = retrievalData;
 
   const payload = options.responseMode === 'overview'
-    ? {
+      ? buildOverviewJsonPayload({
         responseMode: options.responseMode,
-        summary: overview.summary,
-        graphContext: resultCard.graphContext,
-        topFiles: overview.topFiles,
+        resultCard,
+        overview,
         contextBlocks,
-        references: overview.references,
-        expansionCandidates: overview.expansionCandidates,
-        nextInspectionSuggestions: overview.nextInspectionSuggestions,
         checkpointCandidate,
-        blockFirst,
-      }
+        pack,
+      })
     : {
         responseMode: options.responseMode,
         summary: {
@@ -1353,6 +1539,7 @@ function formatRetrievalJson(
           totalSegments: files.reduce((acc, f) => acc + f.segments.length, 0),
         },
         graphContext: resultCard.graphContext,
+        architecturePrimaryFiles: overview.architecturePrimaryFiles,
         contextBlocks,
         references: contextBlocks.flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, ...item }))),
         expansionCandidates: overview.expansionCandidates,
@@ -1374,8 +1561,13 @@ function formatRetrievalText(
   },
 ): string {
   const { files, seeds } = pack;
-  const contextBlocks = buildContextBlocks(pack, resultCard);
-  const overview = buildOverviewData(pack, resultCard, contextBlocks);
+  const retrievalData = buildRetrievalData({
+    repoPath: options.repoPath,
+    informationRequest: options.informationRequest,
+    pack,
+    resultCard,
+  });
+  const { overview } = retrievalData;
 
   if (options.responseMode === 'overview') {
     const lines = [
@@ -1384,6 +1576,9 @@ function formatRetrievalText(
       '',
       '### Top Files',
       ...(overview.topFiles.length > 0 ? overview.topFiles.map((item) => `- ${item.filePath} (${item.segmentCount} segments)`) : ['- None']),
+      '',
+      '### Architecture Primary Files',
+      ...(overview.architecturePrimaryFiles.length > 0 ? overview.architecturePrimaryFiles.map((filePath) => `- ${filePath}`) : ['- None']),
       '',
       '### Expansion Candidates',
       ...(overview.expansionCandidates.length > 0
@@ -1423,6 +1618,13 @@ function formatRetrievalText(
     '',
     ...(resultCard.status
       ? ['### 索引状态', `- ${resultCard.status.headline}`, ...resultCard.status.details.map((detail) => `- ${detail}`), '']
+      : []),
+    ...(overview.architecturePrimaryFiles.length > 0
+      ? [
+          '### Architecture Primary Files',
+          ...overview.architecturePrimaryFiles.map((filePath) => `- ${filePath}`),
+          '',
+        ]
       : []),
     '### 代码命中 (Source: Code)',
     fileBlocks || '- 未命中代码片段',

@@ -105,6 +105,7 @@ export interface RetrievalInput {
 export interface OverviewData {
   summary: { codeBlocks: number; files: number; totalSegments: number };
   topFiles: Array<{ filePath: string; segmentCount: number }>;
+  architecturePrimaryFiles: string[];
   references: Array<{ blockId: string; source: string; ref: string }>;
   expansionCandidates: Array<{ filePath: string; reason: string; priority: 'high' | 'medium' | 'low' }>;
   nextInspectionSuggestions: string[];

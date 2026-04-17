@@ -55,6 +55,7 @@ type PrepareHandoffPayload = Omit<CheckpointToolPayloadWithBundles, 'tool' | 'sa
     unresolvedQuestions: string[];
     nextSteps: string[];
     keyFindings: string[];
+    architecturePrimaryFiles: string[];
     activeBlockCount: number;
     exploredRefCount: number;
     keyFindingCount: number;
@@ -498,6 +499,7 @@ async function buildPrepareHandoffJsonPayload(
       unresolvedQuestions: checkpoint.unresolvedQuestions,
       nextSteps: checkpoint.nextSteps,
       keyFindings: checkpoint.keyFindings,
+      architecturePrimaryFiles: checkpoint.architecturePrimaryFiles || [],
       activeBlockCount: checkpoint.activeBlockIds.length,
       exploredRefCount: checkpoint.exploredRefs.length,
       keyFindingCount: checkpoint.keyFindings.length,
@@ -532,6 +534,7 @@ function formatPrepareHandoffText(checkpoint: TaskCheckpoint, payload: PrepareHa
     `- **Resolved Context Blocks**: ${payload.handoffSummary.resolvedBlockCount}`,
     `- **Unresolved Block References**: ${payload.handoffSummary.unresolvedBlockIds.length > 0 ? payload.handoffSummary.unresolvedBlockIds.join(', ') : 'None'}`,
     `- **Key Findings**: ${payload.handoffSummary.keyFindings.length > 0 ? payload.handoffSummary.keyFindings.join(' | ') : 'None'}`,
+    `- **Architecture Primary Files**: ${payload.handoffSummary.architecturePrimaryFiles.length > 0 ? payload.handoffSummary.architecturePrimaryFiles.join(' | ') : 'None'}`,
     '',
     '### Active Block References',
     ...formatList(checkpoint.activeBlockIds),

@@ -20,6 +20,7 @@ import {
   setStoredEmbeddingDimensions,
 } from '../db/index.js';
 import { GraphStore } from '../graph/GraphStore.js';
+import { SkeletonStore } from '../graph/SkeletonStore.js';
 import { getIndexer } from '../indexer/index.js';
 import { closeAllCachedResources } from '../runtime/closeAllCachedResources.js';
 import {
@@ -48,8 +49,27 @@ function syncGraphArtifacts(db: Database.Database, results: ProcessResult[]): vo
   }
 }
 
+function syncSkeletonArtifacts(db: Database.Database, results: ProcessResult[]): void {
+  const store = new SkeletonStore(db);
+  for (const result of results) {
+    if (result.status !== 'added' && result.status !== 'modified') continue;
+    if (result.skeleton) {
+      store.upsertFile(result.relPath, result.skeleton);
+    } else {
+      store.deleteFile(result.relPath);
+    }
+  }
+}
+
 function deleteGraphArtifacts(db: Database.Database, paths: string[]): void {
   const store = new GraphStore(db);
+  for (const filePath of paths) {
+    store.deleteFile(filePath);
+  }
+}
+
+function deleteSkeletonArtifacts(db: Database.Database, paths: string[]): void {
+  const store = new SkeletonStore(db);
   for (const filePath of paths) {
     store.deleteFile(filePath);
   }
@@ -329,6 +349,7 @@ async function scanWithIncrementalHint(
       batchUpsert(db, candidateSummary.toAdd);
     }
     syncGraphArtifacts(db, candidateResults);
+    syncSkeletonArtifacts(db, candidateResults);
     if (candidateSummary.toUpdateMtime.length > 0) {
       batchUpdateMtime(db, candidateSummary.toUpdateMtime);
     }
@@ -336,6 +357,7 @@ async function scanWithIncrementalHint(
     if (hint.deletedPaths.length > 0) {
       batchDelete(db, hint.deletedPaths);
       deleteGraphArtifacts(db, hint.deletedPaths);
+      deleteSkeletonArtifacts(db, hint.deletedPaths);
     }
 
     let stats: ScanStats = {
@@ -556,6 +578,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
         batchUpsert(db, summary.toAdd);
       }
       syncGraphArtifacts(db, batchResults);
+      syncSkeletonArtifacts(db, batchResults);
       if (summary.toUpdateMtime.length > 0) {
         batchUpdateMtime(db, summary.toUpdateMtime);
       }
@@ -611,6 +634,7 @@ export async function scan(rootPath: string, options: ScanOptions = {}): Promise
 
     batchDelete(db, deletedPaths);
     deleteGraphArtifacts(db, deletedPaths);
+    deleteSkeletonArtifacts(db, deletedPaths);
 
     if (options.vectorIndex !== false && indexer) {
       const deletedResults = createDeletedResults(deletedPaths);

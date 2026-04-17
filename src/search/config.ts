@@ -26,6 +26,12 @@ export const DEFAULT_CONFIG: SearchConfig = {
   ftsTopKFiles: envInt('SEARCH_FTS_TOP_K_FILES', 20),
   lexChunksPerFile: envInt('SEARCH_LEX_CHUNKS_PER_FILE', 2),
   lexTotalChunks: envInt('SEARCH_LEX_TOTAL_CHUNKS', 40),
+  enableSkeletonRecall: false,
+  skeletonTopKFiles: envInt('SEARCH_SKELETON_TOP_K_FILES', 6),
+  skeletonChunksPerFile: envInt('SEARCH_SKELETON_CHUNKS_PER_FILE', 2),
+  enableGraphRecall: false,
+  graphRecallTopSymbols: envInt('SEARCH_GRAPH_RECALL_TOP_SYMBOLS', 6),
+  graphRecallChunksPerFile: envInt('SEARCH_GRAPH_RECALL_CHUNKS_PER_FILE', 1),
 
   // 融合
   rrfK0: envInt('SEARCH_RRF_K0', 20),

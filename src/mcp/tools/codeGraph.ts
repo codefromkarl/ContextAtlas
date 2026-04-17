@@ -77,6 +77,7 @@ export async function handleGraphImpact(
       direction: direction as GraphDirection,
       maxDepth,
     });
+    const invocations = store.getInvocationsBySymbol(match.id);
 
     if (format === 'json') {
       return createTextResponse(
@@ -89,6 +90,7 @@ export async function handleGraphImpact(
             max_depth: maxDepth,
             direct_relations: directRelations,
             resolved_impact: resolvedImpact,
+            invocations,
           },
           null,
           2,
@@ -101,6 +103,7 @@ export async function handleGraphImpact(
       `File: ${match.filePath}:${match.startLine}`,
       `Direction: ${direction}`,
       `Max Depth: ${maxDepth}`,
+      `Invocations: ${invocations.length}`,
       '',
       'Direct Relations:',
     ];
@@ -149,6 +152,7 @@ export async function handleGraphContext(
     const upstream = store.getDirectRelations(match.id, 'upstream');
     const downstream = store.getDirectRelations(match.id, 'downstream');
     const parent = match.parentId ? store.getSymbolById(match.parentId) : null;
+    const invocations = store.getInvocationsBySymbol(match.id);
 
     if (format === 'json') {
       return createTextResponse(
@@ -160,6 +164,7 @@ export async function handleGraphContext(
             parent,
             upstream,
             downstream,
+            invocations,
           },
           null,
           2,
@@ -172,6 +177,7 @@ export async function handleGraphContext(
       `Type: ${match.type}`,
       `File: ${match.filePath}:${match.startLine}`,
       `Parent: ${parent ? parent.name : '-'}`,
+      `Invocations: ${invocations.length}`,
       '',
       'Upstream:',
     ];
@@ -241,6 +247,7 @@ export async function handleDetectChanges(
         symbol,
         upstream: store.getDirectRelations(symbol.id, 'upstream'),
         downstream: store.getDirectRelations(symbol.id, 'downstream'),
+        invocations: store.getInvocationsBySymbol(symbol.id),
       })),
     }));
 
@@ -294,6 +301,7 @@ export async function handleDetectChanges(
         lines.push(`- Symbol: ${symbolMatch.symbol.name}`);
         lines.push(`  Upstream: ${symbolMatch.upstream.length}`);
         lines.push(`  Downstream: ${symbolMatch.downstream.length}`);
+        lines.push(`  Invocations: ${symbolMatch.invocations.length}`);
       }
       lines.push('');
     }

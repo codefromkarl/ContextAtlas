@@ -3,7 +3,7 @@ import path from 'node:path';
 import { resolveBaseDir } from '../runtimePaths.js';
 
 type LexicalStrategy = 'chunks_fts' | 'files_fts' | 'none';
-type QueryIntent = 'balanced' | 'symbol_lookup';
+type QueryIntent = 'balanced' | 'symbol_lookup' | 'navigation' | 'architecture' | 'conceptual';
 
 export interface RetrievalLogRecord {
   requestId?: string;
@@ -11,6 +11,9 @@ export interface RetrievalLogRecord {
   totalMs?: number;
   seedCount?: number;
   expandedCount?: number;
+  architecturePrimaryCount?: number;
+  architecturePrimaryFiles?: string[];
+  visibleFileCount?: number;
   totalChars?: number;
   timingMs?: Record<string, number>;
   retrievalStats?: {
@@ -18,6 +21,8 @@ export interface RetrievalLogRecord {
     lexicalStrategy?: LexicalStrategy;
     vectorCount?: number;
     lexicalCount?: number;
+    skeletonCount?: number;
+    graphCount?: number;
     fusedCount?: number;
     topMCount?: number;
     rerankInputCount?: number;
@@ -66,12 +71,21 @@ export interface RetrievalMonitorReport {
       totalChars: number;
       seedCount: number;
       expandedCount: number;
+      architecturePrimaryCount: number;
+      visibleFileCount: number;
+      skeletonCount: number;
+      graphCount: number;
     };
+    topArchitecturePrimaryFiles: Array<{
+      filePath: string;
+      count: number;
+    }>;
     rates: {
       noSeedRate: number;
       budgetExhaustedRate: number;
       noLexicalRate: number;
       noExpansionRate: number;
+      primaryFallbackRate: number;
     };
   };
   timeSeries: {
@@ -93,7 +107,10 @@ export interface RetrievalMonitorReport {
   }>;
 }
 
-const COMPLETION_LOG_MESSAGE = 'MCP codebase-retrieval 完成';
+const COMPLETION_LOG_MESSAGES = [
+  'MCP codebase-retrieval 完成',
+  'codebase-retrieval 完成',
+];
 const DEFAULT_LOG_DIR = path.join(resolveBaseDir(), 'logs');
 
 export interface AnalyzeRetrievalDirectoryOptions {
@@ -139,6 +156,23 @@ function stageMetrics(records: RetrievalLogRecord[], stage: string): RetrievalSt
     p50: round(percentile(values, 0.5), 2),
     p95: round(percentile(values, 0.95), 2),
   };
+}
+
+function topArchitecturePrimaryFiles(
+  records: RetrievalLogRecord[],
+  limit = 5,
+): Array<{ filePath: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    for (const filePath of record.architecturePrimaryFiles ?? []) {
+      counts.set(filePath, (counts.get(filePath) || 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .map(([filePath, count]) => ({ filePath, count }))
+    .sort((a, b) => (b.count - a.count) || a.filePath.localeCompare(b.filePath))
+    .slice(0, limit);
 }
 
 function buildRecommendations(
@@ -319,7 +353,7 @@ function buildDailySeries(
 export function parseRetrievalLogText(text: string): RetrievalLogRecord[] {
   return text
     .split('\n')
-    .filter((line) => line.includes(COMPLETION_LOG_MESSAGE))
+    .filter((line) => COMPLETION_LOG_MESSAGES.some((message) => line.includes(message)))
     .map((line) => {
       const jsonStart = line.indexOf('{');
       if (jsonStart < 0) return null;
@@ -387,7 +421,24 @@ export function analyzeRetrievalLogRecords(records: RetrievalLogRecord[]): Retri
         ),
         seedCount: round(average(records.map((record) => safeNumber(record.seedCount))), 2),
         expandedCount: round(average(records.map((record) => safeNumber(record.expandedCount))), 2),
+        architecturePrimaryCount: round(
+          average(records.map((record) => safeNumber(record.architecturePrimaryCount))),
+          2,
+        ),
+        visibleFileCount: round(
+          average(records.map((record) => safeNumber(record.visibleFileCount))),
+          2,
+        ),
+        skeletonCount: round(
+          average(records.map((record) => safeNumber(record.retrievalStats?.skeletonCount))),
+          2,
+        ),
+        graphCount: round(
+          average(records.map((record) => safeNumber(record.retrievalStats?.graphCount))),
+          2,
+        ),
       },
+      topArchitecturePrimaryFiles: topArchitecturePrimaryFiles(records),
       rates: {
         noSeedRate: round(
           rate(records, (record) => safeNumber(record.seedCount) === 0),
@@ -403,6 +454,10 @@ export function analyzeRetrievalLogRecords(records: RetrievalLogRecord[]): Retri
         ),
         noExpansionRate: round(
           rate(records, (record) => safeNumber(record.expandedCount) === 0),
+          3,
+        ),
+        primaryFallbackRate: round(
+          rate(records, (record) => safeNumber(record.architecturePrimaryCount) > 0),
           3,
         ),
       },
@@ -500,7 +555,18 @@ export function formatRetrievalMonitorReport(report: RetrievalMonitorReport): st
   }
   lines.push(`Avg Total: ${report.summary.averages.totalMs}ms`);
   lines.push(`Avg Rerank Tokens: ${report.summary.averages.rerankInputTokens}`);
+  lines.push(`Avg Architecture Primary Count: ${report.summary.averages.architecturePrimaryCount}`);
+  lines.push(`Avg Visible File Count: ${report.summary.averages.visibleFileCount}`);
+  lines.push(`Avg Skeleton Count: ${report.summary.averages.skeletonCount}`);
+  lines.push(`Avg Graph Count: ${report.summary.averages.graphCount}`);
+  if (report.summary.topArchitecturePrimaryFiles.length > 0) {
+    lines.push('Top Architecture Primary Files:');
+    for (const item of report.summary.topArchitecturePrimaryFiles) {
+      lines.push(`- ${item.filePath}: ${item.count}`);
+    }
+  }
   lines.push(`No Seed Rate: ${Math.round(report.summary.rates.noSeedRate * 100)}%`);
+  lines.push(`Primary Fallback Rate: ${Math.round(report.summary.rates.primaryFallbackRate * 100)}%`);
   lines.push(
     `Budget Exhausted Rate: ${Math.round(report.summary.rates.budgetExhaustedRate * 100)}%`,
   );

@@ -130,7 +130,7 @@ test('registerSearchCommands registers retrieval-facing commands', () => {
 
   const registered = Array.from(cli.commands.keys());
 
-  assert.deepEqual(registered, ['search', 'monitor:retrieval']);
+  assert.deepEqual(registered, ['search', 'benchmark:retrieval', 'monitor:retrieval']);
   assert.ok(cli.commands.get('search')?.options.includes('--json'));
 });
 
@@ -167,6 +167,7 @@ test('registerHubProjectCommands registers project-admin hub commands', () => {
     'hub:list-projects',
     'hub:stats',
     'hub:cleanup-ghost',
+    'hub:cleanup-stale-indexes',
     'hub:repair-project-identities',
   ]);
 });
@@ -256,6 +257,7 @@ test('registerOpsHealthCommands registers index planning and update commands', (
 
   assert.ok(registered.includes('health:check'));
   assert.ok(registered.includes('health:full'));
+  assert.ok(registered.includes('mcp:cleanup-duplicates'));
   assert.ok(registered.includes('index:plan [path]'));
   assert.ok(registered.includes('index:diagnose'));
   assert.ok(registered.includes('index:update [path]'));
@@ -330,6 +332,7 @@ test('registerOpsHealthCommands registers health-oriented ops commands', () => {
     'health:check',
     'memory:health',
     'health:full',
+    'mcp:cleanup-duplicates',
     'index:plan [path]',
     'index:diagnose',
     'index:update [path]',

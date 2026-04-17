@@ -32,6 +32,7 @@ export interface CreateCheckpointInput {
   keyFindings?: string[];
   unresolvedQuestions?: string[];
   nextSteps?: string[];
+  architecturePrimaryFiles?: string[];
   format: ResponseFormat;
 }
 
@@ -128,6 +129,7 @@ export async function executeCreateCheckpoint(
     keyFindings: args.keyFindings ?? [],
     unresolvedQuestions: args.unresolvedQuestions ?? [],
     nextSteps: args.nextSteps ?? [],
+    architecturePrimaryFiles: args.architecturePrimaryFiles ?? [],
     createdAt: now,
     updatedAt: now,
   };

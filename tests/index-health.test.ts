@@ -554,8 +554,10 @@ test('health:full CLI 输出稳定 JSON 结构', () => {
     const payload = JSON.parse(result.stdout);
     assert.ok(payload.indexHealth);
     assert.ok(payload.memoryHealth);
+    assert.ok(payload.mcpProcessHealth);
     assert.ok(payload.alerts);
     assert.equal(typeof payload.indexHealth.overall.status, 'string');
+    assert.equal(typeof payload.mcpProcessHealth.overall.status, 'string');
     assert.ok(Array.isArray(payload.alerts.triggered));
   } finally {
     if (previousBaseDir === undefined) {

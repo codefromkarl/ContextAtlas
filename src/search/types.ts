@@ -17,6 +17,12 @@ export interface SearchConfig {
   ftsTopKFiles: number;
   lexChunksPerFile: number;
   lexTotalChunks: number;
+  enableSkeletonRecall: boolean;
+  skeletonTopKFiles: number;
+  skeletonChunksPerFile: number;
+  enableGraphRecall: boolean;
+  graphRecallTopSymbols: number;
+  graphRecallChunksPerFile: number;
 
   // 融合（Phase 1）
   rrfK0: number;
@@ -90,7 +96,7 @@ export interface SearchConfig {
 // ===========================================
 
 /** Chunk 来源类型 */
-export type ChunkSource = 'vector' | 'lexical' | 'neighbor' | 'breadcrumb' | 'import';
+export type ChunkSource = 'vector' | 'lexical' | 'skeleton' | 'graph' | 'neighbor' | 'breadcrumb' | 'import';
 
 /** 带得分的 Chunk */
 export interface ScoredChunk {
@@ -127,13 +133,15 @@ export interface Segment {
 }
 
 export type LexicalStrategy = 'chunks_fts' | 'files_fts' | 'none';
-export type QueryIntent = 'balanced' | 'symbol_lookup' | 'navigation' | 'conceptual';
+export type QueryIntent = 'balanced' | 'symbol_lookup' | 'navigation' | 'architecture' | 'conceptual';
 
 export interface RetrievalStats {
   queryIntent: QueryIntent;
   lexicalStrategy: LexicalStrategy;
   vectorCount: number;
   lexicalCount: number;
+  skeletonCount: number;
+  graphCount: number;
   fusedCount: number;
   topMCount: number;
   rerankInputCount: number;
@@ -200,6 +208,8 @@ export interface ContextPack {
     filePath: string;
     segments: Segment[];
   }>;
+  /** architecture 查询下的高信号主文件（未必进入主 context block） */
+  architecturePrimaryFiles?: string[];
   /** 搜索结果模式 */
   mode?: SearchResultMode;
   /** 供 agent 按需扩展的探索候选 */

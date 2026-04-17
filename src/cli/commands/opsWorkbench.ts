@@ -11,6 +11,7 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
     .action(async (options: { days?: string; staleDays?: string; json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
+      const { analyzeMcpProcessHealth } = await import('../../monitoring/mcpProcessHealth.js');
       const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
       const { analyzeIndexOptimization } = await import('../../usage/usageAnalysis.js');
       const { buildAlertEvaluationMetrics } = await import('../../monitoring/healthFull.js');
@@ -22,11 +23,12 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
         const days = Number.parseInt(String(options.days ?? '7'), 10);
         const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
 
-        const [indexHealth, memoryHealth] = await Promise.all([
+        const [indexHealth, memoryHealth, mcpProcessHealth] = await Promise.all([
           analyzeIndexHealth(),
           analyzeMemoryHealth({
             staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
           }),
+          Promise.resolve(analyzeMcpProcessHealth()),
         ]);
 
         const usageReport = analyzeIndexOptimization({
@@ -34,12 +36,13 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
         });
 
         const alertResult = evaluateAlerts(
-          buildAlertEvaluationMetrics({ indexHealth, memoryHealth }),
+          buildAlertEvaluationMetrics({ indexHealth, memoryHealth, mcpProcessHealth }),
         );
 
         const summary = summarizeOpsSnapshot({
           indexHealth,
           memoryHealth,
+          mcpProcessHealth,
           usageReport,
           alertResult,
         });
@@ -114,6 +117,7 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
       ) => {
         const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
         const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
+        const { analyzeMcpProcessHealth } = await import('../../monitoring/mcpProcessHealth.js');
         const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
         const { analyzeIndexOptimization } = await import('../../usage/usageAnalysis.js');
         const {
@@ -131,31 +135,28 @@ export function registerOpsWorkbenchCommands(cli: CommandRegistrar): void {
           const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
           const repoPath = options.repo ? path.resolve(options.repo) : process.cwd();
 
-          const [indexHealth, memoryHealth] = await Promise.all([
+          const [indexHealth, memoryHealth, mcpProcessHealth] = await Promise.all([
             analyzeIndexHealth(),
             analyzeMemoryHealth({
               staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
             }),
+            Promise.resolve(analyzeMcpProcessHealth()),
           ]);
 
           const usageReport = analyzeIndexOptimization({
             days: Number.isFinite(days) && days > 0 ? days : 7,
           });
 
-          const alertResult = evaluateAlerts({
-            ...indexHealth,
-            memory: {
-              staleRate: memoryHealth.longTermFreshness.staleRate,
-              expiredRate: memoryHealth.longTermFreshness.expiredRate,
-              orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
-              catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
-            },
-          });
+          const { buildAlertEvaluationMetrics } = await import('../../monitoring/healthFull.js');
+          const alertResult = evaluateAlerts(
+            buildAlertEvaluationMetrics({ indexHealth, memoryHealth, mcpProcessHealth }),
+          );
 
           const plan = planOpsAction(
             {
               indexHealth,
               memoryHealth,
+              mcpProcessHealth,
               usageReport,
               alertResult,
             },

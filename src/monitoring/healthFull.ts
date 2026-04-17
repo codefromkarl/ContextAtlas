@@ -3,6 +3,8 @@ import type { IndexHealthReport } from './indexHealth.js';
 import { formatIndexHealthReport } from './indexHealth.js';
 import type { MemoryHealthReport } from './memoryHealth.js';
 import { formatMemoryHealthReport } from './memoryHealth.js';
+import type { McpProcessHealthReport } from './mcpProcessHealth.js';
+import { formatMcpProcessHealthReport } from './mcpProcessHealth.js';
 import { formatAlertReport } from './alertEngine.js';
 
 export function collectProjectOperationalIssues(input: {
@@ -48,6 +50,7 @@ function formatStrategySummaryLine(
 export function buildAlertEvaluationMetrics(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
+  mcpProcessHealth?: McpProcessHealthReport;
 }): Record<string, unknown> {
   return {
     ...input.indexHealth,
@@ -57,6 +60,13 @@ export function buildAlertEvaluationMetrics(input: {
       orphanedRate: input.memoryHealth.featureMemoryHealth.orphanedRate,
       catalogInconsistent: !input.memoryHealth.catalogConsistency.isConsistent,
     },
+    ...(input.mcpProcessHealth
+      ? {
+          mcp: {
+            duplicateCount: input.mcpProcessHealth.duplicateCount,
+          },
+        }
+      : {}),
   };
 }
 
@@ -64,6 +74,7 @@ export function buildHealthFullReport(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
   alerts: AlertEvaluationResult;
+  mcpProcessHealth?: McpProcessHealthReport;
 }): string {
   const lines: string[] = [];
   lines.push('='.repeat(60));
@@ -105,6 +116,10 @@ export function buildHealthFullReport(input: {
   lines.push(formatIndexHealthReport(input.indexHealth));
   lines.push('');
   lines.push(formatMemoryHealthReport(input.memoryHealth));
+  if (input.mcpProcessHealth) {
+    lines.push('');
+    lines.push(formatMcpProcessHealthReport(input.mcpProcessHealth));
+  }
   lines.push('');
   lines.push(formatAlertReport(input.alerts));
   return lines.join('\n');

@@ -1269,6 +1269,8 @@ function buildOverviewArchitecturePrimaryFiles(
     .map((candidate) => candidate.filePath);
   const promotedMemoryFiles = queryIntent === 'symbol_lookup' && primaryFiles.length === 0
     ? collectMemoryPrimaryHints(resultCard, pack.query, topFilePaths)
+    : queryIntent === 'balanced' && primaryFiles.length === 0 && topFilePaths.size <= 3
+      ? collectMemoryPrimaryHints(resultCard, pack.query, topFilePaths, 1)
     : [];
 
   if (primaryFiles.length === 0 && promotedExpansionFiles.length === 0 && promotedMemoryFiles.length === 0) {
@@ -1299,6 +1301,7 @@ function collectMemoryPrimaryHints(
   resultCard: RetrievalResultCard,
   query: string,
   topFilePaths: Set<string>,
+  minScore = 1,
 ): string[] {
   const candidates = new Map<string, { filePath: string; score: number }>();
 
@@ -1308,7 +1311,7 @@ function collectMemoryPrimaryHints(
       if (topFilePaths.has(filePath)) continue;
 
       const score = scoreOverviewPathRelevance(query, filePath);
-      if (score <= 0) continue;
+      if (score < minScore) continue;
 
       const current = candidates.get(filePath);
       if (!current || score > current.score) {

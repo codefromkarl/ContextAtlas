@@ -1434,6 +1434,35 @@ interface MinimalOverviewFileMatch {
   lines: string[];
 }
 
+function summarizeOverviewSuggestion(item: string): string {
+  if (item.includes('feedback:record') && item.includes('--outcome helpful')) {
+    return 'record helpful feedback';
+  }
+  if (item.includes('feedback:record') && item.includes('--outcome not-helpful')) {
+    return 'record not-helpful feedback';
+  }
+  if (item.includes('feedback:record') && item.includes('--outcome memory-stale')) {
+    return 'mark feature memory stale';
+  }
+  if (item.includes('feedback:record') && item.includes('--outcome wrong-module')) {
+    return 'mark wrong module mapping';
+  }
+  if (item.includes('memory:suggest')) {
+    return 'suggest feature memory update';
+  }
+  if (item.includes('decision:record')) {
+    return 'record decision draft';
+  }
+  if (item.includes('memory:record-long-term')) {
+    return 'record long-term reference';
+  }
+  return compactText(item.replace(/`/g, ''), 64);
+}
+
+function summarizeOverviewSuggestions(items: string[], limit = 3): string[] {
+  return items.slice(0, limit).map((item) => summarizeOverviewSuggestion(item));
+}
+
 function compactText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars - 1)}…`;
@@ -1518,7 +1547,7 @@ function buildOverviewJsonPayload(input: {
       topFiles: input.overview.topFiles,
       fileMatches,
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
-      nextInspectionSuggestions: input.overview.nextInspectionSuggestions.slice(0, 3),
+      nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
         schemaVersion: 1 as const,
         detailLevel: 'minimal' as const,
@@ -1538,7 +1567,7 @@ function buildOverviewJsonPayload(input: {
       topFiles: input.overview.topFiles,
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
       expansionCandidates: input.overview.expansionCandidates,
-      nextInspectionSuggestions: input.overview.nextInspectionSuggestions.slice(0, 3),
+      nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
         schemaVersion: 1 as const,
         detailLevel: 'focused' as const,
@@ -1557,14 +1586,14 @@ function buildOverviewJsonPayload(input: {
     contextBlockCount: compactBlocks.length,
     contextBlockSummaries: compactBlocks,
     expansionCandidates: input.overview.expansionCandidates,
-    nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+    nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
     blockFirst: {
       schemaVersion: 1 as const,
       contextBlockCount: compactBlocks.length,
       activeBlockIds: input.checkpointCandidate.activeBlockIds,
       checkpointCandidate: compactCheckpoint,
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
-      nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+      nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
     },
   };
 }

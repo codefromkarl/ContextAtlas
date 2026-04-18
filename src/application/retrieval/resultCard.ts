@@ -1461,6 +1461,12 @@ function summarizeOverviewTopFiles(items: OverviewData['topFiles']): string[] {
   return items.map((item) => item.filePath);
 }
 
+function summarizeOverviewExpansionCandidates(
+  items: OverviewData['expansionCandidates'],
+): string[] {
+  return items.map((item) => item.filePath);
+}
+
 function compactText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars - 1)}…`;
@@ -1556,7 +1562,7 @@ function buildOverviewJsonPayload(input: {
       summary: input.overview.summary,
       topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
-      expansionCandidates: input.overview.expansionCandidates,
+      expansionCandidates: summarizeOverviewExpansionCandidates(input.overview.expansionCandidates),
       nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
         schemaVersion: 1 as const,
@@ -1575,7 +1581,7 @@ function buildOverviewJsonPayload(input: {
     architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
     contextBlockCount: compactBlocks.length,
     contextBlockSummaries: compactBlocks,
-    expansionCandidates: input.overview.expansionCandidates,
+    expansionCandidates: summarizeOverviewExpansionCandidates(input.overview.expansionCandidates),
     nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
     blockFirst: {
       schemaVersion: 1 as const,

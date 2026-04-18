@@ -1720,8 +1720,7 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     assert.ok(Array.isArray(payload.topFiles));
     assert.deepEqual(payload.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
     assert.ok(Array.isArray(payload.expansionCandidates));
-    assert.equal(payload.expansionCandidates[0].filePath, 'src/search/GraphExpander.ts');
-    assert.equal(payload.expansionCandidates[0].reason, 'expanded via import');
+    assert.equal(payload.expansionCandidates[0], 'src/search/GraphExpander.ts');
     assert.ok(Array.isArray(payload.nextInspectionSuggestions));
     assert.equal(payload.blockFirst.schemaVersion, 1);
     assert.equal(payload.blockFirst.detailLevel, 'focused');

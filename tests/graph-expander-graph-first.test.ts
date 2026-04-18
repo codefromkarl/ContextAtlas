@@ -184,3 +184,83 @@ test('GraphExpander prefers graph relations before import text fallback', async 
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
 });
+
+test('GraphExpander prioritizes import candidates ahead of lower-value neighbor candidates', async () => {
+  const rootPath = makeTempProjectRoot();
+  const projectId = generateProjectId(rootPath);
+  const db = initDb(projectId);
+
+  try {
+    const sourcePath = 'src/index.ts';
+    const importTarget = 'src/cli/registerCommands.ts';
+    const neighborPath = 'src/cli/commands/bootstrap.ts';
+    batchUpsert(db, [
+      {
+        path: sourcePath,
+        hash: 'hash-index',
+        mtime: 1,
+        size: 120,
+        content: "import { registerCliCommands } from './cli/registerCommands.js';",
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+      {
+        path: importTarget,
+        hash: 'hash-register',
+        mtime: 1,
+        size: 90,
+        content: 'export function registerCliCommands() {}',
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+      {
+        path: neighborPath,
+        hash: 'hash-bootstrap',
+        mtime: 1,
+        size: 90,
+        content: 'export function registerBootstrapCommands() {}',
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+    ]);
+
+    const sourceChunks = [
+      createChunkRecord(sourcePath, 0, `${sourcePath} > prelude`),
+      createChunkRecord(sourcePath, 1, `${sourcePath} > cli registration`),
+      createChunkRecord(sourcePath, 2, `${sourcePath} > startup`),
+    ];
+    const importChunk = createChunkRecord(importTarget, 0, `${importTarget} > registerCliCommands`);
+    const neighborChunk = createChunkRecord(neighborPath, 0, `${neighborPath} > registerBootstrapCommands`);
+
+    const fakeVectorStore = {
+      getFileChunks: async (filePath: string) => {
+        if (filePath === sourcePath) return sourceChunks;
+        if (filePath === importTarget) return [importChunk];
+        if (filePath === neighborPath) return [neighborChunk];
+        return [];
+      },
+      getFilesChunks: async (filePaths: string[]) => {
+        const map = new Map<string, ChunkRecord[]>();
+        for (const fp of filePaths) {
+          if (fp === sourcePath) map.set(fp, sourceChunks);
+          if (fp === importTarget) map.set(fp, [importChunk]);
+          if (fp === neighborPath) map.set(fp, [neighborChunk]);
+        }
+        return map;
+      },
+    };
+
+    const expander = new GraphExpander(projectId, createConfig());
+    (expander as { db: unknown }).db = db;
+    (expander as { vectorStore: unknown }).vectorStore = fakeVectorStore;
+    (expander as { allFilePaths: unknown }).allFilePaths = new Set([sourcePath, importTarget, neighborPath]);
+
+    const expanded = await expander.expand([createSeed(sourcePath, `${sourcePath} > cli registration`)]);
+
+    assert.equal(expanded.explorationCandidates[0]?.filePath, importTarget);
+    assert.equal(expanded.explorationCandidates[0]?.priority, 'high');
+  } finally {
+    closeDb(db);
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});

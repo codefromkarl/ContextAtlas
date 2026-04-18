@@ -108,6 +108,8 @@ export function deriveQueryAwareSearchConfig(
       wLex: 0.75,
       enableSkeletonRecall: true,
       enableGraphRecall: true,
+      importFilesPerSeed: Math.max(baseConfig.importFilesPerSeed, 2),
+      chunksPerImportFile: Math.max(baseConfig.chunksPerImportFile, 1),
       rerankTopN: Math.min(baseConfig.rerankTopN, 8),
       rerankMinPool: Math.max(Math.min(baseConfig.rerankMinPool, 10), 8),
       rerankMaxPool: Math.max(Math.min(baseConfig.rerankMaxPool, 16), 10),

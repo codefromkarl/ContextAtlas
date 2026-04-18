@@ -129,7 +129,10 @@ export class GraphExpander {
     this.addChunks(importChunks, expandedChunks, existingKeys);
     stats.importCount = importChunks.length;
 
-    const explorationCandidates = this.buildExplorationCandidates(expandedChunks);
+    const explorationCandidates = this.buildExplorationCandidates(
+      expandedChunks,
+      new Set(seeds.map((seed) => seed.filePath)),
+    );
     const nextInspectionSuggestions = explorationCandidates.map(
       (candidate) => `Inspect ${candidate.filePath} (${candidate.reason})`,
     );
@@ -685,9 +688,22 @@ export class GraphExpander {
     return /\/index\.(ts|tsx|js|jsx|mts|mjs|cts|cjs)$/.test(lower);
   }
 
-  private buildExplorationCandidates(chunks: ScoredChunk[]): ExpansionCandidate[] {
+  private buildExplorationCandidates(
+    chunks: ScoredChunk[],
+    seedFiles: Set<string>,
+  ): ExpansionCandidate[] {
     const byFile = new Map<string, ScoredChunk>();
-    for (const chunk of [...chunks].sort((a, b) => b.score - a.score)) {
+    const sourcePriority = (source: ScoredChunk['source']): number =>
+      source === 'import' ? 3 : source === 'breadcrumb' ? 2 : 1;
+
+    for (const chunk of [...chunks].sort((a, b) => {
+      const sourceDelta = sourcePriority(b.source) - sourcePriority(a.source);
+      if (sourceDelta !== 0) return sourceDelta;
+      return b.score - a.score;
+    })) {
+      if (seedFiles.has(chunk.filePath)) {
+        continue;
+      }
       if (!byFile.has(chunk.filePath)) {
         byFile.set(chunk.filePath, chunk);
       }

@@ -26,6 +26,8 @@ test('deriveQueryAwareSearchConfig 为 architecture 打开 skeleton recall', () 
   const config = deriveQueryAwareSearchConfig(DEFAULT_CONFIG, 'architecture');
 
   assert.equal(config.enableSkeletonRecall, true);
+  assert.equal(config.importFilesPerSeed, 2);
+  assert.equal(config.chunksPerImportFile, 1);
   assert.equal(config.wVec, 0.25);
   assert.equal(config.wLex, 0.75);
   assert.equal(config.smartTopScoreRatio, 0.1);

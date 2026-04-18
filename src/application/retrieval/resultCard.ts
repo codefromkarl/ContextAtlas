@@ -1525,9 +1525,6 @@ function buildOverviewJsonPayload(input: {
         queryIntent,
         contextBlockCount: 0,
         activeBlockIds: input.checkpointCandidate.activeBlockIds,
-        checkpointCandidate: compactCheckpoint,
-        architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
-        nextInspectionSuggestions: input.overview.nextInspectionSuggestions.slice(0, 3),
       },
     };
   }

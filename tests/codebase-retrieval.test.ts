@@ -1042,8 +1042,9 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
     assert.equal(payload.blockFirst.detailLevel, 'minimal');
     assert.equal(payload.blockFirst.queryIntent, 'symbol_lookup');
     assert.ok(Array.isArray(payload.blockFirst.activeBlockIds));
-    assert.equal(payload.blockFirst.checkpointCandidate.source, 'retrieval');
-    assert.equal(payload.blockFirst.checkpointCandidate.phase, 'overview');
+    assert.ok(!('checkpointCandidate' in payload.blockFirst));
+    assert.ok(!('architecturePrimaryFiles' in payload.blockFirst));
+    assert.ok(!('nextInspectionSuggestions' in payload.blockFirst));
     assert.ok(!('contextBlockSummaries' in payload));
     assert.ok(!('expansionCandidates' in payload));
     assert.ok(!('graphContext' in payload));

@@ -17,6 +17,7 @@ import type {
   FeatureMemory,
   ResolvedLongTermMemoryItem,
 } from '../../memory/types.js';
+import { segmentQuery } from '../../search/fts.js';
 import type { ContextPack, QueryIntent, Segment } from '../../search/types.js';
 import { resolveCurrentSnapshotId } from '../../storage/layout.js';
 import { logger } from '../../utils/logger.js';
@@ -1198,13 +1199,17 @@ export function buildOverviewData(
   resultCard: RetrievalResultCard,
   contextBlocks: ContextBlock[],
 ): OverviewData {
+  const architecturePrimaryFiles = buildOverviewArchitecturePrimaryFiles(pack);
   const topFiles = pack.files
     .map((file) => ({ filePath: file.filePath, segmentCount: file.segments.length }))
     .sort((a, b) => b.segmentCount - a.segmentCount)
     .slice(0, 5);
 
   const expansionCandidates = pack.expansionCandidates
-    ? pack.expansionCandidates.slice(0, 5).map((candidate) => ({
+    ? pack.expansionCandidates
+      .filter((candidate) => !architecturePrimaryFiles.includes(candidate.filePath))
+      .slice(0, 5)
+      .map((candidate) => ({
         filePath: candidate.filePath,
         reason: candidate.reason,
         priority: candidate.priority,
@@ -1238,7 +1243,7 @@ export function buildOverviewData(
       totalSegments: pack.files.reduce((acc, file) => acc + file.segments.length, 0),
     },
     topFiles,
-    architecturePrimaryFiles: pack.architecturePrimaryFiles ?? [],
+    architecturePrimaryFiles,
     references,
     expansionCandidates,
     nextInspectionSuggestions:
@@ -1247,6 +1252,102 @@ export function buildOverviewData(
         : resultCard.nextActions,
   };
 }
+
+function buildOverviewArchitecturePrimaryFiles(pack: ContextPack): string[] {
+  const primaryFiles = pack.architecturePrimaryFiles ?? [];
+  const promotedExpansionFiles = (pack.expansionCandidates ?? [])
+    .filter((candidate) => candidate.priority === 'high' || candidate.reason.includes('import'))
+    .map((candidate) => candidate.filePath);
+
+  if (primaryFiles.length === 0 && promotedExpansionFiles.length === 0) {
+    return [];
+  }
+
+  const primarySet = new Set(primaryFiles);
+  const limit = Math.max(primaryFiles.length, 3);
+
+  return Array.from(new Set([...primaryFiles, ...promotedExpansionFiles]))
+    .map((filePath) => ({
+      filePath,
+      queryScore: scoreOverviewPathRelevance(pack.query, filePath),
+      sourcePriority: primarySet.has(filePath) ? 1 : 0,
+      pathPriority: getOverviewPathPriority(filePath),
+    }))
+    .sort((a, b) =>
+      b.queryScore - a.queryScore
+      || b.sourcePriority - a.sourcePriority
+      || b.pathPriority - a.pathPriority
+      || a.filePath.localeCompare(b.filePath),
+    )
+    .slice(0, limit)
+    .map((item) => item.filePath);
+}
+
+function scoreOverviewPathRelevance(query: string, filePath: string): number {
+  const queryWeights = buildOverviewQueryWeights(query);
+  if (queryWeights.size === 0) {
+    return 0;
+  }
+
+  const pathTokens = new Set(splitOverviewPathTokens(filePath));
+  let score = 0;
+  for (const [token, weight] of queryWeights.entries()) {
+    if (pathTokens.has(token)) {
+      score += weight;
+    }
+  }
+  return score;
+}
+
+function buildOverviewQueryWeights(query: string): Map<string, number> {
+  const weights = new Map<string, number>();
+  for (const rawToken of segmentQuery(query)) {
+    const token = normalizeToken(rawToken);
+    if (!token) continue;
+    upsertOverviewTokenWeight(weights, token, 1);
+    for (const [synonym, weight] of OVERVIEW_QUERY_PATH_SYNONYMS[token] || []) {
+      upsertOverviewTokenWeight(weights, synonym, weight);
+    }
+  }
+  return weights;
+}
+
+function upsertOverviewTokenWeight(target: Map<string, number>, token: string, weight: number): void {
+  const normalized = normalizeToken(token);
+  if (!normalized) return;
+  const current = target.get(normalized) ?? 0;
+  if (weight > current) {
+    target.set(normalized, weight);
+  }
+}
+
+function splitOverviewPathTokens(filePath: string): string[] {
+  return Array.from(new Set(
+    normalizePath(filePath)
+      .split(/[/.\\_-]+/)
+      .flatMap((segment) => segment.split(/(?=[A-Z])/))
+      .map((segment) => normalizeToken(segment))
+      .filter(Boolean),
+  ));
+}
+
+function getOverviewPathPriority(filePath: string): number {
+  const normalizedPath = normalizePath(filePath);
+  if (normalizedPath.startsWith('src/')) return 2;
+  if (normalizedPath.startsWith('tests/') || normalizedPath.startsWith('docs/')) return 0;
+  return 1;
+}
+
+const OVERVIEW_QUERY_PATH_SYNONYMS: Record<string, Array<[string, number]>> = {
+  entrypoint: [['index', 3], ['main', 2.5], ['bootstrap', 2.2]],
+  startup: [['bootstrap', 2.5], ['start', 1.5], ['init', 1.5], ['server', 1.4]],
+  registration: [['register', 2.5], ['commands', 1.5]],
+  command: [['commands', 1.2], ['register', 1.2], ['cli', 0.8]],
+  commands: [['command', 1.2], ['register', 1.2], ['cli', 0.8]],
+  cli: [['commands', 0.8]],
+  mcp: [['server', 0.6]],
+  server: [['mcp', 0.6]],
+};
 
 export function buildCheckpointCandidate(
   repoPath: string,

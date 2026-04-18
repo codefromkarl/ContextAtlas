@@ -1727,6 +1727,9 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     assert.equal(payload.blockFirst.schemaVersion, 1);
     assert.equal(payload.blockFirst.detailLevel, 'focused');
     assert.equal(payload.blockFirst.queryIntent, 'architecture');
+    assert.ok(!('checkpointCandidate' in payload.blockFirst));
+    assert.ok(!('architecturePrimaryFiles' in payload.blockFirst));
+    assert.ok(!('nextInspectionSuggestions' in payload.blockFirst));
     assert.ok(!('contextBlockSummaries' in payload));
     assert.ok(!('contextBlockCount' in payload));
   } finally {

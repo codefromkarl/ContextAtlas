@@ -1457,6 +1457,10 @@ function summarizeOverviewSuggestions(items: string[], limit = 3): string[] {
   return items.slice(0, limit).map((item) => summarizeOverviewSuggestion(item));
 }
 
+function summarizeOverviewTopFiles(items: OverviewData['topFiles']): string[] {
+  return items.map((item) => item.filePath);
+}
+
 function compactText(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars - 1)}…`;
@@ -1532,7 +1536,7 @@ function buildOverviewJsonPayload(input: {
       detailLevel: 'minimal' as const,
       queryIntent,
       summary: input.overview.summary,
-      topFiles: input.overview.topFiles,
+      topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
       nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
@@ -1550,7 +1554,7 @@ function buildOverviewJsonPayload(input: {
       detailLevel: 'focused' as const,
       queryIntent,
       summary: input.overview.summary,
-      topFiles: input.overview.topFiles,
+      topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
       expansionCandidates: input.overview.expansionCandidates,
       nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
@@ -1567,7 +1571,7 @@ function buildOverviewJsonPayload(input: {
     responseMode: input.responseMode,
     summary: input.overview.summary,
     graphContext: input.resultCard.graphContext,
-    topFiles: input.overview.topFiles,
+    topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
     architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
     contextBlockCount: compactBlocks.length,
     contextBlockSummaries: compactBlocks,

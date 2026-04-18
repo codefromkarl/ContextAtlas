@@ -1431,6 +1431,29 @@ function buildOverviewJsonPayload(input: {
     };
   }
 
+  if (queryIntent === 'architecture') {
+    return {
+      responseMode: input.responseMode,
+      detailLevel: 'focused' as const,
+      queryIntent,
+      summary: input.overview.summary,
+      topFiles: input.overview.topFiles,
+      architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+      expansionCandidates: input.overview.expansionCandidates,
+      nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+      blockFirst: {
+        schemaVersion: 1 as const,
+        detailLevel: 'focused' as const,
+        queryIntent,
+        contextBlockCount: 0,
+        activeBlockIds: input.checkpointCandidate.activeBlockIds,
+        checkpointCandidate: compactCheckpoint,
+        architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+        nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+      },
+    };
+  }
+
   return {
     responseMode: input.responseMode,
     summary: input.overview.summary,

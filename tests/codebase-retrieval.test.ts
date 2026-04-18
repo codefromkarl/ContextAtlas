@@ -1687,7 +1687,21 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
         },
       ],
       architecturePrimaryFiles: ['src/search/SearchPipeline.ts'],
-      debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+      debug: {
+        wVec: 0.35,
+        wLex: 0.65,
+        timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 },
+        retrievalStats: {
+          queryIntent: 'architecture' as const,
+          lexicalStrategy: 'chunks_fts' as const,
+          vectorCount: 1,
+          lexicalCount: 1,
+          fusedCount: 1,
+          topMCount: 1,
+          rerankInputCount: 1,
+          rerankedCount: 1,
+        },
+      },
     };
   }) as typeof SearchService.prototype.buildContextPack;
 
@@ -1701,6 +1715,8 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     });
 
     const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.detailLevel, 'focused');
+    assert.equal(payload.queryIntent, 'architecture');
     assert.equal(payload.summary.codeBlocks, 1);
     assert.ok(Array.isArray(payload.topFiles));
     assert.deepEqual(payload.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
@@ -1708,11 +1724,11 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     assert.equal(payload.expansionCandidates[0].filePath, 'src/search/GraphExpander.ts');
     assert.equal(payload.expansionCandidates[0].reason, 'expanded via import');
     assert.ok(Array.isArray(payload.nextInspectionSuggestions));
-    assert.ok(payload.contextBlockCount >= 1);
-    assert.ok(Array.isArray(payload.contextBlockSummaries));
-    assert.equal(payload.contextBlockSummaries.length, payload.contextBlockCount);
     assert.equal(payload.blockFirst.schemaVersion, 1);
-    assert.equal(payload.blockFirst.contextBlockCount, payload.contextBlockSummaries.length);
+    assert.equal(payload.blockFirst.detailLevel, 'focused');
+    assert.equal(payload.blockFirst.queryIntent, 'architecture');
+    assert.ok(!('contextBlockSummaries' in payload));
+    assert.ok(!('contextBlockCount' in payload));
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;

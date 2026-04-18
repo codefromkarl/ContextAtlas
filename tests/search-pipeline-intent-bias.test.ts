@@ -176,6 +176,23 @@ test('collectArchitecturePrimaryFiles 仅返回未进入 pack 的 src 主文件'
   assert.deepEqual(primaries, ['src/cli/registerCommands.ts', 'src/cli/commands/bootstrap.ts']);
 });
 
+test('collectArchitecturePrimaryFiles treats registration and command-entry synonyms as path overlap', () => {
+  const primaries = collectArchitecturePrimaryFiles(
+    [
+      makeChunk('src/index.ts', 0.9),
+      makeChunk('src/cli/registerCommands.ts', 0.75),
+      makeChunk('src/cli/commands/bootstrap.ts', 0.7),
+    ],
+    [],
+    [{ filePath: 'src/index.ts', segments: [] }],
+    'architecture',
+    new Set(['cli', 'command', 'registration', 'entrypoint', 'startup']),
+    2,
+  );
+
+  assert.deepEqual(primaries, ['src/cli/registerCommands.ts', 'src/cli/commands/bootstrap.ts']);
+});
+
 test('ensureSymbolLookupSourceDiversity 为 symbol_lookup 补齐额外 src 文件', () => {
   const seeds = [
     makeChunk('src/application/retrieval/executeRetrieval.ts', 1),

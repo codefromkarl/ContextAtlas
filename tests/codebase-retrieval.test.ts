@@ -1051,7 +1051,7 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
     assert.ok(!('checkpointCandidate' in payload));
     assert.ok(!('references' in payload));
     assert.ok(!('contextBlocks' in payload));
-    assert.ok(Array.isArray(payload.nextInspectionSuggestions));
+    assert.ok(!('nextInspectionSuggestions' in payload));
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;
@@ -1721,7 +1721,7 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     assert.deepEqual(payload.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
     assert.ok(Array.isArray(payload.expansionCandidates));
     assert.equal(payload.expansionCandidates[0], 'src/search/GraphExpander.ts');
-    assert.ok(Array.isArray(payload.nextInspectionSuggestions));
+    assert.ok(!('nextInspectionSuggestions' in payload));
     assert.equal(payload.blockFirst.schemaVersion, 1);
     assert.equal(payload.blockFirst.detailLevel, 'focused');
     assert.equal(payload.blockFirst.queryIntent, 'architecture');

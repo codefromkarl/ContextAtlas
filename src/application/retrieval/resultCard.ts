@@ -1544,7 +1544,6 @@ function buildOverviewJsonPayload(input: {
       summary: input.overview.summary,
       topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
-      nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
         schemaVersion: 1 as const,
         detailLevel: 'minimal' as const,
@@ -1563,7 +1562,6 @@ function buildOverviewJsonPayload(input: {
       topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
       expansionCandidates: summarizeOverviewExpansionCandidates(input.overview.expansionCandidates),
-      nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
         schemaVersion: 1 as const,
         detailLevel: 'focused' as const,
@@ -1582,14 +1580,12 @@ function buildOverviewJsonPayload(input: {
     contextBlockCount: compactBlocks.length,
     contextBlockSummaries: compactBlocks,
     expansionCandidates: summarizeOverviewExpansionCandidates(input.overview.expansionCandidates),
-    nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
     blockFirst: {
       schemaVersion: 1 as const,
       contextBlockCount: compactBlocks.length,
       activeBlockIds: input.checkpointCandidate.activeBlockIds,
       checkpointCandidate: compactCheckpoint,
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
-      nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
     },
   };
 }

@@ -1541,7 +1541,7 @@ function buildOverviewJsonPayload(input: {
       topFiles: input.overview.topFiles,
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
       expansionCandidates: input.overview.expansionCandidates,
-      nextInspectionSuggestions: input.overview.nextInspectionSuggestions,
+      nextInspectionSuggestions: input.overview.nextInspectionSuggestions.slice(0, 3),
       blockFirst: {
         schemaVersion: 1 as const,
         detailLevel: 'focused' as const,

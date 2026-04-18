@@ -1690,7 +1690,9 @@ function formatRetrievalJson(
         blockFirst,
       };
 
-  return JSON.stringify(payload, null, 2);
+  return options.responseMode === 'overview'
+    ? JSON.stringify(payload)
+    : JSON.stringify(payload, null, 2);
 }
 
 function formatRetrievalText(

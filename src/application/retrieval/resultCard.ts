@@ -1199,11 +1199,15 @@ export function buildOverviewData(
   resultCard: RetrievalResultCard,
   contextBlocks: ContextBlock[],
 ): OverviewData {
-  const architecturePrimaryFiles = buildOverviewArchitecturePrimaryFiles(pack);
   const topFiles = pack.files
     .map((file) => ({ filePath: file.filePath, segmentCount: file.segments.length }))
     .sort((a, b) => b.segmentCount - a.segmentCount)
     .slice(0, 5);
+  const architecturePrimaryFiles = buildOverviewArchitecturePrimaryFiles(
+    pack,
+    resultCard,
+    new Set(topFiles.map((item) => item.filePath)),
+  );
 
   const expansionCandidates = pack.expansionCandidates
     ? pack.expansionCandidates
@@ -1253,20 +1257,28 @@ export function buildOverviewData(
   };
 }
 
-function buildOverviewArchitecturePrimaryFiles(pack: ContextPack): string[] {
+function buildOverviewArchitecturePrimaryFiles(
+  pack: ContextPack,
+  resultCard: RetrievalResultCard,
+  topFilePaths: Set<string>,
+): string[] {
+  const queryIntent = pack.debug?.retrievalStats?.queryIntent;
   const primaryFiles = pack.architecturePrimaryFiles ?? [];
   const promotedExpansionFiles = (pack.expansionCandidates ?? [])
     .filter((candidate) => candidate.priority === 'high' || candidate.reason.includes('import'))
     .map((candidate) => candidate.filePath);
+  const promotedMemoryFiles = queryIntent === 'symbol_lookup' && primaryFiles.length === 0
+    ? collectMemoryPrimaryHints(resultCard, pack.query, topFilePaths)
+    : [];
 
-  if (primaryFiles.length === 0 && promotedExpansionFiles.length === 0) {
+  if (primaryFiles.length === 0 && promotedExpansionFiles.length === 0 && promotedMemoryFiles.length === 0) {
     return [];
   }
 
   const primarySet = new Set(primaryFiles);
-  const limit = Math.max(primaryFiles.length, 3);
+  const limit = Math.max(primaryFiles.length, promotedMemoryFiles.length > 0 ? 2 : 3);
 
-  return Array.from(new Set([...primaryFiles, ...promotedExpansionFiles]))
+  return Array.from(new Set([...primaryFiles, ...promotedExpansionFiles, ...promotedMemoryFiles]))
     .map((filePath) => ({
       filePath,
       queryScore: scoreOverviewPathRelevance(pack.query, filePath),
@@ -1281,6 +1293,53 @@ function buildOverviewArchitecturePrimaryFiles(pack: ContextPack): string[] {
     )
     .slice(0, limit)
     .map((item) => item.filePath);
+}
+
+function collectMemoryPrimaryHints(
+  resultCard: RetrievalResultCard,
+  query: string,
+  topFilePaths: Set<string>,
+): string[] {
+  const candidates = new Map<string, { filePath: string; score: number }>();
+
+  for (const match of resultCard.memories.slice(0, 3)) {
+    for (const filePath of resolveFeatureMemoryFilePaths(match.memory)) {
+      if (!filePath.startsWith('src/')) continue;
+      if (topFilePaths.has(filePath)) continue;
+
+      const score = scoreOverviewPathRelevance(query, filePath);
+      if (score <= 0) continue;
+
+      const current = candidates.get(filePath);
+      if (!current || score > current.score) {
+        candidates.set(filePath, { filePath, score });
+      }
+    }
+  }
+
+  return Array.from(candidates.values())
+    .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath))
+    .slice(0, 2)
+    .map((item) => item.filePath);
+}
+
+function resolveFeatureMemoryFilePaths(memory: FeatureMemory): string[] {
+  const normalizedDir = normalizePath(memory.location.dir);
+
+  return memory.location.files
+    .map((file) => {
+      const normalizedFile = normalizePath(file);
+      if (
+        normalizedFile.startsWith('src/')
+        || normalizedFile.startsWith('tests/')
+        || normalizedFile.startsWith('docs/')
+        || normalizedFile.startsWith(normalizedDir)
+      ) {
+        return normalizedFile;
+      }
+      return normalizePath(path.posix.join(normalizedDir, normalizedFile));
+    })
+    .filter(Boolean);
 }
 
 function scoreOverviewPathRelevance(query: string, filePath: string): number {

@@ -1035,13 +1035,11 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
     assert.ok(Array.isArray(payload.topFiles));
     assert.deepEqual(payload.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
     assert.deepEqual(response.data?.overview.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
-    assert.ok(Array.isArray(payload.fileMatches));
-    assert.equal(payload.fileMatches[0].filePath, 'src/search/SearchService.ts');
-    assert.ok(Array.isArray(payload.fileMatches[0].lines));
+    assert.ok(!('fileMatches' in payload));
     assert.equal(payload.blockFirst.schemaVersion, 1);
     assert.equal(payload.blockFirst.detailLevel, 'minimal');
     assert.equal(payload.blockFirst.queryIntent, 'symbol_lookup');
-    assert.ok(Array.isArray(payload.blockFirst.activeBlockIds));
+    assert.ok(!('activeBlockIds' in payload.blockFirst));
     assert.ok(!('checkpointCandidate' in payload.blockFirst));
     assert.ok(!('architecturePrimaryFiles' in payload.blockFirst));
     assert.ok(!('nextInspectionSuggestions' in payload.blockFirst));

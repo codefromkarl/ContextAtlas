@@ -1428,12 +1428,6 @@ interface OverviewCheckpointCandidateSummary {
   confidence?: CheckpointCandidate['confidence'];
 }
 
-interface MinimalOverviewFileMatch {
-  filePath: string;
-  segmentCount: number;
-  lines: string[];
-}
-
 function summarizeOverviewSuggestion(item: string): string {
   if (item.includes('feedback:record') && item.includes('--outcome helpful')) {
     return 'record helpful feedback';
@@ -1533,19 +1527,12 @@ function buildOverviewJsonPayload(input: {
   const queryIntent = input.pack.debug?.retrievalStats?.queryIntent || 'balanced';
 
   if (queryIntent === 'symbol_lookup' || queryIntent === 'navigation') {
-    const fileMatches: MinimalOverviewFileMatch[] = input.pack.files.slice(0, 5).map((file) => ({
-      filePath: file.filePath,
-      segmentCount: file.segments.length,
-      lines: file.segments.slice(0, 3).map((segment) => `L${segment.startLine}-${segment.endLine}`),
-    }));
-
     return {
       responseMode: input.responseMode,
       detailLevel: 'minimal' as const,
       queryIntent,
       summary: input.overview.summary,
       topFiles: input.overview.topFiles,
-      fileMatches,
       architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
       nextInspectionSuggestions: summarizeOverviewSuggestions(input.overview.nextInspectionSuggestions, 3),
       blockFirst: {
@@ -1553,7 +1540,6 @@ function buildOverviewJsonPayload(input: {
         detailLevel: 'minimal' as const,
         queryIntent,
         contextBlockCount: 0,
-        activeBlockIds: input.checkpointCandidate.activeBlockIds,
       },
     };
   }

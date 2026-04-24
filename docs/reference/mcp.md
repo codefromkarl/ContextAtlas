@@ -63,16 +63,34 @@ contextatlas mcp
 }
 ```
 
-- `full`：默认，暴露全部 21 个工具
-- `retrieval-only`：仅暴露 7 个只读检索工具，适合把 ContextAtlas 当作纯 retrieval/memory reader 使用
+- `full`：默认，暴露全部 32 个工具
+- `retrieval-only`：仅暴露 12 个只读检索、图谱、契约和记忆读取工具，适合把 ContextAtlas 当作纯 retrieval/memory reader 使用
 
-## 工具总览（24 个）
+`retrieval-only` 是读取口径，不是迁移工具集。它保留 code retrieval、graph context / impact、contract analysis 和记忆读取能力，但不暴露索引写入、长期记忆写入、hub 管理或 schema 修复入口。旧 memory hub 修复、旧 graph schema 重建和升级验收应通过 CLI 完成：
+
+```bash
+contextatlas hub:repair-project-identities --dry-run
+contextatlas health:graph
+contextatlas health:full
+```
+
+## 工具总览（32 个）
 
 ### 代码检索
 
 | 工具 | 用途 |
 |------|------|
 | `codebase-retrieval` | 混合语义+词法代码检索（核心工具） |
+| `contract_analysis` | 轻量 API / MCP tool 契约分析：route map、api impact、tool map、contract health |
+
+### 代码图谱
+
+| 工具 | 用途 |
+|------|------|
+| `graph_context` | 查看单个符号的直接上下游关系、调用点和候选匹配 |
+| `graph_impact` | 分析符号上下游影响范围，输出置信度和 unresolved 说明 |
+| `graph_query` | 从入口符号追踪执行流，返回流程摘要、关键符号和关键文件 |
+| `detect_changes` | 将 git diff 映射到符号和影响分组 |
 
 ### 项目记忆
 
@@ -92,7 +110,7 @@ contextatlas mcp
 | 工具 | 用途 |
 |------|------|
 | `record_long_term_memory` | 记录用户偏好、协作规则、外部参考、evidence、temporal fact |
-| `manage_long_term_memory` | 查找/列举/清理/删除/失效长期记忆 |
+| `manage_long_term_memory` | 查找/列举/清理/删除/失效长期记忆，也可用 `action=suggest` 只生成抽取建议 |
 | `record_agent_diary` | 追加 agent diary 条目 |
 | `read_agent_diary` | 读取某个 agent 的最近 diary |
 | `find_agent_diary` | 按关键词搜索 diary |
@@ -118,6 +136,9 @@ contextatlas mcp
 
 | 工具 | 用途 |
 |------|------|
+| `create_checkpoint` | 创建任务 checkpoint 和可恢复上下文 |
+| `load_checkpoint` | 读取 checkpoint 并返回恢复包 |
+| `list_checkpoints` | 列出当前仓库 checkpoint |
 | `prepare_handoff` | 基于 checkpoint 组装交接/恢复包 |
 | `assemble_context` | 按 phase/profile 组装最小可用上下文 |
 | `suggest_phase_boundary` | 建议下一阶段及阻塞项 |

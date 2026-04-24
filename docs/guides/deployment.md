@@ -171,6 +171,41 @@ ContextAtlas 提供两种互斥的接入模式，`setup:local` 会根据 `--mode
 2. 旧配置文件不会自动删除，但 `setup:local` 会在报告中列出"未管理的旧文件"（Unmanaged Legacy Files），方便你手动清理。
 3. 如需彻底清理旧文件，按照报告中列出的路径手动删除即可。
 
+### 旧 memory hub / 旧 graph schema 平滑升级
+
+P8 收口后的升级路径保持轻量：不引入 graph DB、后台队列或新的重型运行时依赖，仍然复用 SQLite + FTS5、现有索引目录和 MCP toolset 分层。
+
+升级前建议先做只读检查：
+
+```bash
+contextatlas health:graph
+contextatlas memory:health
+contextatlas health:full
+```
+
+`health:graph` 只读取当前项目索引库，不会创建缺失 index DB，也不会自动修改 schema。它会区分以下情况：
+
+- `missing`：没有索引库、缺少图谱表，或缺少必需表；先运行 `contextatlas index <repo>` 生成当前 schema。
+- `degraded`：旧 schema 缺少列、索引、FTS 虚表或 migration 记录；图谱能力会降级，优先重跑 `contextatlas index <repo>` 重建图谱索引，必要时再按报告建议执行 schema 初始化或迁移。
+- `ok`：图谱 schema、关系和 invocation 基础质量可用于 graph context / impact / contract health。
+
+旧 memory hub 的项目身份升级也采用显式修复：
+
+```bash
+contextatlas hub:repair-project-identities --dry-run
+contextatlas hub:repair-project-identities
+```
+
+先用 `--dry-run` 查看 legacy project id 到规范化路径派生 id 的迁移计划；确认后再执行修复。该修复覆盖 feature memories、project meta 和 decision records。长期记忆已从旧 project-meta blob 迁到独立表 + FTS5，旧 blob 仍可读，并在长期记忆写入路径迁移到新布局，避免升级时静默丢失记忆。
+
+如果 MCP 客户端只需要读取能力，升级后建议使用：
+
+```bash
+contextatlas setup:local --mode mcp --toolset retrieval-only
+```
+
+`retrieval-only` 只暴露只读检索、图谱、契约和记忆读取工具，不包含索引写入、长期记忆写入或 hub 管理入口；需要执行迁移、重建或修复时请改用 CLI。
+
 ---
 
 ## 部署场景
@@ -309,10 +344,10 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 `CONTEXTATLAS_MCP_TOOLSET` 可选值：
 
-- `full`：默认，暴露全部 21 个工具
-- `retrieval-only`：仅暴露 7 个只读检索工具，适合降低上下文和工具选择负担
+- `full`：默认，暴露全部 32 个工具
+- `retrieval-only`：仅暴露 12 个只读检索、图谱、契约和记忆读取工具，适合降低上下文和工具选择负担
 
-**2. 重启 Claude Desktop**，确认 MCP 工具列表中出现 ContextAtlas 的 21 个工具；若启用了 `retrieval-only`，则会显示 7 个工具。
+**2. 重启 Claude Desktop**，确认 MCP 工具列表中出现 ContextAtlas 的 32 个工具；若启用了 `retrieval-only`，则会显示 12 个工具。
 
 **3. 在对话中直接使用**，无需额外提示词——工具已自动注册。
 

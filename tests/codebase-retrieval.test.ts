@@ -675,6 +675,8 @@ test('handleCodebaseRetrieval appends graph context summary when include_graph_c
     const jsonPayload = JSON.parse(jsonResponse.content[0]?.text ?? '{}');
     assert.equal(jsonPayload.graphContext.symbols[0].name, 'SearchService');
     assert.deepEqual(jsonPayload.graphContext.symbols[0].directDownstream, ['HAS_METHOD:buildContextPack']);
+    assert.equal(jsonPayload.graphContext.processes[0].entryName, 'SearchService');
+    assert.deepEqual(jsonPayload.graphContext.processes[0].keySymbols, ['SearchService', 'buildContextPack']);
 
     const textResponse = await handleCodebaseRetrieval({
       repo_path: repoDir,
@@ -685,6 +687,7 @@ test('handleCodebaseRetrieval appends graph context summary when include_graph_c
     assert.match(text, /直接图谱摘要/);
     assert.match(text, /SearchService/);
     assert.match(text, /HAS_METHOD:buildContextPack/);
+    assert.match(text, /processes:/);
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;

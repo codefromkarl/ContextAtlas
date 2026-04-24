@@ -38,6 +38,7 @@ export interface ResultCardLongTermMemoryMatch {
   memory: ResolvedLongTermMemoryItem;
   score: number;
   reasons: string[];
+  scoreBreakdown?: Record<string, number | string>;
 }
 
 export interface ParsedFeedbackSignal {
@@ -85,8 +86,27 @@ export interface RetrievalGraphSymbolSummary {
   directDownstream: string[];
 }
 
+export interface RetrievalGraphProcessSummary {
+  id: string;
+  entryKind: string;
+  entryName: string;
+  keySymbols: string[];
+  keyFiles: string[];
+  modules: Array<{
+    modulePath: string;
+    symbolCount: number;
+    fileCount: number;
+    callDensity: number;
+    sharedDependencyCount: number;
+  }>;
+  depth: number;
+  score: number;
+  scoreReasons: string[];
+}
+
 export interface RetrievalGraphContextSummary {
   symbols: RetrievalGraphSymbolSummary[];
+  processes?: RetrievalGraphProcessSummary[];
 }
 
 // ===========================================

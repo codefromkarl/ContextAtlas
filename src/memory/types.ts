@@ -521,6 +521,7 @@ export interface LongTermMemorySearchResult {
   memory: ResolvedLongTermMemoryItem;
   score: number;
   matchFields: string[];
+  scoreBreakdown?: Record<string, number | string>;
 }
 
 /**

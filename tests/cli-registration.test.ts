@@ -70,6 +70,8 @@ test('registerCliCommands registers major command groups through a single entryp
   assert.ok(registered.includes('task:inspect <taskId>'));
   assert.ok(registered.includes('storage:analyze'));
   assert.ok(registered.includes('perf:benchmark'));
+  assert.ok(registered.includes('parity:benchmark'));
+  assert.ok(registered.includes('health:graph'));
 });
 
 test('registerBootstrapCommands registers startup-oriented commands', () => {
@@ -256,6 +258,7 @@ test('registerOpsHealthCommands registers index planning and update commands', (
   const registered = Array.from(cli.commands.keys());
 
   assert.ok(registered.includes('health:check'));
+  assert.ok(registered.includes('health:graph'));
   assert.ok(registered.includes('health:full'));
   assert.ok(registered.includes('mcp:cleanup-duplicates'));
   assert.ok(registered.includes('index:plan [path]'));
@@ -263,6 +266,19 @@ test('registerOpsHealthCommands registers index planning and update commands', (
   assert.ok(registered.includes('index:update [path]'));
   assert.ok(registered.includes('task:status'));
   assert.ok(registered.includes('task:inspect <taskId>'));
+});
+
+test('registerOpsUsageCommands registers benchmark commands', () => {
+  const cli = new FakeCli();
+
+  registerOpsUsageCommands(cli as never);
+
+  const registered = Array.from(cli.commands.keys());
+
+  assert.ok(registered.includes('perf:benchmark'));
+  assert.ok(registered.includes('parity:benchmark'));
+  assert.ok(cli.commands.get('parity:benchmark')?.options.includes('--fixture <path>'));
+  assert.ok(cli.commands.get('parity:benchmark')?.options.includes('--json'));
 });
 
 test('registerMemoryKnowledgeCommands registers long-term and decision commands', () => {
@@ -274,6 +290,7 @@ test('registerMemoryKnowledgeCommands registers long-term and decision commands'
 
   assert.deepEqual(registered, [
     'memory:prune-long-term',
+    'memory:suggest-long-term',
     'memory:record-long-term',
     'memory:diary-write',
     'memory:diary-read',
@@ -317,7 +334,13 @@ test('registerOpsUsageCommands registers usage-oriented ops commands', () => {
 
   const registered = Array.from(cli.commands.keys());
 
-  assert.deepEqual(registered, ['usage:index-report', 'usage:purge', 'storage:analyze', 'perf:benchmark']);
+  assert.deepEqual(registered, [
+    'parity:benchmark',
+    'usage:index-report',
+    'usage:purge',
+    'storage:analyze',
+    'perf:benchmark',
+  ]);
 });
 
 test('registerOpsHealthCommands registers health-oriented ops commands', () => {
@@ -328,6 +351,7 @@ test('registerOpsHealthCommands registers health-oriented ops commands', () => {
   const registered = Array.from(cli.commands.keys());
 
   assert.deepEqual(registered, [
+    'health:graph',
     'fts:rebuild-chunks',
     'health:check',
     'memory:health',

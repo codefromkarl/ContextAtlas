@@ -29,8 +29,12 @@ export interface GraphRelationEntry {
   targetId: string;
   targetName: string;
   resolved: boolean;
+  confidence: number;
+  reason: string | null;
   symbol: StoredSymbol | null;
 }
+
+type RelationResolutionTier = 'exact' | 'same-file' | 'import-scoped' | 'global-fallback' | 'unresolved';
 
 function parseModifiers(value: string | null): string[] {
   if (!value) return [];
@@ -81,6 +85,11 @@ function buildNameMatchQuery(query: string): string {
 function inferNameFromSymbolId(symbolId: string): string {
   const parts = symbolId.split(':');
   return parts[parts.length - 1] || symbolId;
+}
+
+function inferExternalRelationName(targetId: string): string {
+  const parts = targetId.split(':');
+  return parts[parts.length - 1] || targetId;
 }
 
 export class GraphStore {
@@ -272,40 +281,30 @@ export class GraphStore {
       return Array.from(deduped.values()).sort((a, b) => a.depth - b.depth || a.symbol.name.localeCompare(b.symbol.name));
     }
 
-    const joinClause =
-      direction === 'downstream' ? 'r.from_id = walk.symbol_id' : 'r.to_id = walk.symbol_id';
-    const nextSymbolExpr = direction === 'downstream' ? 'r.to_id' : 'r.from_id';
+    const results = new Map<string, GraphImpactEntry>();
+    const visited = new Set<string>([symbolId]);
+    const queue: Array<{ symbolId: string; depth: number }> = [{ symbolId, depth: 0 }];
 
-    const rows = this.db
-      .prepare(
-        `
-          WITH RECURSIVE walk(symbol_id, depth, via_relation_type, path) AS (
-            SELECT ?, 0, NULL, '|' || ? || '|'
-            UNION ALL
-            SELECT ${nextSymbolExpr}, walk.depth + 1, r.type, walk.path || ${nextSymbolExpr} || '|'
-            FROM walk
-            JOIN relations r ON ${joinClause}
-            WHERE walk.depth < ?
-              AND instr(walk.path, '|' || ${nextSymbolExpr} || '|') = 0
-          )
-          SELECT s.*, walk.depth, walk.via_relation_type
-          FROM walk
-          JOIN symbols s ON s.id = walk.symbol_id
-          WHERE walk.depth > 0
-          ORDER BY walk.depth ASC, s.name ASC, s.file_path ASC, s.start_line ASC
-        `,
-      )
-      .all(symbolId, symbolId, maxDepth) as Array<Record<string, unknown> & {
-        depth: number;
-        via_relation_type: GraphEdgeType | null;
-      }>;
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.depth >= maxDepth) continue;
 
-    return rows.map((row) => ({
-      symbol: mapSymbolRow(row),
-      depth: Number(row.depth),
-      direction,
-      viaRelationType: (row.via_relation_type as GraphEdgeType | null) ?? null,
-    }));
+      for (const relation of this.getDirectRelations(current.symbolId, direction)) {
+        if (!relation.resolved || !relation.symbol) continue;
+        if (visited.has(relation.symbol.id)) continue;
+        visited.add(relation.symbol.id);
+        const entry: GraphImpactEntry = {
+          symbol: relation.symbol,
+          depth: current.depth + 1,
+          direction,
+          viaRelationType: relation.relationType,
+        };
+        results.set(`${direction}:${relation.symbol.id}`, entry);
+        queue.push({ symbolId: relation.symbol.id, depth: current.depth + 1 });
+      }
+    }
+
+    return Array.from(results.values()).sort((a, b) => a.depth - b.depth || a.symbol.name.localeCompare(b.symbol.name));
   }
 
   getDirectRelations(
@@ -332,6 +331,8 @@ export class GraphStore {
           SELECT
             ${targetExpr} AS target_id,
             r.type AS relation_type,
+            r.confidence,
+            r.reason,
             s.id,
             s.name,
             s.type,
@@ -341,25 +342,187 @@ export class GraphStore {
             s.end_line,
             s.modifiers,
             s.parent_id,
-            s.exported
+            s.exported,
+            src.file_path AS source_file_path,
+            src.language AS source_language
           FROM relations r
           LEFT JOIN symbols s ON ${joinExpr}
+          LEFT JOIN symbols src ON src.id = ${direction === 'downstream' ? 'r.from_id' : 'r.to_id'}
           WHERE ${whereExpr}
           ORDER BY r.type ASC, target_id ASC
         `,
       )
-      .all(symbolId) as Array<Record<string, unknown> & { target_id: string; relation_type: GraphEdgeType }>;
+      .all(symbolId) as Array<Record<string, unknown> & {
+        target_id: string;
+        relation_type: GraphEdgeType;
+        confidence: number;
+        reason: string | null;
+      }>;
 
     return rows.map((row) => {
       const resolved = typeof row.id === 'string';
+      const fallback = resolved
+        ? null
+        : this.resolveExternalTarget({
+            targetId: String(row.target_id),
+            sourceFilePath: typeof row.source_file_path === 'string' ? row.source_file_path : null,
+            sourceLanguage: typeof row.source_language === 'string' ? row.source_language : null,
+            reason: row.reason,
+          });
+      const symbol = resolved ? mapSymbolRow(row) : fallback?.symbol ?? null;
+      const tier: RelationResolutionTier = resolved ? 'exact' : fallback?.tier ?? 'unresolved';
+      const reason = tier === 'exact' || tier === 'unresolved'
+        ? row.reason
+        : `${row.reason ?? 'resolved'};resolution=${tier}`;
       return {
         direction,
         relationType: row.relation_type,
         targetId: String(row.target_id),
-        targetName: resolved ? String(row.name) : inferNameFromSymbolId(String(row.target_id)),
-        resolved,
-        symbol: resolved ? mapSymbolRow(row) : null,
+        targetName: symbol ? symbol.name : inferNameFromSymbolId(String(row.target_id)),
+        resolved: symbol !== null,
+        confidence: Number(row.confidence),
+        reason,
+        symbol,
       };
     });
+  }
+
+  private resolveExternalTarget(input: {
+    targetId: string;
+    sourceFilePath: string | null;
+    sourceLanguage: string | null;
+    reason: string | null;
+  }): { symbol: StoredSymbol; tier: Exclude<RelationResolutionTier, 'exact' | 'unresolved'> } | null {
+    const name = inferExternalRelationName(input.targetId);
+    if (!name) return null;
+    const receiverType = input.reason ? this.extractReceiverType(input.reason) : null;
+
+    if (input.sourceFilePath) {
+      const sameFileMember = receiverType
+        ? this.findCandidateMemberSymbol(receiverType, name, {
+            filePath: input.sourceFilePath,
+            language: input.sourceLanguage,
+          })
+        : null;
+      if (sameFileMember) return { symbol: sameFileMember, tier: 'same-file' };
+
+      const sameFile = this.findCandidateSymbol(name, {
+        filePath: input.sourceFilePath,
+        language: input.sourceLanguage,
+      });
+      if (sameFile) return { symbol: sameFile, tier: 'same-file' };
+    }
+
+    const importScoped = input.reason
+      ? (receiverType
+          ? this.findCandidateMemberSymbol(receiverType, name, {
+              language: input.sourceLanguage,
+              filePathSuffix: this.resolveImportSuffix(input.reason),
+            })
+          : null)
+        ?? this.findCandidateSymbol(name, {
+            language: input.sourceLanguage,
+            filePathSuffix: this.resolveImportSuffix(input.reason),
+          })
+      : null;
+    if (importScoped) return { symbol: importScoped, tier: 'import-scoped' };
+
+    const global = (receiverType
+      ? this.findCandidateMemberSymbol(receiverType, name, { language: input.sourceLanguage })
+      : null) ?? this.findCandidateSymbol(name, { language: input.sourceLanguage });
+    return global ? { symbol: global, tier: 'global-fallback' } : null;
+  }
+
+  private extractReceiverType(reason: string): string | null {
+    const match = reason.match(/(?:^|;)receiverType=([^;]+)/);
+    return match?.[1]?.trim() || null;
+  }
+
+  private findCandidateSymbol(
+    name: string,
+    filters: { filePath?: string; filePathSuffix?: string | null; language?: string | null },
+  ): StoredSymbol | null {
+    const clauses = ['name = ?'];
+    const params: unknown[] = [name];
+
+    if (filters.filePath) {
+      clauses.push('file_path = ?');
+      params.push(filters.filePath);
+    }
+    if (filters.filePathSuffix) {
+      clauses.push('(file_path = ? OR file_path LIKE ? OR file_path LIKE ? OR file_path LIKE ?)');
+      params.push(
+        filters.filePathSuffix,
+        `${filters.filePathSuffix}.%`,
+        `%/${filters.filePathSuffix}`,
+        `%/${filters.filePathSuffix}.%`,
+      );
+    }
+    if (filters.language) {
+      clauses.push('language = ?');
+      params.push(filters.language);
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT *
+          FROM symbols
+          WHERE ${clauses.join(' AND ')}
+          ORDER BY exported DESC, file_path ASC, start_line ASC
+          LIMIT 1
+        `,
+      )
+      .get(...params) as Record<string, unknown> | undefined;
+
+    return row ? mapSymbolRow(row) : null;
+  }
+
+  private findCandidateMemberSymbol(
+    ownerName: string,
+    memberName: string,
+    filters: { filePath?: string; filePathSuffix?: string | null; language?: string | null },
+  ): StoredSymbol | null {
+    const clauses = ['owner.name = ?', 'member.name = ?', "member.type IN ('Method', 'Function')"];
+    const params: unknown[] = [ownerName, memberName];
+
+    if (filters.filePath) {
+      clauses.push('owner.file_path = ?', 'member.file_path = ?');
+      params.push(filters.filePath, filters.filePath);
+    }
+    if (filters.filePathSuffix) {
+      clauses.push('(owner.file_path = ? OR owner.file_path LIKE ? OR owner.file_path LIKE ? OR owner.file_path LIKE ?)');
+      params.push(
+        filters.filePathSuffix,
+        `${filters.filePathSuffix}.%`,
+        `%/${filters.filePathSuffix}`,
+        `%/${filters.filePathSuffix}.%`,
+      );
+    }
+    if (filters.language) {
+      clauses.push('owner.language = ?', 'member.language = ?');
+      params.push(filters.language, filters.language);
+    }
+
+    const row = this.db
+      .prepare(
+        `
+          SELECT member.*
+          FROM symbols owner
+          JOIN symbols member ON member.parent_id = owner.id
+          WHERE ${clauses.join(' AND ')}
+          ORDER BY owner.exported DESC, owner.file_path ASC, member.start_line ASC
+          LIMIT 1
+        `,
+      )
+      .get(...params) as Record<string, unknown> | undefined;
+
+    return row ? mapSymbolRow(row) : null;
+  }
+
+  private resolveImportSuffix(reason: string): string | null {
+    const source = reason.split(';')[0]?.trim();
+    if (!source || !source.startsWith('.')) return null;
+    return source.replace(/^\.\//, '').replace(/^\.\.\//, '');
   }
 }

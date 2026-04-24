@@ -39,11 +39,16 @@ test('graph_query MCP tool returns traced paths for indexed symbols', async () =
     const payload = JSON.parse(response.content[0]?.text ?? '{}');
     assert.equal(payload.tool, 'graph_query');
     assert.equal(payload.entry.name, 'UserService');
+    assert.equal(payload.entry_kind, 'library_symbol');
     assert.ok(payload.paths.length >= 1);
     assert.deepEqual(
       payload.paths[0].symbols.map((symbol: { name: string }) => symbol.name),
       ['UserService', 'updatePassword', 'hashLocal'],
     );
+    assert.equal(payload.paths[0].depth, 2);
+    assert.ok(payload.paths[0].keyFiles.includes('src/user/UserService.ts'));
+    assert.equal(payload.processes[0].entryName, 'UserService');
+    assert.deepEqual(payload.processes[0].keySymbols, ['UserService', 'updatePassword', 'hashLocal']);
   } finally {
     fs.rmSync(rootPath, { recursive: true, force: true });
   }

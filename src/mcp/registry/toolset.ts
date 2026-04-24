@@ -4,6 +4,7 @@ export type McpToolsetMode = 'full' | 'retrieval-only';
 
 const RETRIEVAL_ONLY_TOOL_NAMES = new Set<string>([
   'codebase-retrieval',
+  'contract_analysis',
   'graph_impact',
   'graph_context',
   'graph_query',

@@ -50,6 +50,36 @@ export function registerMemoryKnowledgeCommands(cli: CommandRegistrar): void {
     });
 
   cli
+    .command('memory:suggest-long-term', '从会话文本中提取长期记忆建议，默认不写入')
+    .option('--repo <path>', '目标仓库路径（默认当前目录）')
+    .option('--transcript <text>', '会话文本或摘要')
+    .option('--scope <scope>', '作用域: project | global-user', { default: 'project' })
+    .option('--apply', '确认写入建议；默认只输出候选')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: Record<string, string | boolean | undefined>) => {
+      if (!options.transcript) {
+        exitWithError('缺少 --transcript');
+      }
+
+      const repoRoot = options.repo ? path.resolve(String(options.repo)) : process.cwd();
+      const { executeManageLongTermMemory } = await import('../../application/memory/executeLongTermMemory.js');
+      const response = await executeManageLongTermMemory(
+        {
+          action: 'suggest',
+          transcript: String(options.transcript),
+          scope:
+            options.scope === 'project' || options.scope === 'global-user'
+              ? options.scope
+              : 'project',
+          apply: Boolean(options.apply),
+          format: options.json ? 'json' : 'text',
+        },
+        repoRoot,
+      );
+      writeText(joinToolText(response));
+    });
+
+  cli
     .command('memory:record-long-term', '显式记录长期记忆（reference / project-state / feedback / user / journal / evidence / temporal-fact）')
     .option('--repo <path>', '目标仓库路径（默认当前目录）')
     .option('--type <type>', '长期记忆类型: user | feedback | project-state | reference | journal | evidence | temporal-fact')

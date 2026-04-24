@@ -176,6 +176,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 
 > `init` writes an editable example `.env`, including default SiliconFlow endpoints and recommended model settings.
 > `setup:local --mode <mode>` writes only the configuration files for the selected mode. See [First use guide](./docs/guides/first-use.md) for mode selection guidance.
+> After setup, run `contextatlas health:full` to verify index, memory, graph, contract, and MCP process health.
 
 ## Quick start
 
@@ -251,6 +252,8 @@ contextatlas health:full
 ### 2. As an MCP server
 
 Set up with `contextatlas setup:local --mode mcp`.
+
+Use `contextatlas setup:local --mode mcp --toolset retrieval-only` when the client should only see read-only retrieval, graph, contract, and memory-reader tools.
 
 Useful for:
 

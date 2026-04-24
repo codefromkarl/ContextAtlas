@@ -157,3 +157,217 @@ test('GraphStore deleteFile removes file symbols and attached relations', () => 
     fs.rmSync(rootPath, { recursive: true, force: true });
   }
 });
+
+test('GraphStore resolves external relations with same-file, import-scoped, and global fallback tiers', () => {
+  const rootPath = makeTempProjectRoot();
+  const db = initDb(generateProjectId(rootPath));
+
+  try {
+    const store = new GraphStore(db);
+    const servicePath = 'src/user/UserService.ts';
+    const cryptoPath = 'crypto.ts';
+    const globalPath = 'src/shared/global.ts';
+    seedIndexedFile(db, servicePath);
+    seedIndexedFile(db, cryptoPath);
+    seedIndexedFile(db, globalPath);
+
+    store.upsertFile(servicePath, {
+      symbols: [
+        {
+          id: 'typescript:src/user/UserService.ts:root:updatePassword:0:1:4',
+          name: 'updatePassword',
+          type: 'Function',
+          filePath: servicePath,
+          language: 'typescript',
+          startLine: 1,
+          endLine: 4,
+          modifiers: [],
+          parentId: null,
+          exported: true,
+        },
+        {
+          id: 'typescript:src/user/UserService.ts:root:hashLocal:0:6:8',
+          name: 'hashLocal',
+          type: 'Function',
+          filePath: servicePath,
+          language: 'typescript',
+          startLine: 6,
+          endLine: 8,
+          modifiers: [],
+          parentId: null,
+          exported: false,
+        },
+      ],
+      relations: [
+        {
+          fromId: 'typescript:src/user/UserService.ts:root:updatePassword:0:1:4',
+          toId: 'external:typescript:src/user/UserService.ts:call:hashLocal',
+          type: 'CALLS',
+          confidence: 0.5,
+        },
+        {
+          fromId: 'typescript:src/user/UserService.ts:root:updatePassword:0:1:4',
+          toId: 'external:typescript:src/user/UserService.ts:call:hashPassword',
+          type: 'CALLS',
+          confidence: 0.5,
+          reason: './crypto',
+        },
+        {
+          fromId: 'typescript:src/user/UserService.ts:root:updatePassword:0:1:4',
+          toId: 'external:typescript:src/user/UserService.ts:call:globalHelper',
+          type: 'CALLS',
+          confidence: 0.5,
+        },
+      ],
+    });
+    store.upsertFile(cryptoPath, {
+      symbols: [
+        {
+          id: 'typescript:crypto.ts:root:hashPassword:0:1:3',
+          name: 'hashPassword',
+          type: 'Function',
+          filePath: cryptoPath,
+          language: 'typescript',
+          startLine: 1,
+          endLine: 3,
+          modifiers: ['export'],
+          parentId: null,
+          exported: true,
+        },
+      ],
+      relations: [],
+    });
+    store.upsertFile(globalPath, {
+      symbols: [
+        {
+          id: 'typescript:src/shared/global.ts:root:globalHelper:0:1:3',
+          name: 'globalHelper',
+          type: 'Function',
+          filePath: globalPath,
+          language: 'typescript',
+          startLine: 1,
+          endLine: 3,
+          modifiers: ['export'],
+          parentId: null,
+          exported: true,
+        },
+      ],
+      relations: [],
+    });
+
+    const direct = store.getDirectRelations('typescript:src/user/UserService.ts:root:updatePassword:0:1:4', 'downstream');
+    assert.ok(direct.some((relation) => relation.targetName === 'hashLocal' && relation.reason?.includes('resolution=same-file')));
+    assert.ok(direct.some((relation) => relation.targetName === 'hashPassword' && relation.reason?.includes('resolution=import-scoped')));
+    assert.ok(direct.some((relation) => relation.targetName === 'globalHelper' && relation.reason?.includes('resolution=global-fallback')));
+
+    const impact = store.getImpact('typescript:src/user/UserService.ts:root:updatePassword:0:1:4', {
+      direction: 'downstream',
+      maxDepth: 1,
+    });
+    assert.deepEqual(
+      impact.map((entry) => entry.symbol.name).sort(),
+      ['globalHelper', 'hashLocal', 'hashPassword'],
+    );
+  } finally {
+    closeDb(db);
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('GraphStore resolves receiver typed method calls before generic name fallback', () => {
+  const rootPath = makeTempProjectRoot();
+  const db = initDb(generateProjectId(rootPath));
+
+  try {
+    const store = new GraphStore(db);
+    const filePath = 'src/user/UserService.ts';
+    seedIndexedFile(db, filePath);
+
+    store.upsertFile(filePath, {
+      symbols: [
+        {
+          id: 'typescript:src/user/UserService.ts:root:UserRepo:0:1:5',
+          name: 'UserRepo',
+          type: 'Class',
+          filePath,
+          language: 'typescript',
+          startLine: 1,
+          endLine: 5,
+          modifiers: ['export'],
+          parentId: null,
+          exported: true,
+        },
+        {
+          id: 'typescript:src/user/UserService.ts:UserRepo:save:1:2:4',
+          name: 'save',
+          type: 'Method',
+          filePath,
+          language: 'typescript',
+          startLine: 2,
+          endLine: 4,
+          modifiers: [],
+          parentId: 'typescript:src/user/UserService.ts:root:UserRepo:0:1:5',
+          exported: false,
+        },
+        {
+          id: 'typescript:src/user/UserService.ts:root:AuditLog:0:7:11',
+          name: 'AuditLog',
+          type: 'Class',
+          filePath,
+          language: 'typescript',
+          startLine: 7,
+          endLine: 11,
+          modifiers: ['export'],
+          parentId: null,
+          exported: true,
+        },
+        {
+          id: 'typescript:src/user/UserService.ts:AuditLog:save:1:8:10',
+          name: 'save',
+          type: 'Method',
+          filePath,
+          language: 'typescript',
+          startLine: 8,
+          endLine: 10,
+          modifiers: [],
+          parentId: 'typescript:src/user/UserService.ts:root:AuditLog:0:7:11',
+          exported: false,
+        },
+        {
+          id: 'typescript:src/user/UserService.ts:root:updatePassword:1:13:16',
+          name: 'updatePassword',
+          type: 'Function',
+          filePath,
+          language: 'typescript',
+          startLine: 13,
+          endLine: 16,
+          modifiers: [],
+          parentId: null,
+          exported: true,
+        },
+      ],
+      relations: [
+        {
+          fromId: 'typescript:src/user/UserService.ts:root:updatePassword:1:13:16',
+          toId: 'external:typescript:src/user/UserService.ts:call:save',
+          type: 'CALLS',
+          confidence: 0.75,
+          reason: 'receiver=this.repo;receiverType=UserRepo',
+        },
+      ],
+    });
+
+    const direct = store.getDirectRelations('typescript:src/user/UserService.ts:root:updatePassword:1:13:16', 'downstream');
+    assert.ok(
+      direct.some(
+        (relation) =>
+          relation.symbol?.id === 'typescript:src/user/UserService.ts:UserRepo:save:1:2:4'
+          && relation.reason?.includes('receiverType=UserRepo')
+          && relation.reason?.includes('resolution=same-file'),
+      ),
+    );
+  } finally {
+    closeDb(db);
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});

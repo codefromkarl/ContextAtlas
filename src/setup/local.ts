@@ -32,6 +32,7 @@ export interface LocalSetupReport {
   changed: boolean;
   dryRun: boolean;
   mode: LocalSetupMode;
+  toolset: LocalSetupToolset;
   platform: NodeJS.Platform;
   operations: LocalSetupOperation[];
   /** Files from the other mode that still exist on disk but are not managed by this mode. */
@@ -363,6 +364,7 @@ export async function applyLocalSetup(options: LocalSetupOptions): Promise<Local
     changed: operations.some((operation) => operation.action !== 'unchanged'),
     dryRun: options.dryRun,
     mode: options.mode,
+    toolset: options.toolset,
     platform,
     operations,
     legacyWarnings,
@@ -374,6 +376,7 @@ export function formatLocalSetupReport(report: LocalSetupReport): string {
     'ContextAtlas Local Setup',
     `Mode: ${report.dryRun ? 'DRY-RUN' : 'APPLY'}`,
     `Exposure Mode: ${report.mode}`,
+    `MCP Toolset: ${report.toolset}`,
     `Detected Platform: ${report.platform}`,
     '',
     'Resolved Paths:',
@@ -391,6 +394,17 @@ export function formatLocalSetupReport(report: LocalSetupReport): string {
     for (const warning of report.legacyWarnings) {
       lines.push(`  ⚠ ${warning}`);
     }
+  }
+
+  lines.push('');
+  lines.push('Next Steps:');
+  lines.push('- Edit ~/.contextatlas/.env if embedding or rerank providers are not configured.');
+  lines.push('- Run `contextatlas health:full` after setup to verify index, memory, MCP process, graph, and contract health.');
+  if (report.mode === 'mcp') {
+    lines.push('- Restart your MCP client after config changes so the contextatlas server is reloaded.');
+    lines.push(`- Active MCP toolset: ${report.toolset}; retrieval-only exposes read-only retrieval, graph, contract, and memory-reader tools.`);
+  } else {
+    lines.push('- Use `contextatlas search --repo-path <repo>` for CLI-first retrieval, then `contextatlas health:full` for self-checks.');
   }
 
   return lines.join('\n');

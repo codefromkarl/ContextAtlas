@@ -72,6 +72,14 @@ test('detect_changes MCP tool reports changed symbols and risk summary', async (
     assert.ok(payload.changed_files.includes('src/user/UserService.ts'));
     assert.ok(payload.matches[0].symbols.some((entry: { symbol: { name: string } }) => entry.symbol.name === 'updatePassword'));
     assert.ok(Array.isArray(payload.matches[0].symbols[0]?.invocations));
+    assert.ok(Array.isArray(payload.matches[0].symbols[0]?.impact_groups.direct_break));
+    assert.ok(Array.isArray(payload.matches[0].symbols[0]?.impact_groups.likely_affected));
+    assert.ok(Array.isArray(payload.matches[0].symbols[0]?.impact_groups.needs_testing));
+    const relations = [
+      ...(payload.matches[0].symbols[0]?.upstream ?? []),
+      ...(payload.matches[0].symbols[0]?.downstream ?? []),
+    ];
+    assert.ok(relations.some((relation: { confidence?: unknown }) => typeof relation.confidence === 'number'));
     assert.equal(typeof payload.risk_summary.level, 'string');
   } finally {
     fs.rmSync(rootPath, { recursive: true, force: true });

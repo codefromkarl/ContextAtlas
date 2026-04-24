@@ -58,6 +58,17 @@ function resolveSingleSymbol(store: GraphStore, symbolName: string) {
   return { match: matches[0], matches };
 }
 
+function formatRelationDiagnostics(input: {
+  confidence: number;
+  reason: string | null;
+}): string {
+  const details = [`confidence=${input.confidence.toFixed(2)}`];
+  if (input.reason) {
+    details.push(`reason=${input.reason}`);
+  }
+  return ` (${details.join(' ')})`;
+}
+
 export async function handleGraphImpact(
   args: GraphImpactInput,
   projectRoot: string,
@@ -113,7 +124,7 @@ export async function handleGraphImpact(
     } else {
       for (const relation of directRelations) {
         lines.push(
-          `- [${relation.direction}] ${relation.relationType} -> ${relation.targetName}${relation.resolved ? '' : ' (unresolved)'}`,
+          `- [${relation.direction}] ${relation.relationType} -> ${relation.targetName}${relation.resolved ? '' : ' (unresolved)'}${formatRelationDiagnostics(relation)}`,
         );
       }
     }
@@ -186,7 +197,7 @@ export async function handleGraphContext(
       lines.push('- none');
     } else {
       for (const relation of upstream) {
-        lines.push(`- ${relation.relationType} <- ${relation.targetName}${relation.resolved ? '' : ' (unresolved)'}`);
+        lines.push(`- ${relation.relationType} <- ${relation.targetName}${relation.resolved ? '' : ' (unresolved)'}${formatRelationDiagnostics(relation)}`);
       }
     }
 
@@ -195,7 +206,7 @@ export async function handleGraphContext(
       lines.push('- none');
     } else {
       for (const relation of downstream) {
-        lines.push(`- ${relation.relationType} -> ${relation.targetName}${relation.resolved ? '' : ' (unresolved)'}`);
+        lines.push(`- ${relation.relationType} -> ${relation.targetName}${relation.resolved ? '' : ' (unresolved)'}${formatRelationDiagnostics(relation)}`);
       }
     }
 
@@ -228,6 +239,18 @@ function summarizeRisk(
   };
 }
 
+function summarizeDepthGroups(
+  store: GraphStore,
+  symbolId: string,
+) {
+  const impact = store.getImpact(symbolId, { direction: 'both', maxDepth: 3 });
+  return {
+    direct_break: impact.filter((entry) => entry.depth === 1),
+    likely_affected: impact.filter((entry) => entry.depth === 2),
+    needs_testing: impact.filter((entry) => entry.depth >= 3),
+  };
+}
+
 export async function handleDetectChanges(
   args: DetectChangesInput,
   projectRoot: string,
@@ -247,6 +270,7 @@ export async function handleDetectChanges(
         symbol,
         upstream: store.getDirectRelations(symbol.id, 'upstream'),
         downstream: store.getDirectRelations(symbol.id, 'downstream'),
+        impact_groups: summarizeDepthGroups(store, symbol.id),
         invocations: store.getInvocationsBySymbol(symbol.id),
       })),
     }));
@@ -301,6 +325,9 @@ export async function handleDetectChanges(
         lines.push(`- Symbol: ${symbolMatch.symbol.name}`);
         lines.push(`  Upstream: ${symbolMatch.upstream.length}`);
         lines.push(`  Downstream: ${symbolMatch.downstream.length}`);
+        lines.push(`  Direct Break: ${symbolMatch.impact_groups.direct_break.length}`);
+        lines.push(`  Likely Affected: ${symbolMatch.impact_groups.likely_affected.length}`);
+        lines.push(`  Needs Testing: ${symbolMatch.impact_groups.needs_testing.length}`);
         lines.push(`  Invocations: ${symbolMatch.invocations.length}`);
       }
       lines.push('');
@@ -325,6 +352,7 @@ export async function handleGraphQuery(
     const traced = tracer.traceFromSymbol(symbol, {
       direction,
       maxDepth,
+      query: symbol,
     });
 
     if (!traced) {
@@ -337,10 +365,12 @@ export async function handleGraphQuery(
           {
             tool: 'graph_query',
             entry: traced.entry,
+            entry_kind: traced.entryKind,
             direction: traced.direction,
             max_depth: traced.maxDepth,
             path_count: traced.paths.length,
             paths: traced.paths,
+            processes: traced.processes,
           },
           null,
           2,
@@ -350,6 +380,7 @@ export async function handleGraphQuery(
 
     const lines = [
       `Entry: ${traced.entry.name}`,
+      `Entry Kind: ${traced.entryKind}`,
       `Direction: ${traced.direction}`,
       `Max Depth: ${traced.maxDepth}`,
       `Path Count: ${traced.paths.length}`,
@@ -366,7 +397,21 @@ export async function handleGraphQuery(
             pathIndex === 0 ? item.name : `${path.relationTypes[pathIndex - 1]} -> ${item.name}`,
           )
           .join(' ');
-        lines.push(`${index + 1}. ${rendered}`);
+        lines.push(`${index + 1}. score=${path.score} depth=${path.depth} ${rendered}`);
+        lines.push(`   files: ${path.keyFiles.join(', ')}`);
+        lines.push(`   modules: ${path.moduleHints.join(', ') || 'none'}`);
+      });
+    }
+
+    lines.push('');
+    lines.push('Processes:');
+    if (traced.processes.length === 0) {
+      lines.push('- none');
+    } else {
+      traced.processes.forEach((process) => {
+        lines.push(`- ${process.id}: ${process.entryKind}:${process.entryName} score=${process.score} depth=${process.depth}`);
+        lines.push(`  symbols: ${process.keySymbols.join(' -> ')}`);
+        lines.push(`  files: ${process.keyFiles.join(', ')}`);
       });
     }
 

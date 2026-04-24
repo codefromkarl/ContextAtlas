@@ -37,9 +37,17 @@ export function classifyQueryIntent(query: string, technicalTerms: string[] = []
       || /^(src|tests|docs|packages|apps|lib|dist|scripts)[/\\]/i.test(token)
     );
   }).length;
-  const architectureHintCount = rawSegments.filter((token) =>
-    !isCodeLikeToken(token)
-    && /(architecture|boundary|entrypoint|startup|adapter|adaptation|handler|service|workflow|coupling|coupled|mode|layer|边界|架构|入口|启动|适配|模式|链路)/i.test(token),
+  const isArchitectureHintToken = (token: string): boolean =>
+    /(architecture|boundary|entrypoint|startup|adapter|adaptation|handler|service|workflow|coupling|coupled|mode|layer|边界|架构|入口|启动|适配|模式|链路)/i.test(token);
+  const isArchitecturalBoundarySymbol = (token: string): boolean =>
+    /(Service|Controller|Handler|Adapter|Workflow|Router)(?:\.|$)/.test(token);
+  const architectureHintCount = rawSegments.filter((token) => {
+    const hasArchitectureTerm = isArchitectureHintToken(token);
+    if (!hasArchitectureTerm) return false;
+    return !isCodeLikeToken(token) || isArchitecturalBoundarySymbol(token);
+  }).length;
+  const naturalArchitectureHintCount = rawSegments.filter((token) =>
+    isArchitectureHintToken(token) && !isCodeLikeToken(token),
   ).length;
   const conceptualHintCount = rawSegments.filter((token) =>
     /(how|why|what|flow|architecture|concept|流程|原理|架构|实现|如何)/i.test(token),
@@ -50,8 +58,8 @@ export function classifyQueryIntent(query: string, technicalTerms: string[] = []
   }
 
   if (technicalTerms.length > 0) {
-    const hasStrongArchitectureHints = architectureHintCount >= 2
-      || (architectureHintCount >= 1 && rawSegments.length >= 8);
+    const hasStrongArchitectureHints = naturalArchitectureHintCount >= 2
+      || (naturalArchitectureHintCount >= 1 && rawSegments.length >= 8);
     if (!hasStrongArchitectureHints) {
       return 'symbol_lookup';
     }

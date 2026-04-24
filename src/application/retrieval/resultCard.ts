@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { closeDb, generateProjectId, initDb } from '../../db/index.js';
+import { ExecutionTracer } from '../../graph/ExecutionTracer.js';
 import { GraphStore } from '../../graph/GraphStore.js';
 import type {
   BlockFirstPayload,
@@ -27,6 +28,7 @@ import type {
   ParsedFeedbackSignal,
   RetrievalData,
   RetrievalGraphContextSummary,
+  RetrievalGraphProcessSummary,
   RetrievalGraphSymbolSummary,
   RetrievalResultCard,
   ResultCardDecisionMatch,
@@ -57,10 +59,15 @@ export async function buildRetrievalResultCard({
   try {
     const { MemoryStore } = await import('../../memory/MemoryStore.js');
     const store = new MemoryStore(repoPath);
-    const [featureMemories, decisions, longTermMemories] = await Promise.all([
+    const [featureMemories, decisions, longTermMemories, searchedLongTermMemories] = await Promise.all([
       store.listFeatures(),
       store.listDecisions(),
       store.listLongTermMemories({ includeExpired: false, staleDays: 30 }),
+      store.findLongTermMemories([informationRequest, ...technicalTerms].join(' '), {
+        includeExpired: false,
+        staleDays: 30,
+        limit: 6,
+      }),
     ]);
 
     const memoryMatches = rankFeatureMemoryMatches(featureMemories, informationRequest, technicalTerms, pack);
@@ -78,13 +85,24 @@ export async function buildRetrievalResultCard({
       technicalTerms,
       memoryMatchesWithFeedback,
     );
-    const directLongTermMatches = rankLongTermMemoryMatches(
-      longTermMemories.filter((memory) => memory.type !== 'feedback'),
-      informationRequest,
-      technicalTerms,
-    );
+    const directLongTermMatches = searchedLongTermMemories
+      .filter((entry) => entry.memory.type !== 'feedback')
+      .map((entry) => ({
+        memory: entry.memory,
+        score: entry.score,
+        reasons: [
+          `matchFields: ${entry.matchFields.join(', ') || 'none'}`,
+          `scoreBreakdown: ${Object.entries(entry.scoreBreakdown ?? {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'none'}`,
+        ],
+        scoreBreakdown: entry.scoreBreakdown,
+      }));
     const longTermMatches = mergeLongTermMemoryMatches(
       directLongTermMatches,
+      rankLongTermMemoryMatches(
+        longTermMemories.filter((memory) => memory.type !== 'feedback'),
+        informationRequest,
+        technicalTerms,
+      ),
       resolveReferencedEvidenceMatches(
         longTermMemories,
         memoryMatchesWithFeedback,
@@ -155,6 +173,8 @@ export function buildGraphContextSummary(
     const store = new GraphStore(db);
     const seen = new Set<string>();
     const symbols: RetrievalGraphSymbolSummary[] = [];
+    const processById = new Map<string, RetrievalGraphProcessSummary>();
+    const tracer = new ExecutionTracer(store);
 
     for (const seed of pack.seeds) {
       const symbolName = extractSymbolNameFromBreadcrumb(seed.record.breadcrumb);
@@ -184,12 +204,25 @@ export function buildGraphContextSummary(
         directDownstream: downstream,
       });
 
+      const traced = tracer.traceFromSymbol(match.name, {
+        direction: 'downstream',
+        maxDepth: 3,
+        query: pack.query,
+      });
+      for (const process of traced?.processes.slice(0, 2) ?? []) {
+        processById.set(`${process.entryName}:${process.keySymbols.join('>')}`, process);
+      }
+
       if (symbols.length >= 3) {
         break;
       }
     }
 
-    return symbols.length > 0 ? { symbols } : undefined;
+    const processes = Array.from(processById.values())
+      .sort((a, b) => b.score - a.score || a.entryName.localeCompare(b.entryName))
+      .slice(0, 3);
+
+    return symbols.length > 0 ? { symbols, ...(processes.length > 0 ? { processes } : {}) } : undefined;
   } catch (err) {
     logger.debug({ error: (err as Error).message }, '构建图谱摘要失败，忽略 code graph summary');
     return undefined;
@@ -211,11 +244,25 @@ export function extractSymbolNameFromBreadcrumb(breadcrumb: string): string | nu
 }
 
 export function formatGraphContextSummary(summary: RetrievalGraphContextSummary): string[] {
-  return summary.symbols.flatMap((symbol) => [
+  const symbolLines = summary.symbols.flatMap((symbol) => [
     `- ${symbol.name} (${symbol.filePath})`,
     `  upstream: ${symbol.directUpstream.length > 0 ? symbol.directUpstream.join(', ') : 'none'}`,
     `  downstream: ${symbol.directDownstream.length > 0 ? symbol.directDownstream.join(', ') : 'none'}`,
   ]);
+  if (!summary.processes || summary.processes.length === 0) {
+    return symbolLines;
+  }
+
+  return [
+    ...symbolLines,
+    '  processes:',
+    ...summary.processes.flatMap((process) => [
+      `  - ${process.id} ${process.entryKind}:${process.entryName} score=${process.score}`,
+      `    symbols: ${process.keySymbols.join(' -> ')}`,
+      `    files: ${process.keyFiles.join(', ')}`,
+      `    modules: ${process.modules.map((module) => `${module.modulePath}(density=${module.callDensity})`).join(', ') || 'none'}`,
+    ]),
+  ];
 }
 
 // ===========================================
@@ -399,6 +446,7 @@ export function mergeLongTermMemoryMatches(
         memory: existing.score >= match.score ? existing.memory : match.memory,
         score: Math.max(existing.score, match.score),
         reasons: [...new Set([...existing.reasons, ...match.reasons])],
+        scoreBreakdown: existing.score >= match.score ? existing.scoreBreakdown : match.scoreBreakdown,
       });
     }
   }

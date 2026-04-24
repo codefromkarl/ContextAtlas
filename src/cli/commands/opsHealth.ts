@@ -6,6 +6,31 @@ import { logger } from '../../utils/logger.js';
 
 export function registerOpsHealthCommands(cli: CommandRegistrar): void {
   cli
+    .command('health:graph', '检查代码图谱健康状态')
+    .option('--project-id <id>', '指定项目 ID（默认根据当前目录推导）')
+    .option('--repo-path <path>', '指定代码库根目录（默认当前目录）')
+    .option('--json', '以 JSON 输出报告')
+    .action(async (options: { projectId?: string; repoPath?: string; json?: boolean }) => {
+      const { analyzeGraphHealth, formatGraphHealthReport } = await import(
+        '../../monitoring/graphHealth.js'
+      );
+      try {
+        const report = analyzeGraphHealth({
+          projectId: options.projectId,
+          repoPath: options.repoPath ? path.resolve(options.repoPath) : process.cwd(),
+        });
+        if (options.json) {
+          writeJson(report);
+          return;
+        }
+        writeText(formatGraphHealthReport(report));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('生成图谱健康报告失败', { error: error.message });
+      }
+    });
+
+  cli
     .command('fts:rebuild-chunks', '从当前向量索引重建 chunk FTS')
     .option('--project-id <id>', '指定项目 ID（默认根据当前目录推导）')
     .action(async (options: { projectId?: string }) => {
@@ -85,13 +110,16 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
     });
 
   cli
-    .command('health:full', '系统全面健康检查（索引 + 记忆 + 告警）')
+    .command('health:full', '系统全面健康检查（索引 + 记忆 + 图谱 + 契约 + 告警）')
     .option('--stale-days <days>', '记忆 stale 阈值天数', { default: '30' })
     .option('--json', '以 JSON 输出报告')
     .action(async (options: { staleDays?: string; json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
       const { analyzeMcpProcessHealth } = await import('../../monitoring/mcpProcessHealth.js');
+      const { analyzeGraphHealth } = await import('../../monitoring/graphHealth.js');
+      const { analyzeContracts } = await import('../../analysis/contractAnalysis.js');
+      const { TOOLS } = await import('../../mcp/registry/tools.js');
       const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
       const { buildAlertEvaluationMetrics, buildHealthFullReport } = await import(
         '../../monitoring/healthFull.js'
@@ -100,16 +128,32 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
       try {
         const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
 
-        const [indexHealth, memoryHealth, mcpProcessHealth] = await Promise.all([
+        const [indexHealth, memoryHealth, mcpProcessHealth, graphHealth, contractReport] = await Promise.all([
           analyzeIndexHealth(),
           analyzeMemoryHealth({
             staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
           }),
           Promise.resolve(analyzeMcpProcessHealth()),
+          Promise.resolve(analyzeGraphHealth({ repoPath: process.cwd() })),
+          Promise.resolve(
+            analyzeContracts(process.cwd(), {
+              tools: TOOLS.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+              })),
+            }),
+          ),
         ]);
+        const contractHealth = contractReport.health;
 
         const alertResult = evaluateAlerts(
-          buildAlertEvaluationMetrics({ indexHealth, memoryHealth, mcpProcessHealth }),
+          buildAlertEvaluationMetrics({
+            indexHealth,
+            memoryHealth,
+            mcpProcessHealth,
+            graphHealth,
+            contractHealth,
+          }),
         );
 
         if (options.json) {
@@ -117,6 +161,8 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
             indexHealth,
             memoryHealth,
             mcpProcessHealth,
+            graphHealth,
+            contractHealth,
             alerts: alertResult,
           });
           return;
@@ -127,6 +173,8 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
             indexHealth,
             memoryHealth,
             mcpProcessHealth,
+            graphHealth,
+            contractHealth,
             alerts: alertResult,
           }),
         );

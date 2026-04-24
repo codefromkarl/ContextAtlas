@@ -73,6 +73,10 @@ export {
   handleAssembleContext,
 } from './assembleContext.js';
 export {
+  contractAnalysisSchema,
+  handleContractAnalysis,
+} from './contractAnalysis.js';
+export {
   detectChangesSchema,
   graphContextSchema,
   graphImpactSchema,

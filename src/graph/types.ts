@@ -13,6 +13,8 @@ export type GraphEdgeType =
   | 'IMPORTS'
   | 'EXTENDS'
   | 'IMPLEMENTS'
+  | 'METHOD_OVERRIDES'
+  | 'METHOD_IMPLEMENTS'
   | 'HAS_METHOD'
   | 'HAS_PROPERTY'
   | 'ACCESSES';

@@ -6,6 +6,7 @@
 npm install -g @codefromkarl/context-atlas
 contextatlas init
 contextatlas setup:local --mode cli-skill
+contextatlas health:full
 ```
 
 配置文件位于 `~/.contextatlas/.env`，详见 [README.md](../../README.md#配置)。
@@ -36,6 +37,8 @@ ContextAtlas 有两种互斥接入模式：
 - **`mcp`** — MCP 模式，适合 Claude Desktop、Cursor 等 MCP 客户端。`setup:local --mode mcp` 只写入 MCP 配置文件（`mcp.json`、Claude Desktop 配置等）和 MCP skill 文件，详见 [MCP.md](../reference/mcp.md)。
 
 两种模式的 setup 互斥，各自只写入对应模式的文件。已存在另一模式的文件不会被删除，但不会被覆盖或更新。
+
+setup 完成后推荐执行 `contextatlas health:full`，统一检查索引、记忆、图谱、契约和 MCP 进程状态。
 
 ## 检索与索引
 
@@ -205,6 +208,7 @@ contextatlas memory:suggest "Auth Module" --files "src/auth/auth.service.ts"
 contextatlas memory:record "Auth Module" --desc "用户认证" --dir "src/auth"
 contextatlas memory:record "SearchService" --desc "检索主流程编排 facade" --dir "src/search" --confirmation-status human-confirmed
 contextatlas memory:record-long-term --type reference --title "Grafana Dashboard" --summary "Dashboard URL https://grafana.example.com/d/abc123"
+contextatlas memory:suggest-long-term --transcript "Always reply in Chinese" --json
 contextatlas memory:list
 contextatlas memory:delete "Auth Module"
 contextatlas memory:rebuild-catalog
@@ -269,7 +273,10 @@ contextatlas hub:link <fromProject> <fromModule> <toProject> <toModule> depends_
 contextatlas hub:deps <projectId> <moduleName>
 contextatlas hub:stats
 contextatlas hub:repair-project-identities --dry-run
+contextatlas hub:repair-project-identities
 ```
+
+`hub:repair-project-identities` 用于把旧 memory hub 中的 legacy project id 迁移到规范化路径派生 id。默认先运行 `--dry-run` 查看迁移计划；确认后再执行无 `--dry-run` 版本。该命令会迁移 feature memories、project meta 和 decision records；长期记忆的旧 blob 仍可读，并在长期记忆写入路径进入新表布局。
 
 ## 观测与优化
 
@@ -293,6 +300,9 @@ contextatlas health:check
 contextatlas health:check --json
 contextatlas health:check --quick --json           # 快速模式：跳过 VectorStore/策略分析（~0.3s）
 contextatlas health:check --project-id <projectId>
+contextatlas health:graph
+contextatlas health:graph --json
+contextatlas health:graph --repo-path <repo>
 contextatlas health:full
 contextatlas health:full --json
 contextatlas fts:rebuild-chunks --project-id <projectId>
@@ -377,6 +387,8 @@ contextatlas alert:config --reset
 - `churnRatio`
 - `incrementalCostRatio`
 - `fullRebuildTriggers`
+
+`contextatlas health:graph` 是只读图谱健康检查：它不会创建缺失数据库，也不会自动修改旧 schema。旧 graph schema 会按 `missing` / `degraded` / `ok` 报告，缺表时重跑 `contextatlas index <repo>`，缺列、索引、FTS 虚表或 migration 记录时优先按报告建议重建索引或执行 schema 初始化。`contextatlas health:full` 会汇总 `graphHealth` 与 `contractHealth`，适合作为 setup 或升级后的统一验收入口。
 
 默认 `contextatlas search` / MCP `codebase-retrieval` 结果卡片现在会固定补充：
 

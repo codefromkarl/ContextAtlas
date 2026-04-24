@@ -94,12 +94,20 @@ test('ExecutionTracer traces downstream paths across resolved relations', () => 
     });
 
     assert.ok(traced);
+    assert.equal(traced?.entryKind, 'library_symbol');
     assert.equal(traced?.paths.length, 1);
     assert.deepEqual(
       traced?.paths[0]?.symbols.map((symbol) => symbol.name),
       ['UserService', 'updatePassword', 'hashLocal'],
     );
     assert.deepEqual(traced?.paths[0]?.relationTypes, ['HAS_METHOD', 'CALLS']);
+    assert.equal(traced?.paths[0]?.depth, 2);
+    assert.deepEqual(traced?.paths[0]?.keyFiles, [filePath]);
+    assert.deepEqual(traced?.paths[0]?.moduleHints, ['src/user/UserService.ts']);
+    assert.ok((traced?.paths[0]?.score ?? 0) > 1);
+    assert.equal(traced?.processes[0]?.entryName, 'UserService');
+    assert.deepEqual(traced?.processes[0]?.keySymbols, ['UserService', 'updatePassword', 'hashLocal']);
+    assert.equal(traced?.processes[0]?.modules[0]?.modulePath, 'src/user/UserService.ts');
   } finally {
     closeDb(db);
     fs.rmSync(rootPath, { recursive: true, force: true });

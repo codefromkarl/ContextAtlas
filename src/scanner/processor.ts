@@ -8,7 +8,8 @@ import {
   type ProcessedChunk,
   SemanticSplitter,
 } from '../chunking/index.js';
-import type { GraphWritePayload } from '../graph/types.js';
+import type { GraphWritePayload, SkeletonWritePayload } from '../graph/types.js';
+import { buildFallbackFileSkeleton, buildSkeletonPayload } from '../graph/SkeletonBuilder.js';
 import { SymbolExtractor } from '../graph/SymbolExtractor.js';
 import { readFileWithEncoding } from '../utils/encoding.js';
 import { sha256 } from './hash.js';
@@ -68,7 +69,7 @@ const FALLBACK_LANGS = new Set([
  * 用于显式标记 AST / 语义分片 / chunk metadata 规则的兼容性边界。
  * 当分片策略或 chunk 结构发生不兼容变化时，应递增该版本，触发全量重建。
  */
-export const INDEX_CONTENT_SCHEMA_VERSION = 1;
+export const INDEX_CONTENT_SCHEMA_VERSION = 4;
 
 /**
  * 检查 JSON 文件是否应该跳过索引
@@ -127,6 +128,7 @@ export interface ProcessResult {
   chunks: ProcessedChunk[];
   /** Phase 0 先固定接缝，Phase 1 再写入真实 graph payload。 */
   graph?: GraphWritePayload;
+  skeleton?: SkeletonWritePayload;
   language: string;
   mtime: number;
   size: number;
@@ -323,6 +325,7 @@ async function processFile(
     // 语义分片
     let chunks: ProcessedChunk[] = [];
     let graph: GraphWritePayload | undefined;
+    let skeleton: SkeletonWritePayload | undefined;
     let astAttempted = false;
     let astFailed = false;
     let usedFallback = false;
@@ -336,6 +339,14 @@ async function processFile(
           const tree = parser.parse(content);
           chunks = splitter.split(tree, content, relPath, language);
           graph = symbolExtractor.extract(tree, content, relPath, language);
+          if (graph.symbols.length > 0 || graph.relations.length > 0) {
+            skeleton = buildSkeletonPayload({
+              filePath: relPath,
+              language,
+              graph,
+              content,
+            });
+          }
         }
       } catch (err) {
         const error = err as { message?: string };
@@ -351,6 +362,14 @@ async function processFile(
       usedFallback = chunks.length > 0;
     }
 
+    if (!skeleton && content.trim().length > 0 && (language === 'typescript' || language === 'javascript')) {
+      skeleton = buildFallbackFileSkeleton({
+        filePath: relPath,
+        language,
+        content,
+      });
+    }
+
     return {
       absPath,
       relPath,
@@ -358,6 +377,7 @@ async function processFile(
       content,
       chunks,
       graph,
+      skeleton,
       language,
       mtime,
       size,

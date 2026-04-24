@@ -26,8 +26,9 @@ export function buildSearchJsonPayload(input: {
   informationRequest: string;
   technicalTerms: string[];
   response: { content: Array<{ type: 'text'; text: string }> };
+  data?: RetrievalOutput['data'];
 }): SearchJsonPayload {
-  const { repoPath, informationRequest, technicalTerms, response } = input;
+  const { repoPath, informationRequest, technicalTerms, response, data } = input;
   const text = response.content.map((c) => c.text).join('');
 
   return {
@@ -37,6 +38,7 @@ export function buildSearchJsonPayload(input: {
     technical_terms: technicalTerms,
     content: response.content,
     text,
+    ...(data ? { data } : {}),
   };
 }
 
@@ -69,18 +71,63 @@ export function registerSearchCommands(cli: CommandRegistrar): void {
         });
 
         if (options.json) {
+          const payload = buildSearchJsonPayload({
+            repoPath,
+            informationRequest,
+            technicalTerms,
+            response: {
+              content: [{ type: 'text', text: result.text }],
+            },
+            data: result.data,
+          });
           writeJson({
-            tool: 'codebase-retrieval',
-            repo_path: repoPath,
-            information_request: informationRequest,
-            technical_terms: technicalTerms,
-            text: result.text,
+            ...payload,
             ...(result.data || {}),
           });
           return;
         }
 
         writeText(result.text);
+      },
+    );
+
+  cli
+    .command('benchmark:retrieval', '运行 retrieval benchmark fixture 并输出质量报告')
+    .option('--repo-path <path>', '代码库根目录（默认当前目录）')
+    .option('--fixture <path>', 'benchmark fixture 路径')
+    .option('--top-k <n>', '按 Top K 文件计算命中', { default: 5 })
+    .option('--json', '以 JSON 输出报告')
+    .action(
+      async (options: {
+        repoPath?: string;
+        fixture?: string;
+        topK?: string | number;
+        json?: boolean;
+      }) => {
+        const repoPath = options.repoPath ? path.resolve(options.repoPath) : process.cwd();
+        const fixturePath = options.fixture
+          ? path.resolve(options.fixture)
+          : path.join(process.cwd(), 'tests/fixtures/retrieval-benchmark/contextatlas-dual-track.json');
+
+        try {
+          const { runRetrievalBenchmark, formatRetrievalBenchmarkReport } = await import('../../monitoring/retrievalBenchmark.js');
+          const topK = Number.parseInt(String(options.topK ?? '5'), 10);
+          const report = await runRetrievalBenchmark({
+            repoPath,
+            fixturePath,
+            topK: Number.isFinite(topK) && topK > 0 ? topK : 5,
+          });
+
+          if (options.json) {
+            writeJson(report);
+            return;
+          }
+
+          writeText(formatRetrievalBenchmarkReport(report));
+        } catch (err) {
+          const error = err as Error;
+          exitWithError('运行 retrieval benchmark 失败', { error: error.message });
+        }
       },
     );
 

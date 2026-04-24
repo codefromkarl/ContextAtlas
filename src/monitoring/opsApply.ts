@@ -11,11 +11,13 @@ import type { IndexOptimizationReport } from '../usage/usageAnalysis.js';
 import type { AlertEvaluationResult } from './alertEngine.js';
 import type { IndexHealthReport, SnapshotHealth } from './indexHealth.js';
 import type { MemoryHealthReport } from './memoryHealth.js';
+import type { McpCleanupResult, McpProcessHealthReport } from './mcpProcessHealth.js';
 import { summarizeOpsSnapshot, type OpsSummarySnapshot } from './opsSummary.js';
 
 export interface OpsApplyInput {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
+  mcpProcessHealth?: McpProcessHealthReport;
   usageReport: IndexOptimizationReport;
   alertResult: AlertEvaluationResult;
 }
@@ -23,7 +25,8 @@ export interface OpsApplyInput {
 export type OpsApplyKind =
   | 'daemon-start'
   | 'memory-rebuild-catalog'
-  | 'fts-rebuild-chunks';
+  | 'fts-rebuild-chunks'
+  | 'mcp-cleanup-duplicates';
 
 export interface OpsApplyPlan {
   actionId: string;
@@ -39,6 +42,9 @@ export interface OpsApplyPlan {
 export interface OpsApplyResult extends OpsApplyPlan {
   status: 'applied' | 'planned';
   pid?: number | null;
+  keptPid?: number | null;
+  duplicateCount?: number;
+  remainingPids?: number[];
   moduleCount?: number;
   scopeCount?: number;
   filesProcessed?: number;
@@ -53,6 +59,7 @@ export interface OpsApplyOptions {
 
 interface OpsApplyDependencies {
   startDaemon?: (input: { cliEntryPath?: string }) => Promise<{ pid?: number | null }>;
+  cleanupDuplicateMcp?: (input: { repoRoot: string }) => Promise<McpCleanupResult>;
 }
 
 export interface OpsVerificationOptions {
@@ -169,6 +176,12 @@ export function planOpsAction(input: OpsApplyInput, options: OpsApplyOptions): O
         repoPath: path.resolve(options.repoPath || process.cwd()),
         projectId: resolveChunkFtsProjectId(input.indexHealth, options.projectId),
       };
+    case 'cleanup-duplicate-mcp':
+      return {
+        ...toPlanBase(action),
+        kind: 'mcp-cleanup-duplicates',
+        repoPath: path.resolve(options.repoPath || process.cwd()),
+      };
     default:
       throw new Error(`动作 ${action.id} 暂不支持 ops:apply`);
   }
@@ -244,6 +257,26 @@ export async function applyOpsActionPlan(
         db.close();
       }
     }
+    case 'mcp-cleanup-duplicates': {
+      const cleanup = dependencies.cleanupDuplicateMcp || (async (input: { repoRoot: string }) => {
+        const { analyzeMcpProcessHealth, executeMcpCleanup } = await import('./mcpProcessHealth.js');
+        const report = analyzeMcpProcessHealth({ repoRoot: input.repoRoot });
+        return executeMcpCleanup({
+          repoRoot: input.repoRoot,
+          keepPid: report.processes[0]?.pid ?? null,
+          apply: true,
+          force: true,
+        });
+      });
+      const result = await cleanup({ repoRoot: plan.repoPath || process.cwd() });
+      return {
+        ...plan,
+        status: 'applied',
+        keptPid: result.keptPid,
+        duplicateCount: result.duplicateCount,
+        remainingPids: result.remainingPids,
+      };
+    }
     default: {
       const exhaustive: never = plan.kind;
       throw new Error(`未知 ops apply 动作: ${exhaustive}`);
@@ -316,31 +349,29 @@ async function collectOpsVerificationSnapshot(
 ): Promise<OpsVerificationSnapshot> {
   const { analyzeIndexHealth } = await import('./indexHealth.js');
   const { analyzeMemoryHealth } = await import('./memoryHealth.js');
+  const { analyzeMcpProcessHealth } = await import('./mcpProcessHealth.js');
   const { evaluateAlerts } = await import('./alertEngine.js');
   const { analyzeIndexOptimization } = await import('../usage/usageAnalysis.js');
+  const { buildAlertEvaluationMetrics } = await import('./healthFull.js');
 
   const days = Number.isFinite(options.days) && (options.days || 0) > 0 ? options.days : 7;
   const staleDays =
     Number.isFinite(options.staleDays) && (options.staleDays || 0) > 0 ? options.staleDays : 30;
 
-  const [indexHealth, memoryHealth] = await Promise.all([
+  const [indexHealth, memoryHealth, mcpProcessHealth] = await Promise.all([
     analyzeIndexHealth(),
     analyzeMemoryHealth({ staleDays }),
+    Promise.resolve(analyzeMcpProcessHealth()),
   ]);
   const usageReport = analyzeIndexOptimization({ days });
-  const alertResult = evaluateAlerts({
-    ...indexHealth,
-    memory: {
-      staleRate: memoryHealth.longTermFreshness.staleRate,
-      expiredRate: memoryHealth.longTermFreshness.expiredRate,
-      orphanedRate: memoryHealth.featureMemoryHealth.orphanedRate,
-      catalogInconsistent: !memoryHealth.catalogConsistency.isConsistent,
-    },
-  });
+  const alertResult = evaluateAlerts(
+    buildAlertEvaluationMetrics({ indexHealth, memoryHealth, mcpProcessHealth }),
+  );
 
   const input = {
     indexHealth,
     memoryHealth,
+    mcpProcessHealth,
     usageReport,
     alertResult,
   };

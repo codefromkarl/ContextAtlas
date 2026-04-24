@@ -62,6 +62,8 @@ const SCHEMA_MIGRATION_ADD_VECTOR_INDEX_HASH = '20260409_add_vector_index_hash_t
 const SCHEMA_MIGRATION_RESERVE_CODE_GRAPH = '20260410_reserve_code_graph_hooks';
 const SCHEMA_MIGRATION_ADD_CODE_GRAPH_TABLES = '20260410_add_code_graph_tables';
 const SCHEMA_MIGRATION_RELATIONS_ALLOW_UNRESOLVED = '20260410_relations_allow_unresolved_targets';
+const SCHEMA_MIGRATION_ADD_SKELETON_TABLES = '20260416_add_skeleton_tables';
+const SCHEMA_MIGRATION_ADD_INVOCATIONS_TABLE = '20260417_add_invocations_table';
 
 function readStringField(row: unknown, key: string): string | undefined {
   if (!row || typeof row !== 'object') {
@@ -207,10 +209,67 @@ function applySchemaMigrations(db: Database.Database): void {
 
     CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts
     USING fts5(symbol_id UNINDEXED, name, file_path);
+
+    CREATE TABLE IF NOT EXISTS file_skeleton (
+      path TEXT PRIMARY KEY,
+      language TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      imports TEXT NOT NULL DEFAULT '[]',
+      exports TEXT NOT NULL DEFAULT '[]',
+      top_symbols TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (path) REFERENCES files(path)
+    );
+
+    CREATE TABLE IF NOT EXISTS symbol_skeleton (
+      symbol_id TEXT PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      parent_name TEXT,
+      exported INTEGER NOT NULL DEFAULT 0,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      FOREIGN KEY (file_path) REFERENCES files(path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_symbol_skeleton_file ON symbol_skeleton(file_path);
+    CREATE INDEX IF NOT EXISTS idx_symbol_skeleton_name ON symbol_skeleton(name);
+    CREATE INDEX IF NOT EXISTS idx_symbol_skeleton_type ON symbol_skeleton(type);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS file_skeleton_fts
+    USING fts5(path UNINDEXED, summary, imports, exports, top_symbols);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS symbol_skeleton_fts
+    USING fts5(symbol_id UNINDEXED, file_path UNINDEXED, name, signature, parent_name);
+
+    CREATE TABLE IF NOT EXISTS invocations (
+      id TEXT PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      enclosing_symbol_id TEXT,
+      callee_name TEXT NOT NULL,
+      resolved_target_id TEXT,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      FOREIGN KEY (file_path) REFERENCES files(path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_invocations_file ON invocations(file_path);
+    CREATE INDEX IF NOT EXISTS idx_invocations_enclosing ON invocations(enclosing_symbol_id);
+    CREATE INDEX IF NOT EXISTS idx_invocations_target ON invocations(resolved_target_id);
   `);
 
   if (!hasAppliedMigration(db, SCHEMA_MIGRATION_ADD_CODE_GRAPH_TABLES)) {
     recordSchemaMigration(db, SCHEMA_MIGRATION_ADD_CODE_GRAPH_TABLES);
+  }
+
+  if (!hasAppliedMigration(db, SCHEMA_MIGRATION_ADD_SKELETON_TABLES)) {
+    recordSchemaMigration(db, SCHEMA_MIGRATION_ADD_SKELETON_TABLES);
+  }
+
+  if (!hasAppliedMigration(db, SCHEMA_MIGRATION_ADD_INVOCATIONS_TABLE)) {
+    recordSchemaMigration(db, SCHEMA_MIGRATION_ADD_INVOCATIONS_TABLE);
   }
 
   const relationsSql = getCreateTableSql(db, 'relations') ?? '';
@@ -463,11 +522,20 @@ export function batchDelete(db: Database.Database, paths: string[]): void {
           ...symbolIds,
           ...symbolIds,
         );
+        db.prepare(`DELETE FROM invocations WHERE enclosing_symbol_id IN (${placeholders}) OR resolved_target_id IN (${placeholders})`).run(
+          ...symbolIds,
+          ...symbolIds,
+        );
         db.prepare(`DELETE FROM symbols_fts WHERE symbol_id IN (${placeholders})`).run(...symbolIds);
+        db.prepare(`DELETE FROM symbol_skeleton_fts WHERE symbol_id IN (${placeholders})`).run(...symbolIds);
       } else {
         db.prepare('DELETE FROM symbols_fts WHERE file_path = ?').run(item);
       }
 
+      db.prepare('DELETE FROM invocations WHERE file_path = ?').run(item);
+      db.prepare('DELETE FROM symbol_skeleton WHERE file_path = ?').run(item);
+      db.prepare('DELETE FROM file_skeleton_fts WHERE path = ?').run(item);
+      db.prepare('DELETE FROM file_skeleton WHERE path = ?').run(item);
       db.prepare('DELETE FROM symbols WHERE file_path = ?').run(item);
     }
 
@@ -490,7 +558,12 @@ export function batchDelete(db: Database.Database, paths: string[]): void {
 export function clear(db: Database.Database): void {
   db.exec(`
     DELETE FROM relations;
+    DELETE FROM invocations;
     DELETE FROM symbols_fts;
+    DELETE FROM symbol_skeleton_fts;
+    DELETE FROM file_skeleton_fts;
+    DELETE FROM symbol_skeleton;
+    DELETE FROM file_skeleton;
     DELETE FROM symbols;
     DELETE FROM files;
   `);

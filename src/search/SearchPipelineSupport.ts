@@ -23,17 +23,31 @@ export interface BuildContextRequest {
   responseMode: SearchResultMode;
 }
 
+export function resolveIntentOperationalQuery(
+  request: Pick<BuildContextRequest, 'queryIntent' | 'lexicalQuery'>,
+  originalQuery: string,
+): string {
+  return request.queryIntent === 'symbol_lookup'
+    ? request.lexicalQuery
+    : originalQuery;
+}
+
 export function buildContextRequest(
   query: string,
   options: BuildContextPackOptions,
   baseConfig: SearchConfig,
 ): BuildContextRequest {
   const queryIntent = classifyQueryIntent(query, options.technicalTerms || []);
+  const lexicalQuery = options.lexicalQuery?.trim() || query;
+  const semanticQuery = queryIntent === 'symbol_lookup'
+    ? lexicalQuery
+    : options.semanticQuery?.trim() || query;
+
   return {
     queryIntent,
     activeConfig: deriveQueryAwareSearchConfig(baseConfig, queryIntent),
-    semanticQuery: options.semanticQuery?.trim() || query,
-    lexicalQuery: options.lexicalQuery?.trim() || query,
+    semanticQuery,
+    lexicalQuery,
     responseMode: options.responseMode || 'expanded',
   };
 }
@@ -85,8 +99,8 @@ export function buildRetrievalStats(input: {
   rerankedCount: number;
 }): RetrievalStats {
   return {
-    queryIntent: input.queryIntent,
     ...input.retrievedStats,
+    queryIntent: input.queryIntent,
     topMCount: input.topMCount,
     rerankInputCount: input.rerankInputCount,
     rerankedCount: input.rerankedCount,

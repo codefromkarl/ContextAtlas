@@ -15,6 +15,7 @@ const repoRoot = process.cwd();
 const testsDir = path.join(repoRoot, 'tests');
 const distTestFiles = new Set([
   'crawler.test.mjs',
+  'dist-import-integrity.test.ts',
   'fts-rebuild.test.ts',
   'mcp-stdio.test.ts',
   'retrieval-monitoring.test.ts',

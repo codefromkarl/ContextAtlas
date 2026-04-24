@@ -19,6 +19,7 @@ import { logger } from '../../utils/logger.js';
 import { getMcpIndexPolicy, resolveAutoIndexScope } from './indexPolicy.js';
 import { buildColdStartLexicalFallbackPack } from './coldStartFallback.js';
 import {
+  buildRetrievalData,
   buildRetrievalResultCard,
   formatRetrievalResponse,
 } from './resultCard.js';
@@ -173,7 +174,15 @@ export async function executeRetrieval(
       informationRequest,
     });
 
-    return { text };
+    return {
+      text,
+      data: buildRetrievalData({
+        repoPath,
+        informationRequest,
+        pack: fallbackPack,
+        resultCard,
+      }),
+    };
   }
 
   // 2. 检查环境变量
@@ -395,7 +404,15 @@ export async function executeRetrieval(
     informationRequest,
   });
 
-  return { text };
+  return {
+    text,
+    data: buildRetrievalData({
+      repoPath,
+      informationRequest,
+      pack: contextPack,
+      resultCard,
+    }),
+  };
 }
 
 // ===========================================
@@ -530,6 +547,12 @@ export function buildRetrievalTelemetry({
     seedCount: contextPack.seeds.length,
     expandedCount: contextPack.expanded.length,
     fileCount: contextPack.files.length,
+    architecturePrimaryCount: contextPack.architecturePrimaryFiles?.length || 0,
+    architecturePrimaryFiles: contextPack.architecturePrimaryFiles ?? [],
+    visibleFileCount: new Set([
+      ...contextPack.files.map((file) => file.filePath),
+      ...(contextPack.architecturePrimaryFiles ?? []),
+    ]).size,
     totalSegments,
     totalChars,
     totalMs,

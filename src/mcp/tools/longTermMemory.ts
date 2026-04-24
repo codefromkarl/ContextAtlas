@@ -44,11 +44,13 @@ export const recordLongTermMemorySchema = z.object({
 
 export const manageLongTermMemorySchema = z.object({
   action: z
-    .enum(['find', 'list', 'prune', 'delete', 'invalidate'])
+    .enum(['find', 'list', 'prune', 'delete', 'invalidate', 'suggest'])
     .describe(
-      'Action: find=search by keyword, list=all memories, prune=remove expired/stale, delete=remove one by id, invalidate=mark an active memory as invalid',
+      'Action: find=search by keyword, list=all memories, prune=remove expired/stale, delete=remove one by id, invalidate=mark an active memory as invalid, suggest=extract non-code long-term memory candidates without writing by default',
     ),
   query: z.string().optional().describe('[find] Keyword query'),
+  transcript: z.string().optional().describe('[suggest] Session text or transcript to extract suggestions from'),
+  apply: z.boolean().optional().default(false).describe('[suggest] Persist suggestions; default false returns candidates only'),
   types: z
     .array(longTermMemoryTypeSchema)
     .optional()

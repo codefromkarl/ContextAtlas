@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { closeDb, generateProjectId, initDb } from '../../db/index.js';
+import { ExecutionTracer } from '../../graph/ExecutionTracer.js';
 import { GraphStore } from '../../graph/GraphStore.js';
 import type {
   BlockFirstPayload,
@@ -17,14 +18,17 @@ import type {
   FeatureMemory,
   ResolvedLongTermMemoryItem,
 } from '../../memory/types.js';
-import type { ContextPack, Segment } from '../../search/types.js';
+import { segmentQuery } from '../../search/fts.js';
+import type { ContextPack, QueryIntent, Segment } from '../../search/types.js';
 import { resolveCurrentSnapshotId } from '../../storage/layout.js';
 import { logger } from '../../utils/logger.js';
 import type {
   FeatureMemoryFreshness,
   OverviewData,
   ParsedFeedbackSignal,
+  RetrievalData,
   RetrievalGraphContextSummary,
+  RetrievalGraphProcessSummary,
   RetrievalGraphSymbolSummary,
   RetrievalResultCard,
   ResultCardDecisionMatch,
@@ -55,10 +59,15 @@ export async function buildRetrievalResultCard({
   try {
     const { MemoryStore } = await import('../../memory/MemoryStore.js');
     const store = new MemoryStore(repoPath);
-    const [featureMemories, decisions, longTermMemories] = await Promise.all([
+    const [featureMemories, decisions, longTermMemories, searchedLongTermMemories] = await Promise.all([
       store.listFeatures(),
       store.listDecisions(),
       store.listLongTermMemories({ includeExpired: false, staleDays: 30 }),
+      store.findLongTermMemories([informationRequest, ...technicalTerms].join(' '), {
+        includeExpired: false,
+        staleDays: 30,
+        limit: 6,
+      }),
     ]);
 
     const memoryMatches = rankFeatureMemoryMatches(featureMemories, informationRequest, technicalTerms, pack);
@@ -76,13 +85,24 @@ export async function buildRetrievalResultCard({
       technicalTerms,
       memoryMatchesWithFeedback,
     );
-    const directLongTermMatches = rankLongTermMemoryMatches(
-      longTermMemories.filter((memory) => memory.type !== 'feedback'),
-      informationRequest,
-      technicalTerms,
-    );
+    const directLongTermMatches = searchedLongTermMemories
+      .filter((entry) => entry.memory.type !== 'feedback')
+      .map((entry) => ({
+        memory: entry.memory,
+        score: entry.score,
+        reasons: [
+          `matchFields: ${entry.matchFields.join(', ') || 'none'}`,
+          `scoreBreakdown: ${Object.entries(entry.scoreBreakdown ?? {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'none'}`,
+        ],
+        scoreBreakdown: entry.scoreBreakdown,
+      }));
     const longTermMatches = mergeLongTermMemoryMatches(
       directLongTermMatches,
+      rankLongTermMemoryMatches(
+        longTermMemories.filter((memory) => memory.type !== 'feedback'),
+        informationRequest,
+        technicalTerms,
+      ),
       resolveReferencedEvidenceMatches(
         longTermMemories,
         memoryMatchesWithFeedback,
@@ -153,6 +173,8 @@ export function buildGraphContextSummary(
     const store = new GraphStore(db);
     const seen = new Set<string>();
     const symbols: RetrievalGraphSymbolSummary[] = [];
+    const processById = new Map<string, RetrievalGraphProcessSummary>();
+    const tracer = new ExecutionTracer(store);
 
     for (const seed of pack.seeds) {
       const symbolName = extractSymbolNameFromBreadcrumb(seed.record.breadcrumb);
@@ -182,12 +204,25 @@ export function buildGraphContextSummary(
         directDownstream: downstream,
       });
 
+      const traced = tracer.traceFromSymbol(match.name, {
+        direction: 'downstream',
+        maxDepth: 3,
+        query: pack.query,
+      });
+      for (const process of traced?.processes.slice(0, 2) ?? []) {
+        processById.set(`${process.entryName}:${process.keySymbols.join('>')}`, process);
+      }
+
       if (symbols.length >= 3) {
         break;
       }
     }
 
-    return symbols.length > 0 ? { symbols } : undefined;
+    const processes = Array.from(processById.values())
+      .sort((a, b) => b.score - a.score || a.entryName.localeCompare(b.entryName))
+      .slice(0, 3);
+
+    return symbols.length > 0 ? { symbols, ...(processes.length > 0 ? { processes } : {}) } : undefined;
   } catch (err) {
     logger.debug({ error: (err as Error).message }, '构建图谱摘要失败，忽略 code graph summary');
     return undefined;
@@ -209,11 +244,25 @@ export function extractSymbolNameFromBreadcrumb(breadcrumb: string): string | nu
 }
 
 export function formatGraphContextSummary(summary: RetrievalGraphContextSummary): string[] {
-  return summary.symbols.flatMap((symbol) => [
+  const symbolLines = summary.symbols.flatMap((symbol) => [
     `- ${symbol.name} (${symbol.filePath})`,
     `  upstream: ${symbol.directUpstream.length > 0 ? symbol.directUpstream.join(', ') : 'none'}`,
     `  downstream: ${symbol.directDownstream.length > 0 ? symbol.directDownstream.join(', ') : 'none'}`,
   ]);
+  if (!summary.processes || summary.processes.length === 0) {
+    return symbolLines;
+  }
+
+  return [
+    ...symbolLines,
+    '  processes:',
+    ...summary.processes.flatMap((process) => [
+      `  - ${process.id} ${process.entryKind}:${process.entryName} score=${process.score}`,
+      `    symbols: ${process.keySymbols.join(' -> ')}`,
+      `    files: ${process.keyFiles.join(', ')}`,
+      `    modules: ${process.modules.map((module) => `${module.modulePath}(density=${module.callDensity})`).join(', ') || 'none'}`,
+    ]),
+  ];
 }
 
 // ===========================================
@@ -397,6 +446,7 @@ export function mergeLongTermMemoryMatches(
         memory: existing.score >= match.score ? existing.memory : match.memory,
         score: Math.max(existing.score, match.score),
         reasons: [...new Set([...existing.reasons, ...match.reasons])],
+        scoreBreakdown: existing.score >= match.score ? existing.scoreBreakdown : match.scoreBreakdown,
       });
     }
   }
@@ -1201,9 +1251,17 @@ export function buildOverviewData(
     .map((file) => ({ filePath: file.filePath, segmentCount: file.segments.length }))
     .sort((a, b) => b.segmentCount - a.segmentCount)
     .slice(0, 5);
+  const architecturePrimaryFiles = buildOverviewArchitecturePrimaryFiles(
+    pack,
+    resultCard,
+    new Set(topFiles.map((item) => item.filePath)),
+  );
 
   const expansionCandidates = pack.expansionCandidates
-    ? pack.expansionCandidates.slice(0, 5).map((candidate) => ({
+    ? pack.expansionCandidates
+      .filter((candidate) => !architecturePrimaryFiles.includes(candidate.filePath))
+      .slice(0, 5)
+      .map((candidate) => ({
         filePath: candidate.filePath,
         reason: candidate.reason,
         priority: candidate.priority,
@@ -1237,6 +1295,7 @@ export function buildOverviewData(
       totalSegments: pack.files.reduce((acc, file) => acc + file.segments.length, 0),
     },
     topFiles,
+    architecturePrimaryFiles,
     references,
     expansionCandidates,
     nextInspectionSuggestions:
@@ -1246,11 +1305,166 @@ export function buildOverviewData(
   };
 }
 
+function buildOverviewArchitecturePrimaryFiles(
+  pack: ContextPack,
+  resultCard: RetrievalResultCard,
+  topFilePaths: Set<string>,
+): string[] {
+  const queryIntent = pack.debug?.retrievalStats?.queryIntent;
+  const primaryFiles = pack.architecturePrimaryFiles ?? [];
+  const promotedExpansionFiles = (pack.expansionCandidates ?? [])
+    .filter((candidate) => candidate.priority === 'high' || candidate.reason.includes('import'))
+    .map((candidate) => candidate.filePath);
+  const promotedMemoryFiles = queryIntent === 'symbol_lookup' && primaryFiles.length === 0
+    ? collectMemoryPrimaryHints(resultCard, pack.query, topFilePaths)
+    : queryIntent === 'balanced' && primaryFiles.length === 0 && topFilePaths.size <= 3
+      ? collectMemoryPrimaryHints(resultCard, pack.query, topFilePaths, 1)
+    : [];
+
+  if (primaryFiles.length === 0 && promotedExpansionFiles.length === 0 && promotedMemoryFiles.length === 0) {
+    return [];
+  }
+
+  const primarySet = new Set(primaryFiles);
+  const limit = Math.max(primaryFiles.length, promotedMemoryFiles.length > 0 ? 2 : 3);
+
+  return Array.from(new Set([...primaryFiles, ...promotedExpansionFiles, ...promotedMemoryFiles]))
+    .map((filePath) => ({
+      filePath,
+      queryScore: scoreOverviewPathRelevance(pack.query, filePath),
+      sourcePriority: primarySet.has(filePath) ? 1 : 0,
+      pathPriority: getOverviewPathPriority(filePath),
+    }))
+    .sort((a, b) =>
+      b.queryScore - a.queryScore
+      || b.sourcePriority - a.sourcePriority
+      || b.pathPriority - a.pathPriority
+      || a.filePath.localeCompare(b.filePath),
+    )
+    .slice(0, limit)
+    .map((item) => item.filePath);
+}
+
+function collectMemoryPrimaryHints(
+  resultCard: RetrievalResultCard,
+  query: string,
+  topFilePaths: Set<string>,
+  minScore = 1,
+): string[] {
+  const candidates = new Map<string, { filePath: string; score: number }>();
+
+  for (const match of resultCard.memories.slice(0, 3)) {
+    for (const filePath of resolveFeatureMemoryFilePaths(match.memory)) {
+      if (!filePath.startsWith('src/')) continue;
+      if (topFilePaths.has(filePath)) continue;
+
+      const score = scoreOverviewPathRelevance(query, filePath);
+      if (score < minScore) continue;
+
+      const current = candidates.get(filePath);
+      if (!current || score > current.score) {
+        candidates.set(filePath, { filePath, score });
+      }
+    }
+  }
+
+  return Array.from(candidates.values())
+    .sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath))
+    .slice(0, 2)
+    .map((item) => item.filePath);
+}
+
+function resolveFeatureMemoryFilePaths(memory: FeatureMemory): string[] {
+  const normalizedDir = normalizePath(memory.location.dir);
+
+  return memory.location.files
+    .map((file) => {
+      const normalizedFile = normalizePath(file);
+      if (
+        normalizedFile.startsWith('src/')
+        || normalizedFile.startsWith('tests/')
+        || normalizedFile.startsWith('docs/')
+        || normalizedFile.startsWith(normalizedDir)
+      ) {
+        return normalizedFile;
+      }
+      return normalizePath(path.posix.join(normalizedDir, normalizedFile));
+    })
+    .filter(Boolean);
+}
+
+function scoreOverviewPathRelevance(query: string, filePath: string): number {
+  const queryWeights = buildOverviewQueryWeights(query);
+  if (queryWeights.size === 0) {
+    return 0;
+  }
+
+  const pathTokens = new Set(splitOverviewPathTokens(filePath));
+  let score = 0;
+  for (const [token, weight] of queryWeights.entries()) {
+    if (pathTokens.has(token)) {
+      score += weight;
+    }
+  }
+  return score;
+}
+
+function buildOverviewQueryWeights(query: string): Map<string, number> {
+  const weights = new Map<string, number>();
+  for (const rawToken of segmentQuery(query)) {
+    const token = normalizeToken(rawToken);
+    if (!token) continue;
+    upsertOverviewTokenWeight(weights, token, 1);
+    for (const [synonym, weight] of OVERVIEW_QUERY_PATH_SYNONYMS[token] || []) {
+      upsertOverviewTokenWeight(weights, synonym, weight);
+    }
+  }
+  return weights;
+}
+
+function upsertOverviewTokenWeight(target: Map<string, number>, token: string, weight: number): void {
+  const normalized = normalizeToken(token);
+  if (!normalized) return;
+  const current = target.get(normalized) ?? 0;
+  if (weight > current) {
+    target.set(normalized, weight);
+  }
+}
+
+function splitOverviewPathTokens(filePath: string): string[] {
+  return Array.from(new Set(
+    normalizePath(filePath)
+      .split(/[/.\\_-]+/)
+      .flatMap((segment) => segment.split(/(?=[A-Z])/))
+      .map((segment) => normalizeToken(segment))
+      .filter(Boolean),
+  ));
+}
+
+function getOverviewPathPriority(filePath: string): number {
+  const normalizedPath = normalizePath(filePath);
+  if (normalizedPath.startsWith('src/')) return 2;
+  if (normalizedPath.startsWith('tests/') || normalizedPath.startsWith('docs/')) return 0;
+  return 1;
+}
+
+const OVERVIEW_QUERY_PATH_SYNONYMS: Record<string, Array<[string, number]>> = {
+  entrypoint: [['index', 3], ['main', 2.5], ['bootstrap', 2.2]],
+  startup: [['bootstrap', 2.5], ['start', 1.5], ['init', 1.5], ['server', 1.4]],
+  registration: [['register', 2.5], ['commands', 1.5]],
+  command: [['commands', 1.2], ['register', 1.2], ['cli', 0.8]],
+  commands: [['command', 1.2], ['register', 1.2], ['cli', 0.8]],
+  cli: [['commands', 0.8]],
+  mcp: [['server', 0.6]],
+  server: [['mcp', 0.6]],
+};
+
 export function buildCheckpointCandidate(
   repoPath: string,
   informationRequest: string,
   contextBlocks: ContextBlock[],
   resultCard: RetrievalResultCard,
+  architecturePrimaryFiles: string[],
 ): CheckpointCandidate {
   const now = new Date().toISOString();
   return {
@@ -1269,6 +1483,7 @@ export function buildCheckpointCandidate(
     keyFindings: resultCard.reasoning.slice(0, 5),
     unresolvedQuestions: [],
     nextSteps: resultCard.nextActions,
+    architecturePrimaryFiles,
     createdAt: now,
     updatedAt: now,
     source: 'retrieval',
@@ -1280,6 +1495,7 @@ export function buildCheckpointCandidate(
 export function buildBlockFirstPayload(
   contextBlocks: ContextBlock[],
   checkpointCandidate: CheckpointCandidate,
+  architecturePrimaryFiles: string[],
   nextInspectionSuggestions: string[],
 ): BlockFirstPayload {
   return {
@@ -1293,7 +1509,226 @@ export function buildBlockFirstPayload(
       })),
     ),
     checkpointCandidate,
+    architecturePrimaryFiles,
     nextInspectionSuggestions,
+  };
+}
+
+interface OverviewContextBlockSummary {
+  id: string;
+  type: ContextBlock['type'];
+  title: string;
+  summary: string;
+  priority: ContextBlock['priority'];
+  pinned: boolean;
+  expandable: boolean;
+  rank?: number;
+  provenanceRefs: string[];
+}
+
+interface OverviewCheckpointCandidateSummary {
+  id: string;
+  title: string;
+  goal: string;
+  phase: CheckpointCandidate['phase'];
+  summary: string;
+  architecturePrimaryFiles?: string[];
+  nextSteps: string[];
+  source?: CheckpointCandidate['source'];
+  confidence?: CheckpointCandidate['confidence'];
+}
+
+function summarizeOverviewSuggestion(item: string): string {
+  if (item.includes('feedback:record') && item.includes('--outcome helpful')) {
+    return 'record helpful feedback';
+  }
+  if (item.includes('feedback:record') && item.includes('--outcome not-helpful')) {
+    return 'record not-helpful feedback';
+  }
+  if (item.includes('feedback:record') && item.includes('--outcome memory-stale')) {
+    return 'mark feature memory stale';
+  }
+  if (item.includes('feedback:record') && item.includes('--outcome wrong-module')) {
+    return 'mark wrong module mapping';
+  }
+  if (item.includes('memory:suggest')) {
+    return 'suggest feature memory update';
+  }
+  if (item.includes('decision:record')) {
+    return 'record decision draft';
+  }
+  if (item.includes('memory:record-long-term')) {
+    return 'record long-term reference';
+  }
+  return compactText(item.replace(/`/g, ''), 64);
+}
+
+function summarizeOverviewSuggestions(items: string[], limit = 3): string[] {
+  return items.slice(0, limit).map((item) => summarizeOverviewSuggestion(item));
+}
+
+function summarizeOverviewTopFiles(items: OverviewData['topFiles']): string[] {
+  return items.map((item) => item.filePath);
+}
+
+function summarizeOverviewExpansionCandidates(
+  items: OverviewData['expansionCandidates'],
+): string[] {
+  return items.map((item) => item.filePath);
+}
+
+function compactText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars - 1)}…`;
+}
+
+function summarizeContextBlockForOverview(block: ContextBlock): OverviewContextBlockSummary {
+  return {
+    id: block.id,
+    type: block.type,
+    title: block.title,
+    summary: compactText(block.summary || block.content, 160),
+    priority: block.priority,
+    pinned: block.pinned,
+    expandable: block.expandable,
+    ...(typeof block.rank === 'number' ? { rank: block.rank } : {}),
+    provenanceRefs: block.provenance.slice(0, 3).map((item) => item.ref),
+  };
+}
+
+function summarizeCheckpointCandidateForOverview(
+  checkpointCandidate: CheckpointCandidate,
+): OverviewCheckpointCandidateSummary {
+  return {
+    id: checkpointCandidate.id,
+    title: checkpointCandidate.title,
+    goal: checkpointCandidate.goal,
+    phase: checkpointCandidate.phase,
+    summary: compactText(checkpointCandidate.summary, 200),
+    ...(checkpointCandidate.architecturePrimaryFiles
+      ? { architecturePrimaryFiles: checkpointCandidate.architecturePrimaryFiles }
+      : {}),
+    nextSteps: checkpointCandidate.nextSteps.slice(0, 5),
+    ...(checkpointCandidate.source ? { source: checkpointCandidate.source } : {}),
+    ...(checkpointCandidate.confidence ? { confidence: checkpointCandidate.confidence } : {}),
+  };
+}
+
+function pickOverviewContextBlocks(
+  contextBlocks: ContextBlock[],
+): OverviewContextBlockSummary[] {
+  const prioritized = contextBlocks
+    .filter((block) => block.type !== 'open-questions')
+    .slice()
+    .sort((a, b) => {
+      const pinDelta = Number(b.pinned) - Number(a.pinned);
+      if (pinDelta !== 0) return pinDelta;
+      const priorityOrder = { high: 3, medium: 2, low: 1 } as const;
+      const priorityDelta = priorityOrder[b.priority] - priorityOrder[a.priority];
+      if (priorityDelta !== 0) return priorityDelta;
+      return (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER);
+    })
+    .slice(0, 5);
+
+  return prioritized.map((block) => summarizeContextBlockForOverview(block));
+}
+
+function buildOverviewJsonPayload(input: {
+  responseMode: 'overview';
+  resultCard: RetrievalResultCard;
+  overview: OverviewData;
+  contextBlocks: ContextBlock[];
+  checkpointCandidate: CheckpointCandidate;
+  pack: ContextPack;
+}) {
+  const compactBlocks = pickOverviewContextBlocks(input.contextBlocks);
+  const compactReferences = input.overview.references.slice(0, 10);
+  const compactCheckpoint = summarizeCheckpointCandidateForOverview(input.checkpointCandidate);
+  const queryIntent = input.pack.debug?.retrievalStats?.queryIntent || 'balanced';
+
+  if (queryIntent === 'symbol_lookup' || queryIntent === 'navigation') {
+    return {
+      responseMode: input.responseMode,
+      detailLevel: 'minimal' as const,
+      queryIntent,
+      summary: input.overview.summary,
+      topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
+      architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+      blockFirst: {
+        schemaVersion: 1 as const,
+        detailLevel: 'minimal' as const,
+        queryIntent,
+        contextBlockCount: 0,
+      },
+    };
+  }
+
+  if (queryIntent === 'architecture') {
+    return {
+      responseMode: input.responseMode,
+      detailLevel: 'focused' as const,
+      queryIntent,
+      summary: input.overview.summary,
+      topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
+      architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+      expansionCandidates: summarizeOverviewExpansionCandidates(input.overview.expansionCandidates),
+      blockFirst: {
+        schemaVersion: 1 as const,
+        detailLevel: 'focused' as const,
+        queryIntent,
+        contextBlockCount: 0,
+      },
+    };
+  }
+
+  return {
+    responseMode: input.responseMode,
+    summary: input.overview.summary,
+    graphContext: input.resultCard.graphContext,
+    topFiles: summarizeOverviewTopFiles(input.overview.topFiles),
+    architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+    contextBlockCount: compactBlocks.length,
+    contextBlockSummaries: compactBlocks,
+    expansionCandidates: summarizeOverviewExpansionCandidates(input.overview.expansionCandidates),
+    blockFirst: {
+      schemaVersion: 1 as const,
+      contextBlockCount: compactBlocks.length,
+      activeBlockIds: input.checkpointCandidate.activeBlockIds,
+      checkpointCandidate: compactCheckpoint,
+      architecturePrimaryFiles: input.overview.architecturePrimaryFiles,
+    },
+  };
+}
+
+export function buildRetrievalData(input: {
+  repoPath: string;
+  informationRequest: string;
+  pack: ContextPack;
+  resultCard: RetrievalResultCard;
+}): RetrievalData {
+  const contextBlocks = buildContextBlocks(input.pack, input.resultCard);
+  const checkpointCandidate = buildCheckpointCandidate(
+    input.repoPath,
+    input.informationRequest,
+    contextBlocks,
+    input.resultCard,
+    input.pack.architecturePrimaryFiles ?? [],
+  );
+  const overview = buildOverviewData(input.pack, input.resultCard, contextBlocks);
+  const blockFirst = buildBlockFirstPayload(
+    contextBlocks,
+    checkpointCandidate,
+    overview.architecturePrimaryFiles,
+    input.resultCard.nextActions,
+  );
+
+  return {
+    contextPack: input.pack,
+    resultCard: input.resultCard,
+    contextBlocks,
+    checkpointCandidate,
+    blockFirst,
+    overview,
   };
 }
 
@@ -1327,24 +1762,23 @@ function formatRetrievalJson(
   },
 ): string {
   const { files, seeds } = pack;
-  const contextBlocks = buildContextBlocks(pack, resultCard);
-  const checkpointCandidate = buildCheckpointCandidate(options.repoPath, options.informationRequest, contextBlocks, resultCard);
-  const overview = buildOverviewData(pack, resultCard, contextBlocks);
-  const blockFirst = buildBlockFirstPayload(contextBlocks, checkpointCandidate, resultCard.nextActions);
+  const retrievalData = buildRetrievalData({
+    repoPath: options.repoPath,
+    informationRequest: options.informationRequest,
+    pack,
+    resultCard,
+  });
+  const { contextBlocks, checkpointCandidate, blockFirst, overview } = retrievalData;
 
   const payload = options.responseMode === 'overview'
-    ? {
+      ? buildOverviewJsonPayload({
         responseMode: options.responseMode,
-        summary: overview.summary,
-        graphContext: resultCard.graphContext,
-        topFiles: overview.topFiles,
+        resultCard,
+        overview,
         contextBlocks,
-        references: overview.references,
-        expansionCandidates: overview.expansionCandidates,
-        nextInspectionSuggestions: overview.nextInspectionSuggestions,
         checkpointCandidate,
-        blockFirst,
-      }
+        pack,
+      })
     : {
         responseMode: options.responseMode,
         summary: {
@@ -1353,6 +1787,7 @@ function formatRetrievalJson(
           totalSegments: files.reduce((acc, f) => acc + f.segments.length, 0),
         },
         graphContext: resultCard.graphContext,
+        architecturePrimaryFiles: overview.architecturePrimaryFiles,
         contextBlocks,
         references: contextBlocks.flatMap((block) => block.provenance.map((item) => ({ blockId: block.id, ...item }))),
         expansionCandidates: overview.expansionCandidates,
@@ -1361,7 +1796,9 @@ function formatRetrievalJson(
         blockFirst,
       };
 
-  return JSON.stringify(payload, null, 2);
+  return options.responseMode === 'overview'
+    ? JSON.stringify(payload)
+    : JSON.stringify(payload, null, 2);
 }
 
 function formatRetrievalText(
@@ -1374,8 +1811,13 @@ function formatRetrievalText(
   },
 ): string {
   const { files, seeds } = pack;
-  const contextBlocks = buildContextBlocks(pack, resultCard);
-  const overview = buildOverviewData(pack, resultCard, contextBlocks);
+  const retrievalData = buildRetrievalData({
+    repoPath: options.repoPath,
+    informationRequest: options.informationRequest,
+    pack,
+    resultCard,
+  });
+  const { overview } = retrievalData;
 
   if (options.responseMode === 'overview') {
     const lines = [
@@ -1384,6 +1826,9 @@ function formatRetrievalText(
       '',
       '### Top Files',
       ...(overview.topFiles.length > 0 ? overview.topFiles.map((item) => `- ${item.filePath} (${item.segmentCount} segments)`) : ['- None']),
+      '',
+      '### Architecture Primary Files',
+      ...(overview.architecturePrimaryFiles.length > 0 ? overview.architecturePrimaryFiles.map((filePath) => `- ${filePath}`) : ['- None']),
       '',
       '### Expansion Candidates',
       ...(overview.expansionCandidates.length > 0
@@ -1423,6 +1868,13 @@ function formatRetrievalText(
     '',
     ...(resultCard.status
       ? ['### 索引状态', `- ${resultCard.status.headline}`, ...resultCard.status.details.map((detail) => `- ${detail}`), '']
+      : []),
+    ...(overview.architecturePrimaryFiles.length > 0
+      ? [
+          '### Architecture Primary Files',
+          ...overview.architecturePrimaryFiles.map((filePath) => `- ${filePath}`),
+          '',
+        ]
       : []),
     '### 代码命中 (Source: Code)',
     fileBlocks || '- 未命中代码片段',

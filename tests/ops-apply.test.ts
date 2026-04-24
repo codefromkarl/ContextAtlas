@@ -83,6 +83,17 @@ function makeOpsApplyInput(overrides: Partial<OpsApplyInput> = {}): OpsApplyInpu
         recommendations: [],
       },
     },
+    mcpProcessHealth: {
+      repoRoot: '/repo',
+      processCount: 0,
+      duplicateCount: 0,
+      processes: [],
+      overall: {
+        status: 'healthy',
+        issues: [],
+        recommendations: [],
+      },
+    },
     usageReport: {
       filters: { days: 7 },
       summary: {
@@ -123,6 +134,28 @@ test('planOpsAction 为可执行低风险动作生成 daemon 启动计划', () =
   assert.equal(plan.actionId, 'start-daemon');
   assert.equal(plan.kind, 'daemon-start');
   assert.equal(plan.command, 'contextatlas daemon start');
+});
+
+test('planOpsAction 为 cleanup-duplicate-mcp 生成可执行计划', () => {
+  const plan = planOpsAction(
+    makeOpsApplyInput({
+      mcpProcessHealth: {
+        repoRoot: '/repo',
+        processCount: 2,
+        duplicateCount: 1,
+        processes: [],
+        overall: {
+          status: 'degraded',
+          issues: ['检测到重复 MCP 进程'],
+          recommendations: ['contextatlas mcp:cleanup-duplicates --json'],
+        },
+      },
+    }),
+    { actionId: 'cleanup-duplicate-mcp', repoPath: '/repo' },
+  );
+
+  assert.equal(plan.kind, 'mcp-cleanup-duplicates');
+  assert.equal(plan.repoPath, '/repo');
 });
 
 test('planOpsAction 在多个 chunk FTS 候选项目时要求显式 projectId', () => {
@@ -324,6 +357,38 @@ test('applyOpsActionPlan 可以按 projectId 重建 chunk FTS', async () => {
   }
 });
 
+test('applyOpsActionPlan 可以执行 cleanup-duplicate-mcp 动作', async () => {
+  const result = await applyOpsActionPlan(
+    {
+      actionId: 'cleanup-duplicate-mcp',
+      title: 'Clean duplicate MCP processes',
+      command: 'contextatlas mcp:cleanup-duplicates --json',
+      severity: 'high',
+      reason: 'duplicate mcp',
+      kind: 'mcp-cleanup-duplicates',
+      repoPath: '/repo',
+    },
+    {
+      cleanupDuplicateMcp: async () => ({
+        repoRoot: '/repo',
+        apply: true,
+        force: true,
+        keptPid: 120,
+        suggestedKeepPid: 120,
+        duplicatePids: [100],
+        duplicateCount: 1,
+        status: 'cleaned',
+        remainingPids: [],
+      }),
+    },
+  );
+
+  assert.equal(result.status, 'applied');
+  assert.equal(result.keptPid, 120);
+  assert.equal(result.duplicateCount, 1);
+  assert.deepEqual(result.remainingPids, []);
+});
+
 test('applyOpsActionPlan 通过注入依赖以非阻塞方式启动 daemon', async () => {
   let started = false;
 
@@ -468,6 +533,50 @@ test('applyOpsActionWithVerification 会执行后复检并记录恢复结果', a
   assert.equal(result.after.status, 'healthy');
   assert.equal(result.recordedMemoryId, 'ltm-1');
   assert.deepEqual(recorded, [{ restored: true, actionId: 'start-daemon' }]);
+});
+
+
+
+test('ops:apply CLI 支持 dry-run 预览 cleanup-duplicate-mcp 动作', () => {
+  const baseDir = createTempBaseDir('cw-ops-apply-mcp-cli-');
+  const previousBaseDir = process.env.CONTEXTATLAS_BASE_DIR;
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
+
+  try {
+    const psOutput = [
+      '100 1 120 /usr/bin/node /home/yuanzhi/Develop/tools/ContextAtlas/dist/index.js mcp',
+      '120 1 5 /usr/bin/node /home/yuanzhi/Develop/tools/ContextAtlas/dist/index.js mcp',
+    ].join('\n');
+
+    const result = spawnSync(
+      'node',
+      ['--import', 'tsx', 'src/index.ts', 'ops:apply', 'cleanup-duplicate-mcp', '--dry-run', '--json'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CONTEXTATLAS_BASE_DIR: baseDir,
+          CONTEXTATLAS_PS_OUTPUT: psOutput,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.actionId, 'cleanup-duplicate-mcp');
+    assert.equal(payload.status, 'planned');
+    assert.equal(payload.kind, 'mcp-cleanup-duplicates');
+  } finally {
+    if (previousBaseDir === undefined) {
+      delete process.env.CONTEXTATLAS_BASE_DIR;
+    } else {
+      process.env.CONTEXTATLAS_BASE_DIR = previousBaseDir;
+    }
+    MemoryStore.resetSharedHubForTests();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
 });
 
 test('ops:apply CLI 支持 dry-run 预览 start-daemon 动作', () => {

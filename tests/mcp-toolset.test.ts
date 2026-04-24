@@ -20,6 +20,7 @@ test('retrieval-only toolset exposes read-only retrieval tools only', () => {
 
   assert.deepEqual(toolNames, [
     'codebase-retrieval',
+    'contract_analysis',
     'detect_changes',
     'graph_query',
     'graph_impact',

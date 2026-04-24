@@ -678,6 +678,7 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
       keyFindings: ['SearchService is the main orchestration entry'],
       unresolvedQuestions: ['How to persist handoff state?'],
       nextSteps: ['Inspect MemoryStore'],
+      architecturePrimaryFiles: ['src/search/SearchService.ts'],
       format: 'json',
       supportingRefs: ['evidence:bench-2026-04-08'],
     } as any);
@@ -707,6 +708,7 @@ test('checkpoint MCP tools can create, load, and list checkpoints', async () => 
     const loaded = JSON.parse(loadResponse.content[0].text);
     assert.equal(loaded.tool, 'load_checkpoint');
     assert.equal(loaded.checkpoint.id, created.checkpoint.id);
+    assert.deepEqual(loaded.checkpoint.architecturePrimaryFiles, ['src/search/SearchService.ts']);
     assert.equal(loaded.checkpoint.goal, 'Understand retrieval path');
     assert.equal(loaded.contextBlocks[0].type, 'task-state');
     assert.equal(loaded.handoff.checkpointId, created.checkpoint.id);

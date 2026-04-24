@@ -73,3 +73,47 @@ test('chunks_fts backwards-compatible without language/symbols', () => {
     db.close();
   }
 });
+
+test('initChunksFts rebuilds legacy chunks_fts schema when language/symbols columns are missing', () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        file_path UNINDEXED,
+        chunk_index UNINDEXED,
+        breadcrumb,
+        content,
+        tokenize='unicode61'
+      );
+    `);
+
+    initChunksFts(db);
+
+    batchInsertChunkFts(db, [
+      {
+        chunkId: 'legacy#0',
+        filePath: 'src/auth.rs',
+        chunkIndex: 0,
+        breadcrumb: 'src/auth.rs > login',
+        content: 'fn login(user: &str) -> bool',
+        language: 'rust',
+        symbols: 'login authenticate',
+      },
+    ]);
+
+    const columns = db
+      .prepare(`SELECT name FROM pragma_table_info('chunks_fts') ORDER BY cid`)
+      .all() as Array<{ name: string }>;
+    const columnNames = columns.map((row) => row.name);
+
+    assert.ok(columnNames.includes('language'));
+    assert.ok(columnNames.includes('symbols'));
+
+    const results = searchChunksFts(db, 'authenticate', 5);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].filePath, 'src/auth.rs');
+  } finally {
+    db.close();
+  }
+});

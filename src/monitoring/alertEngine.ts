@@ -118,6 +118,16 @@ const DEFAULT_RULES: AlertRule[] = [
     enabled: true,
   },
   {
+    id: 'mcp-duplicate-processes',
+    name: '重复 MCP 进程',
+    metric: 'mcp.duplicateCount',
+    operator: '>',
+    threshold: 0,
+    severity: 'warning',
+    message: '检测到重复的 ContextAtlas MCP 进程，可能继续连接旧的 dist hash 产物',
+    enabled: true,
+  },
+  {
     id: 'memory-high-stale-rate',
     name: '长期记忆陈旧率过高',
     metric: 'memory.staleRate',
@@ -263,6 +273,11 @@ function extractMetrics(healthReport: Record<string, unknown>): Record<string, n
     metrics['memory.expiredRate'] = Number(memory.expiredRate ?? 0);
     metrics['memory.orphanedRate'] = Number(memory.orphanedRate ?? 0);
     metrics['memory.catalogInconsistent'] = memory.catalogInconsistent ? 1 : 0;
+  }
+
+  const mcp = healthReport.mcp as Record<string, unknown> | undefined;
+  if (mcp) {
+    metrics['mcp.duplicateCount'] = Number(mcp.duplicateCount ?? 0);
   }
 
   return metrics;

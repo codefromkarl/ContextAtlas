@@ -100,6 +100,7 @@ interface CodebaseRetrievalJsonPayload {
     files: number;
     totalSegments: number;
   };
+  architecturePrimaryFiles?: string[];
   contextBlocks: ContextBlock[];
   references: ContextBlockReference[];
   expansionCandidates: Array<{ filePath: string; reason: string; priority: 'high' | 'medium' | 'low' }>;
@@ -110,6 +111,7 @@ interface CodebaseRetrievalJsonPayload {
     contextBlocks: ContextBlock[];
     references: ContextBlockReference[];
     checkpointCandidate: CheckpointCandidate;
+    architecturePrimaryFiles: string[];
     nextInspectionSuggestions: string[];
   };
 }
@@ -147,6 +149,7 @@ interface AssembledContextJsonPayload {
       technicalTerms: string[];
       responseMode: 'expanded';
       summary: CodebaseRetrievalJsonPayload['summary'] | null;
+      architecturePrimaryFiles: string[];
       nextInspectionSuggestions: string[];
     } | null;
   };
@@ -197,6 +200,7 @@ interface AssembledContextJsonPayload {
       tool: 'codebase-retrieval';
       responseMode: 'expanded';
       summary: CodebaseRetrievalJsonPayload['summary'];
+      architecturePrimaryFiles: string[];
     };
     diary: null | {
       tool: 'record_agent_diary';
@@ -279,6 +283,7 @@ export async function executeAssembleContext(
             technicalTerms: codebaseRequest.technical_terms,
             responseMode: 'expanded',
             summary: codebaseResult.summary,
+            architecturePrimaryFiles: codePayload?.architecturePrimaryFiles ?? [],
             nextInspectionSuggestions: codebaseResult.nextInspectionSuggestions,
           }
         : null,
@@ -344,6 +349,7 @@ export async function executeAssembleContext(
             technicalTerms: codebaseRequest.technical_terms,
             responseMode: 'expanded',
             summary: codebaseResult.summary,
+            architecturePrimaryFiles: codePayload?.architecturePrimaryFiles ?? [],
             nextInspectionSuggestions: codebaseResult.nextInspectionSuggestions,
           }
         : null,
@@ -404,6 +410,7 @@ export async function executeAssembleContext(
             tool: 'codebase-retrieval',
             responseMode: 'expanded',
             summary: codebaseResult.summary,
+            architecturePrimaryFiles: codePayload?.architecturePrimaryFiles ?? [],
           }
         : null,
       diary: diaryBlocks.length > 0
@@ -820,6 +827,7 @@ function formatAssembleContextText(payload: AssembledContextJsonPayload): string
     `- **Diary Blocks**: ${payload.selectedContext.summary.diaryBlocks}`,
     `- **Module Memories**: ${payload.selectedContext.moduleMemories.length}`,
     `- **Code Evidence Blocks**: ${payload.selectedContext.codebaseRetrieval?.contextBlocks.length ?? 0}`,
+    `- **Architecture Primary Files**: ${payload.routing.codebaseRetrieval?.architecturePrimaryFiles.length ?? 0}`,
     '',
     wakeupLayerSummary,
     '',

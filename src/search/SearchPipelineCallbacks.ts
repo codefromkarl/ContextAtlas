@@ -1,3 +1,4 @@
+import { initDb } from '../db/index.js';
 import { type RerankUsage } from '../api/reranker.js';
 import { getRerankerBackend } from '../api/rerankerRouter.js';
 import { logger } from '../utils/logger.js';
@@ -23,6 +24,24 @@ export interface SearchPipelineCallbacks {
   }>;
 }
 
+function loadSkeletonSummaryMap(
+  projectId: string,
+  snapshotId: string | null | undefined,
+  filePaths: string[],
+): Map<string, string> {
+  if (filePaths.length === 0) {
+    return new Map();
+  }
+
+  const db = initDb(projectId, snapshotId);
+  const placeholders = filePaths.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT path, summary FROM file_skeleton WHERE path IN (${placeholders})`)
+    .all(...filePaths) as Array<{ path: string; summary: string }>;
+
+  return new Map(rows.map((row) => [row.path, row.summary]));
+}
+
 export function createSearchPipelineCallbacks(input: {
   projectId: string;
   snapshotId?: string | null;
@@ -37,10 +56,17 @@ export function createSearchPipelineCallbacks(input: {
       const reranker = getRerankerBackend();
       const queryTokens = input.extractQueryTokens(query);
       const rerankPool = selectRerankPoolCandidates(candidates, config);
+      const skeletonSummaryMap = loadSkeletonSummaryMap(
+        input.projectId,
+        input.snapshotId,
+        Array.from(new Set(rerankPool.map((chunk) => chunk.filePath))),
+      );
       const textExtractor = (chunk: ScoredChunk): string =>
         buildRerankText(
           {
-            breadcrumb: chunk.record.breadcrumb,
+            breadcrumb: chunk.source === 'skeleton' && skeletonSummaryMap.has(chunk.filePath)
+              ? `${skeletonSummaryMap.get(chunk.filePath) ?? chunk.filePath}\n${chunk.record.breadcrumb}`
+              : chunk.record.breadcrumb,
             displayCode: chunk.record.display_code,
           },
           queryTokens,

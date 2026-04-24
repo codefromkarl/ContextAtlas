@@ -4,6 +4,27 @@ import { logger } from '../../utils/logger.js';
 
 export function registerOpsUsageCommands(cli: CommandRegistrar): void {
   cli
+    .command('parity:benchmark', '运行系统边界 parity/golden 基线检查')
+    .option('--fixture <path>', 'parity benchmark fixture 路径')
+    .option('--json', '以 JSON 输出报告')
+    .action(async (options: { fixture?: string; json?: boolean }) => {
+      try {
+        const { formatParityBenchmarkReport, runParityBenchmark } = await import(
+          '../../monitoring/parityBenchmark.js'
+        );
+        const report = runParityBenchmark({ fixturePath: options.fixture });
+        if (options.json) {
+          writeJson(report);
+          return;
+        }
+        writeText(formatParityBenchmarkReport(report));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('运行 parity benchmark 失败', { error: error.message });
+      }
+    });
+
+  cli
     .command('usage:index-report', '分析日常工具使用情况并生成索引优化建议')
     .option('--days <n>', '分析最近 N 天', { default: 0 })
     .option('--project-id <id>', '按项目 ID 过滤')

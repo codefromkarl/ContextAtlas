@@ -3,7 +3,12 @@ import type { IndexHealthReport } from './indexHealth.js';
 import { formatIndexHealthReport } from './indexHealth.js';
 import type { MemoryHealthReport } from './memoryHealth.js';
 import { formatMemoryHealthReport } from './memoryHealth.js';
+import type { McpProcessHealthReport } from './mcpProcessHealth.js';
+import { formatMcpProcessHealthReport } from './mcpProcessHealth.js';
 import { formatAlertReport } from './alertEngine.js';
+import type { GraphHealthReport } from './graphHealth.js';
+import { formatGraphHealthReport } from './graphHealth.js';
+import type { ContractHealthReport } from '../analysis/contractAnalysis.js';
 
 export function collectProjectOperationalIssues(input: {
   snapshot: IndexHealthReport['snapshots'][number];
@@ -48,6 +53,9 @@ function formatStrategySummaryLine(
 export function buildAlertEvaluationMetrics(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
+  mcpProcessHealth?: McpProcessHealthReport;
+  graphHealth?: GraphHealthReport;
+  contractHealth?: ContractHealthReport;
 }): Record<string, unknown> {
   return {
     ...input.indexHealth,
@@ -57,6 +65,33 @@ export function buildAlertEvaluationMetrics(input: {
       orphanedRate: input.memoryHealth.featureMemoryHealth.orphanedRate,
       catalogInconsistent: !input.memoryHealth.catalogConsistency.isConsistent,
     },
+    ...(input.mcpProcessHealth
+      ? {
+          mcp: {
+            duplicateCount: input.mcpProcessHealth.duplicateCount,
+          },
+        }
+      : {}),
+    ...(input.graphHealth
+      ? {
+          graph: {
+            status: input.graphHealth.overall.status,
+            unresolvedRatio: input.graphHealth.unresolvedRatio,
+            symbols: input.graphHealth.totals.symbols,
+            relations: input.graphHealth.totals.relations,
+          },
+        }
+      : {}),
+    ...(input.contractHealth
+      ? {
+          contract: {
+            status: input.contractHealth.status,
+            routeCount: input.contractHealth.routeCount,
+            toolCount: input.contractHealth.toolCount,
+            mismatchCount: input.contractHealth.mismatchCount,
+          },
+        }
+      : {}),
   };
 }
 
@@ -64,6 +99,9 @@ export function buildHealthFullReport(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
   alerts: AlertEvaluationResult;
+  mcpProcessHealth?: McpProcessHealthReport;
+  graphHealth?: GraphHealthReport;
+  contractHealth?: ContractHealthReport;
 }): string {
   const lines: string[] = [];
   lines.push('='.repeat(60));
@@ -105,6 +143,28 @@ export function buildHealthFullReport(input: {
   lines.push(formatIndexHealthReport(input.indexHealth));
   lines.push('');
   lines.push(formatMemoryHealthReport(input.memoryHealth));
+  if (input.mcpProcessHealth) {
+    lines.push('');
+    lines.push(formatMcpProcessHealthReport(input.mcpProcessHealth));
+  }
+  if (input.graphHealth) {
+    lines.push('');
+    lines.push(formatGraphHealthReport(input.graphHealth));
+  }
+  if (input.contractHealth) {
+    lines.push('');
+    lines.push('Contract Health');
+    lines.push(`Status: ${input.contractHealth.status.toUpperCase()}`);
+    lines.push(`Routes: ${input.contractHealth.routeCount}`);
+    lines.push(`Route Consumers: ${input.contractHealth.routeConsumerCount}`);
+    lines.push(`Tools: ${input.contractHealth.toolCount}`);
+    lines.push(`Mapped Tools: ${input.contractHealth.mappedToolCount}`);
+    lines.push(`Mismatches: ${input.contractHealth.mismatchCount}`);
+    if (input.contractHealth.issues.length > 0) {
+      lines.push('Issues:');
+      input.contractHealth.issues.forEach((issue) => lines.push(`- ${issue}`));
+    }
+  }
   lines.push('');
   lines.push(formatAlertReport(input.alerts));
   return lines.join('\n');

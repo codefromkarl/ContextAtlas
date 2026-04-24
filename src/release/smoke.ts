@@ -126,6 +126,22 @@ export function buildReleaseSmokePlan(input: {
       expectedPatterns: [/"size"\s*:\s*"small"/, /"scenario"\s*:\s*"noop"/, /"durationMs"/],
     },
     {
+      name: 'parity-benchmark',
+      command: ['node', cliEntry, 'parity:benchmark', '--json'],
+      expectedPatterns: [
+        /"caseCount"\s*:\s*8/,
+        /"gitnexus-parity"\s*:\s*4/,
+        /"mem0-parity"\s*:\s*1/,
+        /"contextatlas-native"\s*:\s*3/,
+        /"memoryRetrievalGoldenCaseCount"\s*:\s*1/,
+      ],
+    },
+    {
+      name: 'graph-health',
+      command: ['node', cliEntry, 'health:graph', '--repo-path', fixtureRepoPath, '--json'],
+      expectedPatterns: [/"repoPath"/, /"hasIndexDb"/, /"hasGraphTables"/, /"overall"/],
+    },
+    {
       name: 'cold-start-search',
       command: [
         'node',

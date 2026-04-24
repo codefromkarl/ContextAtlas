@@ -6,6 +6,31 @@ import { logger } from '../../utils/logger.js';
 
 export function registerOpsHealthCommands(cli: CommandRegistrar): void {
   cli
+    .command('health:graph', '检查代码图谱健康状态')
+    .option('--project-id <id>', '指定项目 ID（默认根据当前目录推导）')
+    .option('--repo-path <path>', '指定代码库根目录（默认当前目录）')
+    .option('--json', '以 JSON 输出报告')
+    .action(async (options: { projectId?: string; repoPath?: string; json?: boolean }) => {
+      const { analyzeGraphHealth, formatGraphHealthReport } = await import(
+        '../../monitoring/graphHealth.js'
+      );
+      try {
+        const report = analyzeGraphHealth({
+          projectId: options.projectId,
+          repoPath: options.repoPath ? path.resolve(options.repoPath) : process.cwd(),
+        });
+        if (options.json) {
+          writeJson(report);
+          return;
+        }
+        writeText(formatGraphHealthReport(report));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('生成图谱健康报告失败', { error: error.message });
+      }
+    });
+
+  cli
     .command('fts:rebuild-chunks', '从当前向量索引重建 chunk FTS')
     .option('--project-id <id>', '指定项目 ID（默认根据当前目录推导）')
     .action(async (options: { projectId?: string }) => {
@@ -85,12 +110,16 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
     });
 
   cli
-    .command('health:full', '系统全面健康检查（索引 + 记忆 + 告警）')
+    .command('health:full', '系统全面健康检查（索引 + 记忆 + 图谱 + 契约 + 告警）')
     .option('--stale-days <days>', '记忆 stale 阈值天数', { default: '30' })
     .option('--json', '以 JSON 输出报告')
     .action(async (options: { staleDays?: string; json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
+      const { analyzeMcpProcessHealth } = await import('../../monitoring/mcpProcessHealth.js');
+      const { analyzeGraphHealth } = await import('../../monitoring/graphHealth.js');
+      const { analyzeContracts } = await import('../../analysis/contractAnalysis.js');
+      const { TOOLS } = await import('../../mcp/registry/tools.js');
       const { evaluateAlerts } = await import('../../monitoring/alertEngine.js');
       const { buildAlertEvaluationMetrics, buildHealthFullReport } = await import(
         '../../monitoring/healthFull.js'
@@ -99,21 +128,41 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
       try {
         const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
 
-        const [indexHealth, memoryHealth] = await Promise.all([
+        const [indexHealth, memoryHealth, mcpProcessHealth, graphHealth, contractReport] = await Promise.all([
           analyzeIndexHealth(),
           analyzeMemoryHealth({
             staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
           }),
+          Promise.resolve(analyzeMcpProcessHealth()),
+          Promise.resolve(analyzeGraphHealth({ repoPath: process.cwd() })),
+          Promise.resolve(
+            analyzeContracts(process.cwd(), {
+              tools: TOOLS.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+              })),
+            }),
+          ),
         ]);
+        const contractHealth = contractReport.health;
 
         const alertResult = evaluateAlerts(
-          buildAlertEvaluationMetrics({ indexHealth, memoryHealth }),
+          buildAlertEvaluationMetrics({
+            indexHealth,
+            memoryHealth,
+            mcpProcessHealth,
+            graphHealth,
+            contractHealth,
+          }),
         );
 
         if (options.json) {
           writeJson({
             indexHealth,
             memoryHealth,
+            mcpProcessHealth,
+            graphHealth,
+            contractHealth,
             alerts: alertResult,
           });
           return;
@@ -123,12 +172,79 @@ export function registerOpsHealthCommands(cli: CommandRegistrar): void {
           buildHealthFullReport({
             indexHealth,
             memoryHealth,
+            mcpProcessHealth,
+            graphHealth,
+            contractHealth,
             alerts: alertResult,
           }),
         );
       } catch (err) {
         const error = err as Error;
         exitWithError('系统健康检查失败', { error: error.message });
+      }
+    });
+
+  cli
+    .command('mcp:cleanup-duplicates', '清理重复的 ContextAtlas MCP 进程（默认 dry-run）')
+    .option('--repo-root <path>', '指定仓库根目录（默认当前目录）')
+    .option('--keep-pid <pid>', '显式指定要保留的 MCP 进程 PID')
+    .option('--force', '对 SIGTERM 后仍残留的重复进程补发 SIGKILL')
+    .option('--apply', '实际发送 SIGTERM 清理重复进程')
+    .option('--json', '以 JSON 输出结果')
+    .action(async (options: { repoRoot?: string; keepPid?: string; force?: boolean; apply?: boolean; json?: boolean }) => {
+      const repoRoot = options.repoRoot ? path.resolve(options.repoRoot) : process.cwd();
+      const {
+        analyzeMcpProcessHealth,
+        executeMcpCleanup,
+      } = await import(
+        '../../monitoring/mcpProcessHealth.js'
+      );
+
+      try {
+        const report = analyzeMcpProcessHealth({ repoRoot });
+        const explicitKeepPid = options.keepPid ? Number.parseInt(options.keepPid, 10) : null;
+
+        if (explicitKeepPid !== null && !report.processes.some((processInfo) => processInfo.pid === explicitKeepPid)) {
+          exitWithError('指定的 keep pid 不存在于当前仓库 MCP 进程列表中', {
+            keepPid: explicitKeepPid,
+          });
+        }
+
+        const result = await executeMcpCleanup({
+          repoRoot,
+          keepPid: explicitKeepPid,
+          apply: Boolean(options.apply),
+          force: Boolean(options.force),
+        });
+
+        if (options.json) {
+          writeJson(result);
+          return;
+        }
+
+        if (result.duplicateCount === 0) {
+          writeText('未发现重复的 ContextAtlas MCP 进程。');
+          return;
+        }
+
+        if (options.apply && explicitKeepPid === null) {
+          writeText([
+            '检测到重复 MCP 进程，但出于安全考虑，`--apply` 需要配合 `--keep-pid` 显式指定保留对象。',
+            `建议保留 pid=${result.suggestedKeepPid ?? 'unknown'}`,
+            `可执行: contextatlas mcp:cleanup-duplicates --keep-pid ${result.suggestedKeepPid ?? '<pid>'} --apply${options.force ? ' --force' : ''}`,
+          ].join('\n'));
+          return;
+        }
+
+        const lines = [
+          options.apply ? '已发送清理重复 MCP 进程:' : 'Dry-run: 将清理以下重复 MCP 进程:',
+          ...result.duplicatePids.map((pid) => `- pid=${pid}`),
+          result.keptPid ? `保留 pid=${result.keptPid}` : '未发现可保留进程',
+        ];
+        writeText(lines.join('\n'));
+      } catch (err) {
+        const error = err as Error;
+        exitWithError('清理重复 MCP 进程失败', { error: error.message });
       }
     });
 

@@ -1,8 +1,10 @@
 import type Database from 'better-sqlite3';
 import { isDebugEnabled, logger } from '../utils/logger.js';
+import { retrieveGraphChunks } from './GraphRecall.js';
 import type { SearchResult as VectorSearchResult } from '../vectorStore/index.js';
 import type { VectorStore } from '../vectorStore/index.js';
 import { isChunksFtsInitialized, isFtsInitialized, searchChunksFts, searchFilesFts } from './fts.js';
+import { retrieveSkeletonChunks } from './SkeletonRecall.js';
 import type { LexicalStrategy, RetrievalStats, ScoredChunk, SearchConfig } from './types.js';
 import type { Indexer } from '../indexer/index.js';
 
@@ -33,6 +35,14 @@ interface LexicalRetrieveResult {
   strategy: LexicalStrategy;
 }
 
+interface NonVectorRetrieveResult {
+  chunks: ScoredChunk[];
+  strategy: LexicalStrategy;
+  lexicalCount: number;
+  skeletonCount: number;
+  graphCount: number;
+}
+
 export function scoreChunkTokenOverlap(
   chunk: { breadcrumb: string; display_code: string },
   queryTokens: Set<string>,
@@ -52,6 +62,18 @@ export function scoreChunkTokenOverlap(
   }
 
   return score;
+}
+
+function scoreFilePathBias(filePath: string, intent: QueryIntent): number {
+  const lowerPath = filePath.toLowerCase();
+
+  if (intent === 'symbol_lookup') {
+    if (lowerPath.startsWith('src/')) return 1.25;
+    if (lowerPath.startsWith('tests/')) return 0.5;
+    if (lowerPath.startsWith('docs/') || lowerPath === 'readme.md' || lowerPath === 'readme_zh.md') return 0.4;
+  }
+
+  return 1;
 }
 
 export function fuseRecallResults(
@@ -111,7 +133,11 @@ export function fuseRecallResults(
     .map(({ score, chunk, sources }) => ({
       ...chunk,
       score,
-      source: sources.size > 1 ? ('vector' as const) : chunk.source,
+      source: sources.has('vector')
+        ? ('vector' as const)
+        : sources.has('lexical')
+          ? ('lexical' as const)
+          : chunk.source,
     }))
     .sort((a, b) => b.score - a.score);
 
@@ -156,20 +182,45 @@ export class HybridRecallEngine {
   async hybridRetrieve(
     semanticQuery: string,
     lexicalQuery: string,
+    queryIntent: QueryIntent = 'balanced',
   ): Promise<HybridRetrieveResult> {
     const vectorStart = Date.now();
     const vectorPromise = this.vectorRetrieve(semanticQuery).then((results) => ({
       results,
       durationMs: Date.now() - vectorStart,
     }));
-    const lexicalStart = Date.now();
-    const lexicalPromise = this.lexicalRetrieve(lexicalQuery).then((result) => ({
-      ...result,
-      durationMs: Date.now() - lexicalStart,
-    }));
+    const nonVectorStart = Date.now();
+    const nonVectorPromise = Promise.all([
+      this.lexicalRetrieve(lexicalQuery, queryIntent),
+      retrieveSkeletonChunks({
+        db: this.db,
+        vectorStore: this.vectorStore,
+        query: lexicalQuery,
+        queryTokens: this.extractQueryTokensFn(lexicalQuery),
+        config: this.config,
+      }),
+      retrieveGraphChunks({
+        db: this.db,
+        vectorStore: this.vectorStore,
+        query: lexicalQuery,
+        config: this.config,
+      }),
+    ]).then(([lexicalResult, skeletonChunks, graphChunks]) => {
+      const result: NonVectorRetrieveResult = {
+        chunks: [...lexicalResult.chunks, ...skeletonChunks, ...graphChunks],
+        strategy: lexicalResult.strategy,
+        lexicalCount: lexicalResult.chunks.length,
+        skeletonCount: skeletonChunks.length,
+        graphCount: graphChunks.length,
+      };
+      return {
+        ...result,
+        durationMs: Date.now() - nonVectorStart,
+      };
+    });
     const [{ results: vectorResults, durationMs: retrieveVector }, lexicalOutcome] = await Promise.all([
       vectorPromise,
-      lexicalPromise,
+      nonVectorPromise,
     ]);
     const lexicalResults = lexicalOutcome.chunks;
     const retrieveLexical = lexicalOutcome.durationMs;
@@ -183,13 +234,36 @@ export class HybridRecallEngine {
       '混合召回完成',
     );
 
+    if (queryIntent === 'symbol_lookup' && lexicalResults.length > 0) {
+      return {
+        chunks: lexicalResults,
+        stats: {
+          lexicalStrategy: lexicalOutcome.strategy,
+          vectorCount: vectorResults.length,
+          lexicalCount: lexicalOutcome.lexicalCount,
+          skeletonCount: lexicalOutcome.skeletonCount,
+          graphCount: lexicalOutcome.graphCount,
+          fusedCount: lexicalResults.length,
+          rerankInputCount: 0,
+          queryIntent: 'balanced',
+        },
+        timingMs: {
+          retrieveVector,
+          retrieveLexical,
+          retrieveFuse: 0,
+        },
+      };
+    }
+
     if (lexicalResults.length === 0) {
       return {
         chunks: vectorResults,
         stats: {
           lexicalStrategy: lexicalOutcome.strategy,
           vectorCount: vectorResults.length,
-          lexicalCount: lexicalResults.length,
+          lexicalCount: lexicalOutcome.lexicalCount,
+          skeletonCount: lexicalOutcome.skeletonCount,
+          graphCount: lexicalOutcome.graphCount,
           fusedCount: vectorResults.length,
           rerankInputCount: 0,
           queryIntent: 'balanced',
@@ -210,7 +284,9 @@ export class HybridRecallEngine {
       stats: {
         lexicalStrategy: lexicalOutcome.strategy,
         vectorCount: vectorResults.length,
-        lexicalCount: lexicalResults.length,
+        lexicalCount: lexicalOutcome.lexicalCount,
+        skeletonCount: lexicalOutcome.skeletonCount,
+        graphCount: lexicalOutcome.graphCount,
         fusedCount: fused.length,
         rerankInputCount: 0,
         queryIntent: 'balanced',
@@ -242,19 +318,35 @@ export class HybridRecallEngine {
       }));
   }
 
-  private async lexicalRetrieve(query: string): Promise<LexicalRetrieveResult> {
+  private async lexicalRetrieve(query: string, queryIntent: QueryIntent = 'balanced'): Promise<LexicalRetrieveResult> {
     if (!this.db || !this.vectorStore) return { chunks: [], strategy: 'none' };
 
     if (isChunksFtsInitialized(this.db)) {
+      const chunkResults = await this.lexicalRetrieveFromChunksFts(query);
+      if (chunkResults.length > 0) {
+        return {
+          chunks: chunkResults,
+          strategy: 'chunks_fts',
+        };
+      }
+
+      if (isFtsInitialized(this.db)) {
+        logger.debug('Chunk FTS 为空，自动回退到 files_fts');
+        return {
+          chunks: await this.lexicalRetrieveFromFilesFts(query, queryIntent),
+          strategy: 'files_fts',
+        };
+      }
+
       return {
-        chunks: await this.lexicalRetrieveFromChunksFts(query),
+        chunks: [],
         strategy: 'chunks_fts',
       };
     }
 
     if (isFtsInitialized(this.db)) {
       return {
-        chunks: await this.lexicalRetrieveFromFilesFts(query),
+        chunks: await this.lexicalRetrieveFromFilesFts(query, queryIntent),
         strategy: 'files_fts',
       };
     }
@@ -318,12 +410,16 @@ export class HybridRecallEngine {
       .map((chunk, rank) => ({ ...chunk, _rank: rank }));
   }
 
-  private async lexicalRetrieveFromFilesFts(query: string): Promise<ScoredChunk[]> {
+  private async lexicalRetrieveFromFilesFts(query: string, queryIntent: QueryIntent): Promise<ScoredChunk[]> {
     const fileResults = searchFilesFts(
       this.db as Database.Database,
       query,
       this.config.ftsTopKFiles,
-    );
+    ).map((result) => ({
+      ...result,
+      score: result.score * scoreFilePathBias(result.path, queryIntent),
+    }))
+      .sort((a, b) => b.score - a.score);
     if (fileResults.length === 0) {
       logger.debug('FTS 无命中文件');
       return [];

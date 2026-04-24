@@ -9,17 +9,19 @@ export function registerOpsAlertCommands(cli: CommandRegistrar): void {
     .action(async (options: { staleDays?: string; json?: boolean }) => {
       const { analyzeIndexHealth } = await import('../../monitoring/indexHealth.js');
       const { analyzeMemoryHealth } = await import('../../monitoring/memoryHealth.js');
+      const { analyzeMcpProcessHealth } = await import('../../monitoring/mcpProcessHealth.js');
       const { evaluateAlerts, formatAlertReport } = await import('../../monitoring/alertEngine.js');
       const { buildAlertEvaluationMetrics } = await import('../../monitoring/healthFull.js');
       try {
         const staleDays = Number.parseInt(String(options.staleDays ?? '30'), 10);
-        const [indexHealth, memoryHealth] = await Promise.all([
+        const [indexHealth, memoryHealth, mcpProcessHealth] = await Promise.all([
           analyzeIndexHealth(),
           analyzeMemoryHealth({
             staleDays: Number.isFinite(staleDays) && staleDays > 0 ? staleDays : 30,
           }),
+          Promise.resolve(analyzeMcpProcessHealth()),
         ]);
-        const result = evaluateAlerts(buildAlertEvaluationMetrics({ indexHealth, memoryHealth }));
+        const result = evaluateAlerts(buildAlertEvaluationMetrics({ indexHealth, memoryHealth, mcpProcessHealth }));
         if (options.json) {
           writeJson(result);
           return;

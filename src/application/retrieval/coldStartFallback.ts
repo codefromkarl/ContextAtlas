@@ -125,6 +125,8 @@ export async function buildColdStartLexicalFallbackPack({
         lexicalStrategy: 'files_fts',
         vectorCount: 0,
         lexicalCount: topMatches.length,
+        skeletonCount: 0,
+        graphCount: 0,
         fusedCount: topMatches.length,
         topMCount: topMatches.length,
         rerankInputCount: 0,

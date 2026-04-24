@@ -237,9 +237,14 @@ test('classifyQueryIntent 对 technical terms 偏向 symbol lookup', () => {
   );
 });
 
-test('classifyQueryIntent 对代码味较强的短查询判定为 symbol lookup', () => {
-  assert.equal(classifyQueryIntent('SearchService buildContextPack'), 'symbol_lookup');
-  assert.equal(classifyQueryIntent('AuthService.login'), 'symbol_lookup');
+test('classifyQueryIntent 对带 Service 边界词根的短查询判定为 architecture', () => {
+  assert.equal(classifyQueryIntent('SearchService buildContextPack'), 'architecture');
+  assert.equal(classifyQueryIntent('AuthService.login'), 'architecture');
+});
+
+test('classifyQueryIntent 对普通短符号查询仍判定为 symbol lookup', () => {
+  assert.equal(classifyQueryIntent('Foo.bar'), 'symbol_lookup');
+  assert.equal(classifyQueryIntent('GraphStore resolveInvocations'), 'symbol_lookup');
 });
 
 test('classifyQueryIntent 对自然语言流程问题判定为 conceptual', () => {

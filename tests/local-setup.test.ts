@@ -111,6 +111,7 @@ test('formatLocalSetupReport shows detected platform and resolved target paths',
     changed: true,
     dryRun: true,
     mode: 'mcp',
+    toolset: 'retrieval-only',
     platform: 'darwin',
     operations: [
       {
@@ -128,10 +129,14 @@ test('formatLocalSetupReport shows detected platform and resolved target paths',
   });
 
   assert.match(text, /Detected Platform: darwin/);
+  assert.match(text, /MCP Toolset: retrieval-only/);
   assert.match(text, /Resolved Paths:/);
   assert.match(text, /Claude Desktop MCP config/);
   assert.match(text, /\/Users\/alice\/Library\/Application Support\/Claude\/claude_desktop_config\.json/);
   assert.match(text, /Codex prompt doc/);
+  assert.match(text, /contextatlas health:full/);
+  assert.match(text, /Restart your MCP client/);
+  assert.match(text, /read-only retrieval, graph, contract, and memory-reader tools/);
 });
 
 test('resolveClaudeDesktopConfigPath selects the correct path for linux, macOS, and Windows', () => {

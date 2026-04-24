@@ -6,7 +6,7 @@
 
 import { MemoryWriteAdvisor } from '../../memory/MemoryWriteAdvisor.js';
 import { MemoryStore } from '../../memory/MemoryStore.js';
-import type { ResolvedLongTermMemoryItem } from '../../memory/types.js';
+import type { LongTermMemoryItem, ResolvedLongTermMemoryItem } from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
 import type { ResponseFormat, MemoryToolResponse } from './memoryTypes.js';
 
@@ -35,8 +35,10 @@ export interface RecordLongTermMemoryInput {
 }
 
 export interface ManageLongTermMemoryInput {
-  action: 'find' | 'list' | 'prune' | 'delete' | 'invalidate';
+  action: 'find' | 'list' | 'prune' | 'delete' | 'invalidate' | 'suggest';
   query?: string;
+  transcript?: string;
+  apply?: boolean;
   types?: Array<'user' | 'feedback' | 'project-state' | 'reference' | 'journal' | 'evidence' | 'temporal-fact'>;
   scope?: 'project' | 'global-user';
   limit?: number;
@@ -80,6 +82,59 @@ function formatLongTermMemory(memory: ResolvedLongTermMemoryItem, matchFields?: 
 - **Tags**: ${memory.tags.join(', ') || 'N/A'}${links}${factKey}
 - **Confidence**: ${(memory.confidence * 100).toFixed(0)}%
 - **Updated**: ${new Date(memory.updatedAt).toLocaleString()}${validity}${verified}`;
+}
+
+function buildLongTermMemorySuggestions(args: ManageLongTermMemoryInput): Array<Omit<LongTermMemoryItem, 'id' | 'createdAt' | 'updatedAt'>> {
+  const text = (args.transcript || args.query || '').trim();
+  if (!text) return [];
+
+  const lines = text
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const candidates: Array<Omit<LongTermMemoryItem, 'id' | 'createdAt' | 'updatedAt'>> = [];
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const isPreference =
+      lower.includes('prefer')
+      || lower.includes('always')
+      || lower.includes('never')
+      || line.includes('优先')
+      || line.includes('必须')
+      || line.includes('不要');
+    const isState =
+      lower.includes('blocked')
+      || lower.includes('decision')
+      || lower.includes('constraint')
+      || line.includes('阻塞')
+      || line.includes('决策')
+      || line.includes('约束');
+
+    if (!isPreference && !isState) continue;
+
+    const type = isPreference ? 'user' : 'project-state';
+    const normalized = line.replace(/\s+/g, ' ').slice(0, 220);
+    candidates.push({
+      type,
+      title: normalized.length > 60 ? `${normalized.slice(0, 57)}...` : normalized,
+      summary: normalized,
+      why: 'Rule-based suggestion extracted from explicit session text; review before applying.',
+      howToApply: 'Apply only if this is an external preference, decision, or constraint that cannot be derived from code.',
+      tags: isPreference ? ['preference', 'suggested'] : ['project-state', 'suggested'],
+      scope: args.scope ?? 'project',
+      source: 'agent-inferred',
+      confidence: 0.65,
+      links: [],
+      durability: 'stable',
+      provenance: ['long-term-memory-suggest:rules-v1'],
+      factKey: `suggested:${type}:${normalized.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)}`,
+    });
+  }
+
+  const byFactKey = new Map<string, Omit<LongTermMemoryItem, 'id' | 'createdAt' | 'updatedAt'>>();
+  candidates.forEach((candidate) => byFactKey.set(candidate.factKey ?? candidate.summary, candidate));
+  return Array.from(byFactKey.values()).slice(0, args.limit ?? 10);
 }
 
 // ===========================================
@@ -176,6 +231,8 @@ export async function executeManageLongTermMemory(
       return handleDelete(store, args);
     case 'invalidate':
       return handleInvalidate(store, args);
+    case 'suggest':
+      return handleSuggest(store, args);
   }
 }
 
@@ -208,6 +265,7 @@ async function handleFind(
                 ...entry.memory,
                 score: entry.score,
                 matchFields: entry.matchFields,
+                scoreBreakdown: entry.scoreBreakdown,
               })),
             },
             null,
@@ -229,6 +287,71 @@ async function handleFind(
       {
         type: 'text',
         text: `## Found ${results.length} long-term memories\n\n${results.map((entry) => formatLongTermMemory(entry.memory, entry.matchFields)).join('\n\n---\n\n')}`,
+      },
+    ],
+  };
+}
+
+async function handleSuggest(
+  store: MemoryStore,
+  args: ManageLongTermMemoryInput,
+): Promise<MemoryToolResponse> {
+  const suggestions = buildLongTermMemorySuggestions(args);
+  const applied: Array<{ action: string; memory: LongTermMemoryItem }> = [];
+
+  if (args.apply) {
+    for (const suggestion of suggestions) {
+      const { action, memory } = await store.appendLongTermMemoryItem(suggestion);
+      applied.push({ action, memory });
+    }
+  }
+
+  if (args.format === 'json') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              tool: 'manage_long_term_memory',
+              action: 'suggest',
+              suggestOnly: !args.apply,
+              result_count: suggestions.length,
+              candidates: suggestions,
+              applied,
+              safeguards: [
+                'default-suggest-only',
+                'source=agent-inferred',
+                'requires-explicit-apply',
+                'no-code-derived-facts',
+              ],
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  }
+
+  if (suggestions.length === 0) {
+    return {
+      content: [{ type: 'text', text: 'No long-term memory suggestions found.' }],
+    };
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: [
+          `## Long-term Memory Suggestions (${suggestions.length})`,
+          '',
+          `- suggestOnly: ${!args.apply}`,
+          '- safeguards: default-suggest-only, source=agent-inferred, requires-explicit-apply',
+          '',
+          ...suggestions.map((candidate, index) => `${index + 1}. ${candidate.title}\n   type=${candidate.type} scope=${candidate.scope} confidence=${candidate.confidence}`),
+        ].join('\n'),
       },
     ],
   };

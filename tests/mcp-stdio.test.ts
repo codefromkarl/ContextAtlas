@@ -110,6 +110,49 @@ class McpStdIoClient {
     );
   }
 
+  async closeStdinAndWaitForExit(timeoutMs = 1500): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+    if (this.proc.exitCode !== null) {
+      return { code: this.proc.exitCode, signal: null };
+    }
+
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        this.proc.off('exit', handleExit);
+        this.proc.off('error', handleError);
+        clearTimeout(timer);
+      };
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
+      };
+      const handleExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        finish(() => resolve({ code, signal }));
+      };
+      const handleError = (error: Error) => {
+        finish(() => reject(error));
+      };
+      const timer = setTimeout(() => {
+        const details = this.stderrBuffer.trim();
+        finish(() =>
+          reject(
+            new Error(
+              details
+                ? `关闭 stdin 后 MCP stdio 进程未在 ${timeoutMs}ms 内退出\n${details}`
+                : `关闭 stdin 后 MCP stdio 进程未在 ${timeoutMs}ms 内退出`,
+            ),
+          ),
+        );
+      }, timeoutMs);
+
+      this.proc.once('exit', handleExit);
+      this.proc.once('error', handleError);
+      this.proc.stdin.end();
+    });
+  }
+
   async close(): Promise<void> {
     if (this.proc.exitCode !== null || this.proc.killed) {
       return;
@@ -212,11 +255,13 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
         exploredRefs: ['src/proto.ts'],
         keyFindings: ['proto ready'],
         nextSteps: ['prepare handoff'],
+        architecturePrimaryFiles: ['src/proto.ts'],
         format: 'json',
       },
     });
     const checkpointPayload = JSON.parse(checkpoint.result.content[0].text);
     assert.equal(checkpointPayload.tool, 'create_checkpoint');
+    assert.deepEqual(checkpointPayload.checkpoint.architecturePrimaryFiles, ['src/proto.ts']);
 
     const handoff = await client.call(9, 'tools/call', {
       name: 'prepare_handoff',
@@ -323,6 +368,26 @@ test('MCP stdio exposes JSON-enabled memory tools with parseable payloads', asyn
     assert.equal(prunedPayload.tool, 'manage_long_term_memory');
     assert.equal(prunedPayload.action, 'prune');
     assert.equal(prunedPayload.pruned_count, 1);
+  } finally {
+    await client.close();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('MCP stdio child exits cleanly after stdin closes', async () => {
+  const { baseDir, projectDir, homeDir } = createTempEnv();
+  const client = new McpStdIoClient(projectDir, homeDir);
+
+  try {
+    await client.initialize();
+
+    const tools = await client.call(30, 'tools/list', {});
+    assert.ok(Array.isArray(tools.result.tools));
+    assert.ok(tools.result.tools.length > 0);
+
+    const exit = await client.closeStdinAndWaitForExit();
+    assert.equal(exit.code, 0);
+    assert.equal(exit.signal, null);
   } finally {
     await client.close();
     fs.rmSync(baseDir, { recursive: true, force: true });

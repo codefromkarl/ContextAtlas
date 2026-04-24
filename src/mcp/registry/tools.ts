@@ -82,6 +82,41 @@ Examples of BAD queries:
     },
   },
   {
+    name: 'contract_analysis',
+    description: `
+Lightweight API/tool contract analysis for indexed or source-only repositories.
+
+Actions:
+- route_map: list detected API routes, handlers, response keys, and consumers
+- api_impact: show consumers and response-shape mismatches for a route
+- tool_map: list MCP tools and mapped handlers
+- tool_impact: show mapped handler and unmapped-tool risk for a tool
+- contract_health: summarize contract coverage and mismatch health
+`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['route_map', 'api_impact', 'tool_map', 'tool_impact', 'contract_health'],
+          description: 'Contract analysis action to run.',
+        },
+        route: {
+          type: 'string',
+          description: 'Optional API route filter, e.g. /api/users.',
+        },
+        tool: {
+          type: 'string',
+          description: 'Optional MCP tool name filter.',
+        },
+        format: {
+          ...responseFormatProperty,
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'detect_changes',
     description: `
 Analyze git diff changes and map changed lines back to indexed graph symbols, then summarize direct upstream/downstream impact.
@@ -597,7 +632,7 @@ Use this to save durable non-code knowledge with scope and optional validity win
   {
     name: 'manage_long_term_memory',
     description: `
-Manage long-term memories (find, list, prune, delete, invalidate).
+Manage long-term memories (find, list, prune, delete, invalidate, suggest).
 
 Actions:
 - find: Search by keyword query
@@ -605,6 +640,7 @@ Actions:
 - prune: Remove expired/stale memories (dryRun=true by default)
 - delete: Remove a specific memory by id
 - invalidate: Mark an active memory as no longer valid
+- suggest: Extract long-term memory candidates from session text without writing by default
 
 Examples:
 - manage_long_term_memory({ action: "find", query: "user preferences" })
@@ -612,18 +648,28 @@ Examples:
 - manage_long_term_memory({ action: "prune", dryRun: true })
 - manage_long_term_memory({ action: "delete", id: "mem_123", types: ["reference"] })
 - manage_long_term_memory({ action: "invalidate", types: ["temporal-fact"], factKey: "migration:user-module", ended: "2026-04-08" })
+- manage_long_term_memory({ action: "suggest", transcript: "Always reply in Chinese" })
 `,
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['find', 'list', 'prune', 'delete', 'invalidate'],
+          enum: ['find', 'list', 'prune', 'delete', 'invalidate', 'suggest'],
           description: 'Action to perform',
         },
         query: {
           type: 'string',
           description: '[find] Keyword query',
+        },
+        transcript: {
+          type: 'string',
+          description: '[suggest] Session text to extract long-term memory candidates from',
+        },
+        apply: {
+          type: 'boolean',
+          description: '[suggest] Persist suggestions. Default false returns candidates only',
+          default: false,
         },
         types: {
           type: 'array',

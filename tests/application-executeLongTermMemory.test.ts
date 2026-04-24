@@ -169,6 +169,62 @@ test('executeManageLongTermMemory can find, list, and delete long-term memories'
   });
 });
 
+test('executeManageLongTermMemory suggests long-term memories without writing by default and explains scores', async () => {
+  await withTempProjects(async (projectRoot, _projectB, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+    const suggestResponse = await executeManageLongTermMemory(
+      {
+        action: 'suggest',
+        transcript: 'Always reply in Chinese. Project migration is blocked until external approval.',
+        scope: 'project',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const suggestPayload = JSON.parse(suggestResponse.content[0]?.text ?? '{}');
+    assert.equal(suggestPayload.action, 'suggest');
+    assert.equal(suggestPayload.suggestOnly, true);
+    assert.ok(suggestPayload.result_count >= 1);
+
+    const emptyFindResponse = await executeManageLongTermMemory(
+      {
+        action: 'find',
+        query: 'Chinese',
+        scope: 'project',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const emptyFindPayload = JSON.parse(emptyFindResponse.content[0]?.text ?? '{}');
+    assert.equal(emptyFindPayload.result_count, 0);
+
+    await executeManageLongTermMemory(
+      {
+        action: 'suggest',
+        transcript: 'Always reply in Chinese.',
+        scope: 'project',
+        apply: true,
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const findResponse = await executeManageLongTermMemory(
+      {
+        action: 'find',
+        query: 'Chinese preference',
+        scope: 'project',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const findPayload = JSON.parse(findResponse.content[0]?.text ?? '{}');
+    assert.equal(findPayload.result_count, 1);
+    assert.ok(findPayload.results[0].matchFields.includes('summary'));
+    assert.equal(typeof findPayload.results[0].scoreBreakdown.confidence, 'number');
+    assert.equal(findPayload.results[0].scoreBreakdown.embedding, 'disabled');
+  });
+});
+
 test('executeManageLongTermMemory can invalidate temporal facts by factKey', async () => {
   await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));

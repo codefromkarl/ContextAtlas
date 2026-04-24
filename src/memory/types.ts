@@ -241,6 +241,7 @@ export interface TaskCheckpoint {
   keyFindings: string[];
   unresolvedQuestions: string[];
   nextSteps: string[];
+  architecturePrimaryFiles?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -268,6 +269,7 @@ export interface CheckpointHandoff {
   keyFindings: string[];
   unresolvedQuestions: string[];
   nextSteps: string[];
+  architecturePrimaryFiles?: string[];
   contextBlockId: string;
 }
 
@@ -340,6 +342,7 @@ export interface BlockFirstPayload {
   contextBlocks: ContextBlock[];
   references: ContextBlockReference[];
   checkpointCandidate: TaskCheckpointCandidate;
+  architecturePrimaryFiles: string[];
   nextInspectionSuggestions: string[];
 }
 
@@ -518,6 +521,7 @@ export interface LongTermMemorySearchResult {
   memory: ResolvedLongTermMemoryItem;
   score: number;
   matchFields: string[];
+  scoreBreakdown?: Record<string, number | string>;
 }
 
 /**

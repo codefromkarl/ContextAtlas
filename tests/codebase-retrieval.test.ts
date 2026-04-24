@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { executeRetrieval } from '../src/application/retrieval/executeRetrieval.js';
 import { batchUpsert, generateProjectId, initDb } from '../src/db/index.js';
 import { GraphStore } from '../src/graph/index.js';
 import { getActiveTask } from '../src/indexing/queue.js';
@@ -674,6 +675,8 @@ test('handleCodebaseRetrieval appends graph context summary when include_graph_c
     const jsonPayload = JSON.parse(jsonResponse.content[0]?.text ?? '{}');
     assert.equal(jsonPayload.graphContext.symbols[0].name, 'SearchService');
     assert.deepEqual(jsonPayload.graphContext.symbols[0].directDownstream, ['HAS_METHOD:buildContextPack']);
+    assert.equal(jsonPayload.graphContext.processes[0].entryName, 'SearchService');
+    assert.deepEqual(jsonPayload.graphContext.processes[0].keySymbols, ['SearchService', 'buildContextPack']);
 
     const textResponse = await handleCodebaseRetrieval({
       repo_path: repoDir,
@@ -684,6 +687,7 @@ test('handleCodebaseRetrieval appends graph context summary when include_graph_c
     assert.match(text, /直接图谱摘要/);
     assert.match(text, /SearchService/);
     assert.match(text, /HAS_METHOD:buildContextPack/);
+    assert.match(text, /processes:/);
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;
@@ -820,6 +824,7 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
           ],
         },
       ],
+      architecturePrimaryFiles: ['src/search/SearchPipeline.ts'],
       debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
       mode: 'overview' as const,
       expansionCandidates: [
@@ -874,6 +879,7 @@ test('handleCodebaseRetrieval returns block-first json payload when response_for
     );
     assert.equal(payload.checkpointCandidate.goal, 'Trace retrieval flow');
     assert.equal(payload.checkpointCandidate.phase, 'overview');
+    assert.deepEqual(payload.checkpointCandidate.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
     assert.ok(Array.isArray(payload.references));
     assert.ok(
       payload.references.some(
@@ -996,7 +1002,22 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
           ],
         },
       ],
-      debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+      architecturePrimaryFiles: ['src/search/SearchPipeline.ts'],
+      debug: {
+        wVec: 0.35,
+        wLex: 0.65,
+        timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 },
+        retrievalStats: {
+          queryIntent: 'symbol_lookup' as const,
+          lexicalStrategy: 'chunks_fts' as const,
+          vectorCount: 1,
+          lexicalCount: 1,
+          fusedCount: 1,
+          topMCount: 1,
+          rerankInputCount: 1,
+          rerankedCount: 1,
+        },
+      },
     };
   }) as typeof SearchService.prototype.buildContextPack;
 
@@ -1011,16 +1032,174 @@ test('handleCodebaseRetrieval returns block-first overview json payload when res
 
     const payload = JSON.parse(response.content[0].text);
     assert.equal(payload.responseMode, 'overview');
+    assert.equal(payload.detailLevel, 'minimal');
+    assert.equal(payload.queryIntent, 'symbol_lookup');
     assert.equal(payload.summary.codeBlocks, 1);
     assert.ok(Array.isArray(payload.topFiles));
-    assert.ok(Array.isArray(payload.contextBlocks));
+    assert.deepEqual(payload.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
+    assert.deepEqual(response.data?.overview.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
+    assert.ok(!('fileMatches' in payload));
     assert.equal(payload.blockFirst.schemaVersion, 1);
-    assert.ok(payload.blockFirst.contextBlocks.some((block: { type: string }) => block.type === 'code-evidence'));
-    assert.ok(payload.blockFirst.contextBlocks.some((block: { type: string }) => block.type === 'module-summary'));
-    assert.equal(payload.blockFirst.checkpointCandidate.source, 'retrieval');
-    assert.equal(payload.checkpointCandidate.phase, 'overview');
-    assert.ok(Array.isArray(payload.references));
-    assert.ok(Array.isArray(payload.nextInspectionSuggestions));
+    assert.equal(payload.blockFirst.detailLevel, 'minimal');
+    assert.equal(payload.blockFirst.queryIntent, 'symbol_lookup');
+    assert.ok(!('activeBlockIds' in payload.blockFirst));
+    assert.ok(!('checkpointCandidate' in payload.blockFirst));
+    assert.ok(!('architecturePrimaryFiles' in payload.blockFirst));
+    assert.ok(!('nextInspectionSuggestions' in payload.blockFirst));
+    assert.ok(!('contextBlockSummaries' in payload));
+    assert.ok(!('expansionCandidates' in payload));
+    assert.ok(!('graphContext' in payload));
+    assert.ok(!('contextBlocks' in payload.blockFirst));
+    assert.ok(!('references' in payload.blockFirst));
+    assert.ok(!('checkpointCandidate' in payload));
+    assert.ok(!('references' in payload));
+    assert.ok(!('contextBlocks' in payload));
+    assert.ok(!('nextInspectionSuggestions' in payload));
+  } finally {
+    SearchService.prototype.init = originalInit;
+    SearchService.prototype.buildContextPack = originalBuildContextPack;
+
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    MemoryStore.resetSharedHubForTests();
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
+test('executeRetrieval returns structured retrieval data for overview mode', async () => {
+  const baseDir = createTempBaseDir();
+  const repoDir = path.join(baseDir, 'repo');
+  fs.mkdirSync(path.join(repoDir, 'src', 'search'), { recursive: true });
+  fs.writeFileSync(path.join(repoDir, 'src', 'search', 'SearchService.ts'), 'export class SearchService {}');
+
+  const previousEnv = {
+    CONTEXTATLAS_BASE_DIR: process.env.CONTEXTATLAS_BASE_DIR,
+    MCP_AUTO_INDEX: process.env.MCP_AUTO_INDEX,
+    EMBEDDINGS_API_KEY: process.env.EMBEDDINGS_API_KEY,
+    EMBEDDINGS_BASE_URL: process.env.EMBEDDINGS_BASE_URL,
+    EMBEDDINGS_MODEL: process.env.EMBEDDINGS_MODEL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
+    RERANK_BASE_URL: process.env.RERANK_BASE_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+  };
+
+  process.env.CONTEXTATLAS_BASE_DIR = baseDir;
+  MemoryStore.setSharedHubForTests(new MemoryHubDatabase());
+  process.env.MCP_AUTO_INDEX = 'false';
+  process.env.EMBEDDINGS_API_KEY = 'test-key';
+  process.env.EMBEDDINGS_BASE_URL = 'http://127.0.0.1/embeddings';
+  process.env.EMBEDDINGS_MODEL = 'test-embedding-model';
+  process.env.RERANK_API_KEY = 'test-key';
+  process.env.RERANK_BASE_URL = 'http://127.0.0.1/rerank';
+  process.env.RERANK_MODEL = 'test-rerank-model';
+
+  const projectId = generateProjectId(repoDir);
+  const db = initDb(projectId);
+  db.close();
+
+  const store = new MemoryStore(repoDir);
+  await store.saveFeature({
+    name: 'SearchService',
+    responsibility: '协调混合检索、精排和上下文打包',
+    location: { dir: 'src/search', files: ['SearchService.ts'] },
+    api: { exports: ['SearchService'], endpoints: [] },
+    dependencies: { imports: ['GraphExpander', 'ContextPacker'], external: [] },
+    dataFlow: 'query -> recall -> rerank -> expand -> pack',
+    keyPatterns: ['search', 'rerank', 'context pack'],
+    lastUpdated: new Date('2026-04-05T10:00:00Z').toISOString(),
+  });
+
+  const originalInit = SearchService.prototype.init;
+  const originalBuildContextPack = SearchService.prototype.buildContextPack;
+  SearchService.prototype.init = async function initMock(): Promise<void> {};
+  SearchService.prototype.buildContextPack = (async function buildContextPackMock() {
+    return {
+      query: 'Trace retrieval flow SearchService',
+      seeds: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          chunkIndex: 0,
+          score: 0.96,
+          source: 'vector' as const,
+          record: {
+            chunk_id: 'chunk-1',
+            file_path: 'src/search/SearchService.ts',
+            file_hash: 'hash-1',
+            chunk_index: 0,
+            vector: [0.1],
+            content: 'export class SearchService {}',
+            display_code: 'export class SearchService {}',
+            breadcrumb: 'src/search/SearchService.ts > SearchService',
+            language: 'typescript',
+            hash: 'h1',
+            start_line: 1,
+            end_line: 1,
+            start_byte: 0,
+            end_byte: 30,
+            raw_start: 0,
+            raw_end: 30,
+            _distance: 0.11,
+          },
+        },
+      ],
+      expanded: [],
+      files: [
+        {
+          filePath: 'src/search/SearchService.ts',
+          segments: [
+            {
+              filePath: 'src/search/SearchService.ts',
+              rawStart: 0,
+              rawEnd: 30,
+              startLine: 1,
+              endLine: 1,
+              score: 0.96,
+              breadcrumb: 'src/search/SearchService.ts > SearchService',
+              text: 'export class SearchService {}',
+            },
+          ],
+        },
+      ],
+      architecturePrimaryFiles: ['src/search/SearchPipeline.ts'],
+      debug: {
+        wVec: 0.35,
+        wLex: 0.65,
+        timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 },
+        retrievalStats: {
+          queryIntent: 'architecture' as const,
+          lexicalStrategy: 'chunks_fts' as const,
+          vectorCount: 1,
+          lexicalCount: 1,
+          fusedCount: 1,
+          topMCount: 1,
+          rerankInputCount: 1,
+          rerankedCount: 1,
+        },
+      },
+    };
+  }) as typeof SearchService.prototype.buildContextPack;
+
+  try {
+    const result = await executeRetrieval({
+      repoPath: repoDir,
+      informationRequest: 'Trace retrieval flow',
+      technicalTerms: ['SearchService'],
+      responseFormat: 'json',
+      responseMode: 'overview',
+    });
+
+    assert.ok(result.data);
+    assert.equal(result.data?.overview.summary.codeBlocks, 1);
+    assert.deepEqual(result.data?.overview.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
+    assert.equal(result.data?.checkpointCandidate.phase, 'overview');
+    assert.equal(result.data?.blockFirst.contextBlocks.length, result.data?.contextBlocks.length);
+    assert.deepEqual(result.data?.contextPack.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;
@@ -1509,7 +1688,22 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
           ],
         },
       ],
-      debug: { wVec: 0.35, wLex: 0.65, timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 } },
+      architecturePrimaryFiles: ['src/search/SearchPipeline.ts'],
+      debug: {
+        wVec: 0.35,
+        wLex: 0.65,
+        timingMs: { retrieve: 1, rerank: 1, expand: 0, pack: 0 },
+        retrievalStats: {
+          queryIntent: 'architecture' as const,
+          lexicalStrategy: 'chunks_fts' as const,
+          vectorCount: 1,
+          lexicalCount: 1,
+          fusedCount: 1,
+          topMCount: 1,
+          rerankInputCount: 1,
+          rerankedCount: 1,
+        },
+      },
     };
   }) as typeof SearchService.prototype.buildContextPack;
 
@@ -1523,16 +1717,22 @@ test('handleCodebaseRetrieval returns lightweight overview payload when response
     });
 
     const payload = JSON.parse(response.content[0].text);
+    assert.equal(payload.detailLevel, 'focused');
+    assert.equal(payload.queryIntent, 'architecture');
     assert.equal(payload.summary.codeBlocks, 1);
     assert.ok(Array.isArray(payload.topFiles));
+    assert.deepEqual(payload.architecturePrimaryFiles, ['src/search/SearchPipeline.ts']);
     assert.ok(Array.isArray(payload.expansionCandidates));
-    assert.equal(payload.expansionCandidates[0].filePath, 'src/search/GraphExpander.ts');
-    assert.equal(payload.expansionCandidates[0].reason, 'expanded via import');
-    assert.ok(Array.isArray(payload.nextInspectionSuggestions));
-    assert.ok(Array.isArray(payload.contextBlocks));
-    assert.equal(payload.contextBlocks.length, 2);
+    assert.equal(payload.expansionCandidates[0], 'src/search/GraphExpander.ts');
+    assert.ok(!('nextInspectionSuggestions' in payload));
     assert.equal(payload.blockFirst.schemaVersion, 1);
-    assert.equal(payload.blockFirst.contextBlocks.length, payload.contextBlocks.length);
+    assert.equal(payload.blockFirst.detailLevel, 'focused');
+    assert.equal(payload.blockFirst.queryIntent, 'architecture');
+    assert.ok(!('checkpointCandidate' in payload.blockFirst));
+    assert.ok(!('architecturePrimaryFiles' in payload.blockFirst));
+    assert.ok(!('nextInspectionSuggestions' in payload.blockFirst));
+    assert.ok(!('contextBlockSummaries' in payload));
+    assert.ok(!('contextBlockCount' in payload));
   } finally {
     SearchService.prototype.init = originalInit;
     SearchService.prototype.buildContextPack = originalBuildContextPack;

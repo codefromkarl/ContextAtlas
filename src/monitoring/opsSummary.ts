@@ -1,6 +1,7 @@
 import type { AlertEvaluationResult } from './alertEngine.js';
 import type { IndexHealthReport, IndexStrategySummary } from './indexHealth.js';
 import type { MemoryHealthReport } from './memoryHealth.js';
+import type { McpProcessHealthReport } from './mcpProcessHealth.js';
 import type { IndexOptimizationReport } from '../usage/usageAnalysis.js';
 import { collectProjectOperationalIssues } from './healthFull.js';
 
@@ -47,6 +48,7 @@ export interface OpsSummarySnapshot {
 export function summarizeOpsSnapshot(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
+  mcpProcessHealth?: McpProcessHealthReport;
   usageReport: IndexOptimizationReport;
   alertResult: AlertEvaluationResult;
 }): OpsSummarySnapshot {
@@ -68,12 +70,14 @@ export function summarizeOpsSnapshot(input: {
   const topIssues = [
     ...input.indexHealth.overall.issues,
     ...input.memoryHealth.overall.issues,
+    ...(input.mcpProcessHealth?.overall.issues || []),
     ...input.alertResult.triggered.map((alert) => `${alert.ruleName}: ${alert.message}`),
   ].slice(0, 5);
 
   const topActions = [
     ...input.indexHealth.overall.recommendations,
     ...input.memoryHealth.overall.recommendations,
+    ...(input.mcpProcessHealth?.overall.recommendations || []),
     ...input.usageReport.actions.map((action) => `${action.title}: ${action.command}`),
   ].filter((value, index, array) => array.indexOf(value) === index).slice(0, 5);
   const prioritizedActions = synthesizeOpsActions(input);
@@ -120,7 +124,7 @@ export function summarizeOpsSnapshot(input: {
     sections: {
       index: `status=${input.indexHealth.overall.status} queued=${input.indexHealth.queue.queued} failed=${input.indexHealth.queue.failed} latestScope=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulScope)?.lastSuccessfulScope || 'unknown'} lastSuccess=${input.indexHealth.snapshots.find((snapshot) => snapshot.lastSuccessfulAt)?.lastSuccessfulAt || 'n/a'}${representativeStrategy ? ` plan=${formatStrategySummaryInline(representativeStrategy)}` : ''}`,
       memory: `status=${input.memoryHealth.overall.status} staleRate=${Math.round(input.memoryHealth.longTermFreshness.staleRate * 100)}%`,
-      governance: `catalog=${input.memoryHealth.catalogConsistency.isConsistent ? 'consistent' : 'inconsistent'} orphaned=${Math.round(input.memoryHealth.featureMemoryHealth.orphanedRate * 100)}% scopes=project:${longTermScopes.project?.total || 0},global-user:${longTermScopes['global-user']?.total || 0}`,
+      governance: `catalog=${input.memoryHealth.catalogConsistency.isConsistent ? 'consistent' : 'inconsistent'} orphaned=${Math.round(input.memoryHealth.featureMemoryHealth.orphanedRate * 100)}% scopes=project:${longTermScopes.project?.total || 0},global-user:${longTermScopes['global-user']?.total || 0}${input.mcpProcessHealth ? ` mcpDuplicates=${input.mcpProcessHealth.duplicateCount}` : ''}`,
       alerts: `triggered=${input.alertResult.triggered.length}`,
       usage: `queryBeforeIndex=${Math.round(input.usageReport.summary.indexing.queryBeforeIndexRate * 100)}% avgIndexMs=${Math.round(input.usageReport.summary.indexing.avgExecutionDurationMs)}`,
     },
@@ -212,6 +216,7 @@ function formatStrategySummaryInline(summary: IndexStrategySummary): string {
 function synthesizeOpsActions(input: {
   indexHealth: IndexHealthReport;
   memoryHealth: MemoryHealthReport;
+  mcpProcessHealth?: McpProcessHealthReport;
   usageReport: IndexOptimizationReport;
   alertResult: AlertEvaluationResult;
 }): OpsSummarySnapshot['prioritizedActions'] {
@@ -273,6 +278,16 @@ function synthesizeOpsActions(input: {
     });
   }
 
+  if ((input.mcpProcessHealth?.duplicateCount || 0) > 0) {
+    actions.push({
+      id: 'cleanup-duplicate-mcp',
+      title: 'Clean duplicate MCP processes',
+      command: 'contextatlas mcp:cleanup-duplicates --json',
+      severity: 'high',
+      reason: '检测到重复的 ContextAtlas MCP 进程，可能导致继续连接旧的 dist hash 产物。',
+    });
+  }
+
   if (input.memoryHealth.longTermFreshness.staleRate > 0.3) {
     actions.push({
       id: 'prune-stale-memory',
@@ -319,6 +334,8 @@ function formatOpsApplyHint(action: OpsPrioritizedAction): string | null {
       return 'contextatlas ops:apply rebuild-memory-catalog';
     case 'rebuild-chunk-fts':
       return 'contextatlas ops:apply rebuild-chunk-fts --project-id <projectId>';
+    case 'cleanup-duplicate-mcp':
+      return 'contextatlas ops:apply cleanup-duplicate-mcp';
     default:
       return null;
   }

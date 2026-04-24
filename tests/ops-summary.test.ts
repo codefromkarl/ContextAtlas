@@ -78,6 +78,17 @@ test('summarizeOpsSnapshot aggregates health, alerts, and usage into one snapsho
         recommendations: ['核验或清理陈旧记忆'],
       },
     },
+    mcpProcessHealth: {
+      repoRoot: '/repo',
+      processCount: 2,
+      duplicateCount: 1,
+      processes: [],
+      overall: {
+        status: 'degraded',
+        issues: ['检测到 2 个 ContextAtlas MCP 进程'],
+        recommendations: ['运行 contextatlas ops:apply cleanup-duplicate-mcp --dry-run'],
+      },
+    },
     usageReport: {
       filters: { days: 7 },
       summary: {
@@ -130,7 +141,10 @@ test('summarizeOpsSnapshot aggregates health, alerts, and usage into one snapsho
   assert.equal(summary.metrics.queryBeforeIndexRate, 0.22);
   assert.ok(summary.topIssues.some((issue) => issue.includes('索引任务执行失败')));
   assert.ok(summary.topActions.some((action) => action.includes('contextatlas daemon start')));
+  assert.ok(summary.topActions.some((action) => action.includes('ops:apply cleanup-duplicate-mcp')));
   assert.ok(summary.prioritizedActions.some((action) => action.command === 'contextatlas daemon start'));
+  assert.ok(summary.prioritizedActions.some((action) => action.id === 'cleanup-duplicate-mcp'));
+  assert.ok(summary.prioritizedActions.some((action) => action.command === 'contextatlas mcp:cleanup-duplicates --json'));
   assert.ok(
     summary.prioritizedActions.some(
       (action) => action.command === 'contextatlas memory:rebuild-catalog',

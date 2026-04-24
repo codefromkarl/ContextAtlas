@@ -1,0 +1,263 @@
+{
+  "version": 1,
+  "name": "ContextAtlas System Boundary Baseline",
+  "evaluationRepositories": [
+    {
+      "id": "contextatlas-ts",
+      "label": "TypeScript CLI/MCP repository",
+      "languages": ["typescript", "javascript"],
+      "focus": "retrieval, graph health, CLI command coverage"
+    },
+    {
+      "id": "python-service",
+      "label": "Python service fixture",
+      "languages": ["python"],
+      "focus": "symbol extraction, import resolution, cold-start fallback"
+    },
+    {
+      "id": "go-cli",
+      "label": "Go CLI fixture",
+      "languages": ["go"],
+      "focus": "package imports, call relations, impact analysis"
+    },
+    {
+      "id": "java-service",
+      "label": "Java service fixture",
+      "languages": ["java"],
+      "focus": "class methods, interface relations, API boundary analysis"
+    },
+    {
+      "id": "rust-crate",
+      "label": "Rust crate fixture",
+      "languages": ["rust"],
+      "focus": "module imports, impl methods, fallback behavior"
+    },
+    {
+      "id": "polyglot-agent-tool",
+      "label": "Polyglot agent tool fixture",
+      "languages": ["typescript", "python", "go"],
+      "focus": "mixed-language degradation and stable output shape"
+    }
+  ],
+  "cases": [
+    {
+      "id": "gitnexus-symbol-lookup",
+      "track": "gitnexus-parity",
+      "capability": "graph",
+      "status": "partial",
+      "goldenCase": "symbol-lookup",
+      "query": "Show callers, callees, and direct relations for SearchService",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["symbol", "upstream", "downstream", "confidence"],
+        "fields": [
+          { "path": "symbol.name", "type": "string", "required": true },
+          { "path": "symbol.filePath", "type": "string", "required": true },
+          { "path": "upstream", "type": "array", "required": true },
+          { "path": "downstream", "type": "array", "required": true },
+          { "path": "confidence", "type": "number", "required": true }
+        ],
+        "failureCategories": ["missing-capability", "parse-error"]
+      },
+      "tags": ["graph", "context"]
+    },
+    {
+      "id": "gitnexus-call-chain",
+      "track": "gitnexus-parity",
+      "capability": "graph",
+      "status": "partial",
+      "goldenCase": "call-chain",
+      "query": "Trace the call chain from codebase retrieval entrypoint to SearchService",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["entrypoint", "steps", "terminal", "confidence"],
+        "fields": [
+          { "path": "entrypoint", "type": "object", "required": true },
+          { "path": "steps", "type": "array", "required": true },
+          { "path": "terminal", "type": "object", "required": true },
+          { "path": "confidence", "type": "number", "required": true }
+        ],
+        "failureCategories": ["missing-capability", "parse-error"]
+      },
+      "tags": ["graph", "call-chain"]
+    },
+    {
+      "id": "gitnexus-impact-analysis",
+      "track": "gitnexus-parity",
+      "capability": "impact",
+      "status": "target",
+      "goldenCase": "impact-analysis",
+      "query": "Map SearchService changes to affected callers and risk level",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["targetSymbol", "affectedSymbols", "affectedModules", "riskLevel"],
+        "fields": [
+          { "path": "targetSymbol", "type": "object", "required": true },
+          { "path": "affectedSymbols", "type": "array", "required": true },
+          { "path": "affectedModules", "type": "array", "required": true },
+          { "path": "riskLevel", "type": "string", "required": true }
+        ],
+        "failureCategories": ["missing-capability", "parse-error"]
+      },
+      "tags": ["graph", "impact"]
+    },
+    {
+      "id": "gitnexus-diff-hit",
+      "track": "gitnexus-parity",
+      "capability": "impact",
+      "status": "target",
+      "goldenCase": "diff-hit",
+      "query": "Map changed lines to affected symbols and risk level",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["changedSymbols", "affectedRelations", "riskLevel"],
+        "fields": [
+          { "path": "changedSymbols", "type": "array", "required": true },
+          { "path": "affectedRelations", "type": "array", "required": true },
+          { "path": "riskLevel", "type": "string", "required": true }
+        ],
+        "failureCategories": ["missing-capability", "parse-error"]
+      },
+      "tags": ["graph", "diff"]
+    },
+    {
+      "id": "mem0-long-term-memory",
+      "track": "mem0-parity",
+      "capability": "memory",
+      "status": "partial",
+      "goldenCase": "memory-recall",
+      "query": "Recall durable user or project preference with source and status",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["memory", "scope", "source", "confidence", "status"],
+        "fields": [
+          { "path": "memory", "type": "string", "required": true },
+          { "path": "scope", "type": "string", "required": true },
+          { "path": "source", "type": "string", "required": true },
+          { "path": "confidence", "type": "number", "required": true },
+          { "path": "status", "type": "string", "required": true }
+        ],
+        "failureCategories": ["missing-capability", "ranking-drift"]
+      },
+      "tags": ["memory"]
+    },
+    {
+      "id": "contextatlas-cold-start",
+      "track": "contextatlas-native",
+      "capability": "cold-start",
+      "status": "baseline",
+      "goldenCase": "cold-start-fallback",
+      "query": "Return partial lexical context before vector index is ready",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["mode", "fallbackReason", "codeBlocks"],
+        "fields": [
+          { "path": "mode", "type": "string", "required": true },
+          { "path": "fallbackReason", "type": "string", "required": true },
+          { "path": "codeBlocks", "type": "array", "required": true }
+        ],
+        "failureCategories": ["unstable-output"]
+      },
+      "tags": ["retrieval", "fallback"]
+    },
+    {
+      "id": "contextatlas-retrieval-card",
+      "track": "contextatlas-native",
+      "capability": "retrieval",
+      "status": "baseline",
+      "goldenCase": "retrieval-card",
+      "query": "Return a stable result card with code, memory, decisions, and rationale",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["codeHits", "memoryHits", "decisionHits", "whyMatched"],
+        "fields": [
+          { "path": "codeHits", "type": "array", "required": true },
+          { "path": "memoryHits", "type": "array", "required": true },
+          { "path": "decisionHits", "type": "array", "required": true },
+          { "path": "whyMatched", "type": "string", "required": true }
+        ],
+        "failureCategories": ["ranking-drift", "unstable-output"]
+      },
+      "tags": ["retrieval"]
+    },
+    {
+      "id": "contextatlas-long-term-memory-retrieval",
+      "track": "contextatlas-native",
+      "capability": "memory",
+      "status": "target",
+      "goldenCase": "memory-retrieval",
+      "query": "Recall active retrieval benchmark preference with explainable memory scoring",
+      "expectedOutput": {
+        "shapeVersion": 1,
+        "requiredFields": ["results", "matchFields", "scoreBreakdown", "status"],
+        "fields": [
+          { "path": "results", "type": "array", "required": true },
+          { "path": "results[].matchFields", "type": "array", "required": true },
+          { "path": "results[].scoreBreakdown", "type": "object", "required": true },
+          { "path": "results[].scoreBreakdown.embedding", "type": "string", "required": true },
+          { "path": "results[].status", "type": "string", "required": true }
+        ],
+        "failureCategories": ["ranking-drift", "unstable-output"],
+        "memoryRetrieval": {
+          "query": "memory retrieval benchmark preference",
+          "expectedTopId": "active-p7-memory-benchmark",
+          "embeddingMode": "disabled",
+          "activeMustRankBefore": ["stale", "expired"],
+          "requiredMatchFields": ["title", "summary", "tags"],
+          "requiredScoreBreakdownKeys": ["fts", "embedding", "title", "summary", "tags", "status", "total"],
+          "results": [
+            {
+              "id": "active-p7-memory-benchmark",
+              "status": "active",
+              "score": 53,
+              "matchFields": ["title", "summary", "tags"],
+              "scoreBreakdown": {
+                "fts": 0,
+                "embedding": "disabled",
+                "title": 20,
+                "summary": 12,
+                "tags": 4,
+                "confidence": 9,
+                "status": 8,
+                "total": 53
+              }
+            },
+            {
+              "id": "stale-p7-memory-benchmark",
+              "status": "stale",
+              "score": 37,
+              "matchFields": ["title", "summary", "tags"],
+              "scoreBreakdown": {
+                "fts": 0,
+                "embedding": "disabled",
+                "title": 20,
+                "summary": 12,
+                "tags": 4,
+                "confidence": 9,
+                "status": -8,
+                "total": 37
+              }
+            },
+            {
+              "id": "expired-p7-memory-benchmark",
+              "status": "expired",
+              "score": 25,
+              "matchFields": ["title", "summary", "tags"],
+              "scoreBreakdown": {
+                "fts": 0,
+                "embedding": "disabled",
+                "title": 20,
+                "summary": 12,
+                "tags": 4,
+                "confidence": 9,
+                "status": -20,
+                "total": 25
+              }
+            }
+          ]
+        }
+      },
+      "tags": ["memory", "benchmark", "p7"]
+    }
+  ]
+}

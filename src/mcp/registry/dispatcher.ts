@@ -3,6 +3,7 @@ import {
   assembleContextSchema,
   codebaseRetrievalSchema,
   createCheckpointSchema,
+  contractAnalysisSchema,
   deleteMemorySchema,
   detectChangesSchema,
   findAgentDiarySchema,
@@ -20,6 +21,7 @@ import {
   getDependencyChainSchema,
   getProjectProfileSchema,
   handleCodebaseRetrieval,
+  handleContractAnalysis,
   handleDetectChanges,
   handleGraphContext,
   handleGraphImpact,
@@ -79,6 +81,8 @@ export function createToolDispatcher(cwd: string) {
     switch (name) {
       case 'codebase-retrieval':
         return handleCodebaseRetrieval(codebaseRetrievalSchema.parse(args), onProgress);
+      case 'contract_analysis':
+        return handleContractAnalysis(contractAnalysisSchema.parse(args), cwd);
       case 'create_checkpoint':
         return handleCreateCheckpoint(createCheckpointSchema.parse(args));
       case 'load_checkpoint':

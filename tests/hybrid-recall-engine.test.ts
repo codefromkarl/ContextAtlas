@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fuseRecallResults, scoreChunkTokenOverlap } from '../src/search/HybridRecallEngine.ts';
+import Database from 'better-sqlite3';
+import { DEFAULT_CONFIG } from '../src/search/config.ts';
+import { fuseRecallResults, HybridRecallEngine, scoreChunkTokenOverlap } from '../src/search/HybridRecallEngine.ts';
 import type { ScoredChunk } from '../src/search/types.ts';
 
 function buildChunk(
@@ -85,4 +87,108 @@ test('scoreChunkTokenOverlap distinguishes exact token matches from substring ma
 
   assert.equal(exact, 2);
   assert.equal(substring, 0.5);
+});
+
+test('lexicalRetrieve falls back to files_fts when chunks_fts exists but is empty', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE files_fts USING fts5(path, content, tokenize='unicode61');
+      CREATE VIRTUAL TABLE chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        file_path UNINDEXED,
+        chunk_index UNINDEXED,
+        breadcrumb,
+        content,
+        language,
+        symbols,
+        tokenize='unicode61'
+      );
+    `);
+    db.prepare('INSERT INTO files_fts(path, content) VALUES (?, ?)').run(
+      'src/search/SearchService.ts',
+      'export class SearchService { buildContextPack() {} }',
+    );
+    db.prepare('INSERT INTO files_fts(path, content) VALUES (?, ?)').run(
+      'tests/search-service.test.ts',
+      'SearchService SearchService SearchService assert.equal(SearchService.name, "SearchService")',
+    );
+
+    const vectorStore = {
+      async getFilesChunks(filePaths: string[]) {
+        const result = new Map<string, Array<Record<string, unknown>>>();
+        for (const filePath of filePaths) {
+          result.set(filePath, [
+            {
+              chunk_id: `${filePath}#0`,
+              file_path: filePath,
+              file_hash: 'hash',
+              chunk_index: 0,
+              vector: [],
+              content: '',
+              display_code: 'export class SearchService { buildContextPack() {} }',
+              vector_text: '',
+              language: 'typescript',
+              breadcrumb: `${filePath} > SearchService`,
+              start_index: 0,
+              end_index: 1,
+              start_line: 1,
+              end_line: 1,
+              start_byte: 0,
+              end_byte: 1,
+              raw_start: 0,
+              raw_end: 1,
+              vec_start: 0,
+              vec_end: 1,
+              hash: 'hash',
+              _distance: 0,
+            },
+          ] as never);
+        }
+        return result as never;
+      },
+    };
+
+    const engine = new HybridRecallEngine({
+      indexer: null,
+      vectorStore: vectorStore as never,
+      db,
+      config: DEFAULT_CONFIG,
+      extractQueryTokens: (query: string) => new Set(query.toLowerCase().split(/\s+/).filter(Boolean)),
+    });
+
+    const lexicalResult = await (engine as any).lexicalRetrieve('SearchService', 'symbol_lookup');
+
+    assert.equal(lexicalResult.strategy, 'files_fts');
+    assert.ok(lexicalResult.chunks.length >= 1);
+    assert.equal(lexicalResult.chunks[0]?.filePath, 'src/search/SearchService.ts');
+  } finally {
+    db.close();
+  }
+});
+
+test('hybridRetrieve prefers lexical-only result set for symbol lookup when lexical hits exist', async () => {
+  const engine = new HybridRecallEngine({
+    indexer: null,
+    vectorStore: null,
+    db: null,
+    config: DEFAULT_CONFIG,
+    extractQueryTokens: () => new Set(),
+  });
+
+  (engine as any).vectorRetrieve = async () => [
+    buildChunk('tests/search-service.test.ts', 0, 0.9, 'vector', 0),
+  ];
+  (engine as any).lexicalRetrieve = async () => ({
+    chunks: [
+      buildChunk('src/search/SearchService.ts', 0, 2.0, 'lexical', 0),
+    ],
+    strategy: 'files_fts',
+  });
+
+  const result = await engine.hybridRetrieve('SearchService', 'SearchService', 'symbol_lookup');
+
+  assert.equal(result.chunks.length, 1);
+  assert.equal(result.chunks[0]?.filePath, 'src/search/SearchService.ts');
+  assert.equal(result.stats.lexicalStrategy, 'files_fts');
 });

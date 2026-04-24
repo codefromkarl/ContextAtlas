@@ -177,6 +177,7 @@ INDEX_UPDATE_MIN_CHANGED_FILES=5
 
 > `init` 会写入一份可直接编辑的示例 `.env`，包括默认的 SiliconFlow endpoint 和推荐模型配置。
 > `setup:local --mode <mode>` 仅写入所选模式的配置文件。模式选择指引见 [首次使用](./docs/guides/first-use.md)。
+> setup 后建议运行 `contextatlas health:full`，一次性自检索引、记忆、图谱、契约和 MCP 进程状态。
 
 更多配置与部署细节见 [部署手册](./docs/guides/deployment.md) 和 [CLI 文档](./docs/reference/cli.md)。
 
@@ -260,6 +261,8 @@ contextatlas health:full
 
 - 支持 MCP 的桌面客户端
 - 需要以标准 tool 调用 ContextAtlas 能力的 agent 系统
+
+如果只希望 MCP 客户端看到只读检索、图谱、契约和记忆读取工具，可使用 `contextatlas setup:local --mode mcp --toolset retrieval-only`。
 
 Claude Desktop 配置示例：
 

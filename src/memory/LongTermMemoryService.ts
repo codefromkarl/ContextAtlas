@@ -222,6 +222,11 @@ export class LongTermMemoryService {
           memory: resolved,
           score,
           matchFields: ['fts', ...match.matchFields],
+          scoreBreakdown: {
+            ...match.scoreBreakdown,
+            fts: 50,
+            total: score,
+          },
         });
         seen.add(resolved.id);
       }
@@ -238,11 +243,12 @@ export class LongTermMemoryService {
           continue;
         }
         const match = this.calculateLongTermMemoryScore(resolved, queryLower);
-        if (match.score > 0) {
+        if (match.score > 0 && match.matchFields.length > 0) {
           results.push({
             memory: resolved,
             score: match.score,
             matchFields: match.matchFields,
+            scoreBreakdown: match.scoreBreakdown,
           });
           seen.add(resolved.id);
         }
@@ -256,9 +262,14 @@ export class LongTermMemoryService {
           if (!options?.includeExpired && item.status === 'expired') {
             continue;
           }
-          const { score, matchFields } = this.calculateLongTermMemoryScore(item, queryLower);
-          if (score > 0) {
-            results.push({ memory: item, score, matchFields });
+          const match = this.calculateLongTermMemoryScore(item, queryLower);
+          if (match.score > 0 && match.matchFields.length > 0) {
+            results.push({
+              memory: item,
+              score: match.score,
+              matchFields: match.matchFields,
+              scoreBreakdown: match.scoreBreakdown,
+            });
           }
         }
       }
@@ -642,55 +653,111 @@ export class LongTermMemoryService {
   private calculateLongTermMemoryScore(
     memory: ResolvedLongTermMemoryItem,
     queryLower: string,
-  ): { score: number; matchFields: string[] } {
+  ): { score: number; matchFields: string[]; scoreBreakdown: Record<string, number | string> } {
     let score = 0;
     const matchFields: string[] = [];
+    const scoreBreakdown: Record<string, number | string> = {
+      fts: 0,
+      embedding: 'disabled',
+    };
+    const terms = queryLower
+      .split(/[^a-z0-9_\-\u4e00-\u9fff]+/i)
+      .map((term) => term.trim())
+      .filter(Boolean);
+    const hasMatch = (value?: string): boolean => {
+      const lower = (value || '').toLowerCase();
+      return terms.length === 0 ? lower.includes(queryLower) : terms.some((term) => lower.includes(term));
+    };
 
-    if (memory.title.toLowerCase().includes(queryLower)) {
+    if (hasMatch(memory.title)) {
       score += 20;
+      scoreBreakdown.title = 20;
       matchFields.push('title');
     }
 
-    if (memory.summary.toLowerCase().includes(queryLower)) {
+    if (hasMatch(memory.summary)) {
       score += 12;
+      scoreBreakdown.summary = 12;
       matchFields.push('summary');
     }
 
-    if (memory.why?.toLowerCase().includes(queryLower)) {
+    if (hasMatch(memory.why)) {
       score += 6;
+      scoreBreakdown.why = 6;
       matchFields.push('why');
     }
 
-    if (memory.howToApply?.toLowerCase().includes(queryLower)) {
+    if (hasMatch(memory.howToApply)) {
       score += 6;
+      scoreBreakdown.howToApply = 6;
       matchFields.push('howToApply');
     }
 
-    const tagMatches = memory.tags.filter((tag) => tag.toLowerCase().includes(queryLower));
+    const tagMatches = memory.tags.filter((tag) => hasMatch(tag));
     if (tagMatches.length > 0) {
-      score += tagMatches.length * 4;
+      const value = tagMatches.length * 4;
+      score += value;
+      scoreBreakdown.tags = value;
       matchFields.push('tags');
     }
 
-    const linkMatches = (memory.links || []).filter((link) =>
-      link.toLowerCase().includes(queryLower),
-    );
+    const linkMatches = (memory.links || []).filter((link) => hasMatch(link));
     if (linkMatches.length > 0) {
-      score += linkMatches.length * 2;
+      const value = linkMatches.length * 2;
+      score += value;
+      scoreBreakdown.links = value;
       matchFields.push('links');
     }
 
-    if (memory.type.toLowerCase().includes(queryLower)) {
+    if (hasMatch(memory.type)) {
       score += 2;
+      scoreBreakdown.type = 2;
       matchFields.push('type');
     }
 
-    if (memory.factKey?.toLowerCase().includes(queryLower)) {
+    if (hasMatch(memory.factKey)) {
       score += 10;
+      scoreBreakdown.factKey = 10;
       matchFields.push('factKey');
     }
 
-    return { score, matchFields };
+    const entityMatches = [...memory.tags, ...(memory.links || [])].filter((value) => hasMatch(value)).length;
+    if (entityMatches > 0) {
+      const entityBoost = Math.min(10, entityMatches * 2);
+      score += entityBoost;
+      scoreBreakdown.entity = entityBoost;
+    }
+
+    const confidenceBoost = Math.round((memory.confidence || 0) * 10);
+    score += confidenceBoost;
+    scoreBreakdown.confidence = confidenceBoost;
+
+    const statusWeight = this.getStatusScoreWeight(memory.status);
+    score += statusWeight;
+    scoreBreakdown.status = statusWeight;
+
+    const recencyBoost = this.getRecencyBoost(memory.updatedAt);
+    score += recencyBoost;
+    scoreBreakdown.recency = recencyBoost;
+    scoreBreakdown.total = score;
+
+    return { score, matchFields: Array.from(new Set(matchFields)), scoreBreakdown };
+  }
+
+  private getStatusScoreWeight(status: LongTermMemoryStatus): number {
+    if (status === 'active') return 8;
+    if (status === 'stale') return -8;
+    if (status === 'expired') return -20;
+    return -16;
+  }
+
+  private getRecencyBoost(updatedAt: string): number {
+    const updated = this.parseMemoryDate(updatedAt);
+    if (!updated) return 0;
+    const ageDays = Math.max(0, (Date.now() - updated.getTime()) / (24 * 60 * 60 * 1000));
+    if (ageDays <= 7) return 5;
+    if (ageDays <= 30) return 2;
+    return 0;
   }
 
   private resolveLongTermMemory(

@@ -129,7 +129,11 @@ export class GraphExpander {
     this.addChunks(importChunks, expandedChunks, existingKeys);
     stats.importCount = importChunks.length;
 
-    const explorationCandidates = this.buildExplorationCandidates(expandedChunks);
+    const explorationCandidates = this.buildExplorationCandidates(
+      expandedChunks,
+      new Set(seeds.map((seed) => seed.filePath)),
+      queryTokens,
+    );
     const nextInspectionSuggestions = explorationCandidates.map(
       (candidate) => `Inspect ${candidate.filePath} (${candidate.reason})`,
     );
@@ -685,9 +689,26 @@ export class GraphExpander {
     return /\/index\.(ts|tsx|js|jsx|mts|mjs|cts|cjs)$/.test(lower);
   }
 
-  private buildExplorationCandidates(chunks: ScoredChunk[]): ExpansionCandidate[] {
+  private buildExplorationCandidates(
+    chunks: ScoredChunk[],
+    seedFiles: Set<string>,
+    queryTokens?: Set<string>,
+  ): ExpansionCandidate[] {
     const byFile = new Map<string, ScoredChunk>();
-    for (const chunk of [...chunks].sort((a, b) => b.score - a.score)) {
+    const sourcePriority = (source: ScoredChunk['source']): number =>
+      source === 'import' ? 3 : source === 'breadcrumb' ? 2 : 1;
+    const overlapScore = (filePath: string): number => this.computeExplorationPathOverlap(filePath, queryTokens);
+
+    for (const chunk of [...chunks].sort((a, b) => {
+      const sourceDelta = sourcePriority(b.source) - sourcePriority(a.source);
+      if (sourceDelta !== 0) return sourceDelta;
+      const overlapDelta = overlapScore(b.filePath) - overlapScore(a.filePath);
+      if (overlapDelta !== 0) return overlapDelta;
+      return b.score - a.score;
+    })) {
+      if (seedFiles.has(chunk.filePath)) {
+        continue;
+      }
       if (!byFile.has(chunk.filePath)) {
         byFile.set(chunk.filePath, chunk);
       }
@@ -701,6 +722,27 @@ export class GraphExpander {
         reason: `expanded via ${chunk.source}`,
         priority: chunk.source === 'import' ? 'high' : chunk.source === 'breadcrumb' ? 'medium' : 'low',
       }));
+  }
+
+  private computeExplorationPathOverlap(filePath: string, queryTokens?: Set<string>): number {
+    if (!queryTokens || queryTokens.size === 0) {
+      return 0;
+    }
+
+    const pathTokens = filePath
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length > 0);
+
+    let overlap = 0;
+    for (const queryToken of queryTokens) {
+      if (queryToken.length < 3) continue;
+      if (pathTokens.some((pathToken) => pathToken === queryToken || pathToken.includes(queryToken) || queryToken.includes(pathToken))) {
+        overlap++;
+      }
+    }
+    return overlap;
   }
 }
 

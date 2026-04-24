@@ -21,6 +21,12 @@ function createConfig(): SearchConfig {
     ftsTopKFiles: 5,
     lexChunksPerFile: 2,
     lexTotalChunks: 5,
+    enableSkeletonRecall: false,
+    skeletonTopKFiles: 6,
+    skeletonChunksPerFile: 2,
+    enableGraphRecall: false,
+    graphRecallTopSymbols: 6,
+    graphRecallChunksPerFile: 1,
     rrfK0: 60,
     wVec: 1,
     wLex: 1,
@@ -173,6 +179,157 @@ test('GraphExpander prefers graph relations before import text fallback', async 
     const expanded = await expander.expand([createSeed(sourcePath, `${sourcePath} > class UserService`)]);
     assert.ok(expanded.chunks.some((chunk) => chunk.filePath === targetPath));
     assert.ok(expanded.nextInspectionSuggestions.some((item) => item.includes(targetPath)));
+  } finally {
+    closeDb(db);
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('GraphExpander prioritizes import candidates ahead of lower-value neighbor candidates', async () => {
+  const rootPath = makeTempProjectRoot();
+  const projectId = generateProjectId(rootPath);
+  const db = initDb(projectId);
+
+  try {
+    const sourcePath = 'src/index.ts';
+    const importTarget = 'src/cli/registerCommands.ts';
+    const neighborPath = 'src/cli/commands/bootstrap.ts';
+    batchUpsert(db, [
+      {
+        path: sourcePath,
+        hash: 'hash-index',
+        mtime: 1,
+        size: 120,
+        content: "import { registerCliCommands } from './cli/registerCommands.js';",
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+      {
+        path: importTarget,
+        hash: 'hash-register',
+        mtime: 1,
+        size: 90,
+        content: 'export function registerCliCommands() {}',
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+      {
+        path: neighborPath,
+        hash: 'hash-bootstrap',
+        mtime: 1,
+        size: 90,
+        content: 'export function registerBootstrapCommands() {}',
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+    ]);
+
+    const sourceChunks = [
+      createChunkRecord(sourcePath, 0, `${sourcePath} > prelude`),
+      createChunkRecord(sourcePath, 1, `${sourcePath} > cli registration`),
+      createChunkRecord(sourcePath, 2, `${sourcePath} > startup`),
+    ];
+    const importChunk = createChunkRecord(importTarget, 0, `${importTarget} > registerCliCommands`);
+    const neighborChunk = createChunkRecord(neighborPath, 0, `${neighborPath} > registerBootstrapCommands`);
+
+    const fakeVectorStore = {
+      getFileChunks: async (filePath: string) => {
+        if (filePath === sourcePath) return sourceChunks;
+        if (filePath === importTarget) return [importChunk];
+        if (filePath === neighborPath) return [neighborChunk];
+        return [];
+      },
+      getFilesChunks: async (filePaths: string[]) => {
+        const map = new Map<string, ChunkRecord[]>();
+        for (const fp of filePaths) {
+          if (fp === sourcePath) map.set(fp, sourceChunks);
+          if (fp === importTarget) map.set(fp, [importChunk]);
+          if (fp === neighborPath) map.set(fp, [neighborChunk]);
+        }
+        return map;
+      },
+    };
+
+    const expander = new GraphExpander(projectId, createConfig());
+    (expander as { db: unknown }).db = db;
+    (expander as { vectorStore: unknown }).vectorStore = fakeVectorStore;
+    (expander as { allFilePaths: unknown }).allFilePaths = new Set([sourcePath, importTarget, neighborPath]);
+
+    const expanded = await expander.expand([createSeed(sourcePath, `${sourcePath} > cli registration`)]);
+
+    assert.equal(expanded.explorationCandidates[0]?.filePath, importTarget);
+    assert.equal(expanded.explorationCandidates[0]?.priority, 'high');
+  } finally {
+    closeDb(db);
+    fs.rmSync(rootPath, { recursive: true, force: true });
+  }
+});
+
+test('GraphExpander prioritizes query-relevant import candidates within import exploration results', async () => {
+  const rootPath = makeTempProjectRoot();
+  const projectId = generateProjectId(rootPath);
+  const db = initDb(projectId);
+
+  try {
+    const sourcePath = 'src/index.ts';
+    const registerTarget = 'src/cli/registerCommands.ts';
+    const genericTarget = 'src/runtimePaths.ts';
+    batchUpsert(db, [
+      {
+        path: sourcePath,
+        hash: 'hash-index',
+        mtime: 1,
+        size: 180,
+        content: "import { registerCliCommands } from './cli/registerCommands.js';\nimport { resolveBaseDir } from './runtimePaths.js';",
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+      {
+        path: registerTarget,
+        hash: 'hash-register',
+        mtime: 1,
+        size: 90,
+        content: 'export function registerCliCommands() {}',
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+      {
+        path: genericTarget,
+        hash: 'hash-runtime',
+        mtime: 1,
+        size: 90,
+        content: 'export function resolveBaseDir() {}',
+        language: 'typescript',
+        vectorIndexHash: null,
+      },
+    ]);
+
+    const registerChunk = createChunkRecord(registerTarget, 0, `${registerTarget} > registerCliCommands`);
+    const runtimeChunk = createChunkRecord(genericTarget, 0, `${genericTarget} > resolveBaseDir`);
+    const fakeVectorStore = {
+      getFilesChunks: async (filePaths: string[]) => {
+        const map = new Map<string, ChunkRecord[]>();
+        for (const fp of filePaths) {
+          if (fp === registerTarget) map.set(fp, [registerChunk]);
+          if (fp === genericTarget) map.set(fp, [runtimeChunk]);
+        }
+        return map;
+      },
+    };
+
+    const expander = new GraphExpander(projectId, createConfig());
+    (expander as { db: unknown }).db = db;
+    (expander as { vectorStore: unknown }).vectorStore = fakeVectorStore;
+    (expander as { allFilePaths: unknown }).allFilePaths = new Set([sourcePath, registerTarget, genericTarget]);
+
+    const expanded = await expander.expand(
+      [createSeed(sourcePath, `${sourcePath} > registerCliCommands`)],
+      new Set(['cli', 'command', 'registration', 'entrypoint']),
+    );
+
+    assert.ok(expanded.explorationCandidates.length >= 2);
+    assert.equal(expanded.explorationCandidates[0]?.filePath, registerTarget);
+    assert.equal(expanded.explorationCandidates[1]?.filePath, genericTarget);
   } finally {
     closeDb(db);
     fs.rmSync(rootPath, { recursive: true, force: true });

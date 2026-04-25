@@ -6,7 +6,12 @@
 
 import { MemoryWriteAdvisor } from '../../memory/MemoryWriteAdvisor.js';
 import { MemoryStore } from '../../memory/MemoryStore.js';
-import type { LongTermMemoryItem, ResolvedLongTermMemoryItem } from '../../memory/types.js';
+import type {
+  LongTermMemoryItem,
+  LongTermMemorySource,
+  LongTermMemoryStatus,
+  ResolvedLongTermMemoryItem,
+} from '../../memory/types.js';
 import { logger } from '../../utils/logger.js';
 import type { ResponseFormat, MemoryToolResponse } from './memoryTypes.js';
 
@@ -45,6 +50,8 @@ export interface ManageLongTermMemoryInput {
   minScore?: number;
   includeExpired?: boolean;
   includeStale?: boolean;
+  status?: LongTermMemoryStatus[];
+  source?: LongTermMemorySource[];
   staleDays?: number;
   dryRun?: boolean;
   id?: string;
@@ -78,10 +85,53 @@ function formatLongTermMemory(memory: ResolvedLongTermMemoryItem, matchFields?: 
 - **Type**: ${memory.type}
 - **Scope**: ${memory.scope}
 - **Status**: ${memory.status}
+- **Source**: ${memory.source}
 - **Summary**: ${memory.summary}${why}${howToApply}
 - **Tags**: ${memory.tags.join(', ') || 'N/A'}${links}${factKey}
 - **Confidence**: ${(memory.confidence * 100).toFixed(0)}%
 - **Updated**: ${new Date(memory.updatedAt).toLocaleString()}${validity}${verified}`;
+}
+
+function formatLongTermMemoryFilters(args: ManageLongTermMemoryInput): string {
+  const filters = [
+    args.types?.length ? `types=${args.types.join(',')}` : undefined,
+    args.scope ? `scope=${args.scope}` : undefined,
+    args.status?.length ? `status=${args.status.join(',')}` : undefined,
+    args.source?.length ? `source=${args.source.join(',')}` : undefined,
+  ].filter(Boolean);
+  return filters.length > 0 ? filters.join('; ') : 'none';
+}
+
+function buildLongTermMemoryFilters(args: ManageLongTermMemoryInput): Record<string, unknown> {
+  return {
+    types: args.types,
+    scope: args.scope,
+    status: args.status,
+    source: args.source,
+    includeExpired: args.includeExpired,
+    includeStale: args.includeStale,
+    staleDays: args.staleDays,
+  };
+}
+
+function filterLongTermMemories<T extends { memory: ResolvedLongTermMemoryItem }>(
+  results: T[],
+  args: ManageLongTermMemoryInput,
+): T[] {
+  return results.filter((entry) => matchesLongTermMemoryFilters(entry.memory, args));
+}
+
+function matchesLongTermMemoryFilters(
+  memory: ResolvedLongTermMemoryItem,
+  args: ManageLongTermMemoryInput,
+): boolean {
+  if (args.status?.length && !args.status.includes(memory.status)) {
+    return false;
+  }
+  if (args.source?.length && !args.source.includes(memory.source)) {
+    return false;
+  }
+  return true;
 }
 
 function buildLongTermMemorySuggestions(args: ManageLongTermMemoryInput): Array<Omit<LongTermMemoryItem, 'id' | 'createdAt' | 'updatedAt'>> {
@@ -241,14 +291,16 @@ async function handleFind(
   args: ManageLongTermMemoryInput,
 ): Promise<MemoryToolResponse> {
   const query = args.query ?? '';
-  const results = await store.findLongTermMemories(query, {
+  const requestedLimit = args.limit ?? 20;
+  const needsPostFilter = Boolean(args.status?.length || args.source?.length);
+  const results = filterLongTermMemories(await store.findLongTermMemories(query, {
     types: args.types,
     scope: args.scope,
-    limit: args.limit,
+    limit: needsPostFilter ? Math.max(requestedLimit * 4, 50) : requestedLimit,
     minScore: args.minScore,
     includeExpired: args.includeExpired,
     staleDays: args.staleDays,
-  });
+  }), args).slice(0, requestedLimit);
 
   if (args.format === 'json') {
     return {
@@ -260,6 +312,7 @@ async function handleFind(
               tool: 'manage_long_term_memory',
               action: 'find',
               query,
+              filters: buildLongTermMemoryFilters(args),
               result_count: results.length,
               results: results.map((entry) => ({
                 ...entry.memory,
@@ -278,7 +331,7 @@ async function handleFind(
 
   if (results.length === 0) {
     return {
-      content: [{ type: 'text', text: `No long-term memories found for "${query}".` }],
+      content: [{ type: 'text', text: `No long-term memories found for "${query}".\n\n- **Filters**: ${formatLongTermMemoryFilters(args)}` }],
     };
   }
 
@@ -286,7 +339,7 @@ async function handleFind(
     content: [
       {
         type: 'text',
-        text: `## Found ${results.length} long-term memories\n\n${results.map((entry) => formatLongTermMemory(entry.memory, entry.matchFields)).join('\n\n---\n\n')}`,
+        text: `## Found ${results.length} long-term memories\n\n- **Filters**: ${formatLongTermMemoryFilters(args)}\n\n${results.map((entry) => formatLongTermMemory(entry.memory, entry.matchFields)).join('\n\n---\n\n')}`,
       },
     ],
   };
@@ -361,12 +414,12 @@ async function handleList(
   store: MemoryStore,
   args: ManageLongTermMemoryInput,
 ): Promise<MemoryToolResponse> {
-  const memories = await store.listLongTermMemories({
+  const memories = (await store.listLongTermMemories({
     types: args.types,
     scope: args.scope,
     includeExpired: args.includeExpired,
     staleDays: args.staleDays,
-  });
+  })).filter((memory) => matchesLongTermMemoryFilters(memory, args));
 
   if (args.format === 'json') {
     return {
@@ -377,6 +430,7 @@ async function handleList(
             {
               tool: 'manage_long_term_memory',
               action: 'list',
+              filters: buildLongTermMemoryFilters(args),
               result_count: memories.length,
               results: memories,
             },
@@ -389,14 +443,14 @@ async function handleList(
   }
 
   if (memories.length === 0) {
-    return { content: [{ type: 'text', text: 'No long-term memories found.' }] };
+    return { content: [{ type: 'text', text: `No long-term memories found.\n\n- **Filters**: ${formatLongTermMemoryFilters(args)}` }] };
   }
 
   return {
     content: [
       {
         type: 'text',
-        text: `## Long-term Memories (${memories.length})\n\n${memories.map((memory) => formatLongTermMemory(memory)).join('\n\n---\n\n')}`,
+        text: `## Long-term Memories (${memories.length})\n\n- **Filters**: ${formatLongTermMemoryFilters(args)}\n\n${memories.map((memory) => formatLongTermMemory(memory)).join('\n\n---\n\n')}`,
       },
     ],
   };

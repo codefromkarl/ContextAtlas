@@ -8,6 +8,20 @@
 
 **Tech Stack:** TypeScript, SQLite FTS5, LanceDB, Ollama (local LLM), Tree-sitter, existing `better-sqlite3`, `@lancedb/lancedb`
 
+## 2026-04-25 Status Reconciliation
+
+This plan is now a historical implementation plan. The checklist below may still contain original TDD scaffolding, but current workspace state has been reconciled as follows:
+
+| Area | Current status | Evidence | Remaining validation |
+|------|----------------|----------|----------------------|
+| Local Ollama reranker | Completed | `src/api/localReranker.ts`, `tests/local-reranker.test.ts` | Depends on a live Ollama endpoint only in real deployments; unit tests use mocked `fetch`. |
+| Reranker router | Completed | `src/api/rerankerRouter.ts`, `src/search/SearchPipelineCallbacks.ts`, `src/config.ts` `RERANK_PROVIDER` routing | No additional validation pending beyond existing router/local reranker tests and build. |
+| Dynamic RRF env config | Completed | `src/search/config.ts` reads `SEARCH_W_VEC`, `SEARCH_W_LEX`, `SEARCH_RRF_K0`; `tests/rrf-weights.test.ts` covers intent weight behavior | `code_search` is not a separate intent in current code; it is superseded by `symbol_lookup`, `navigation`, and `architecture` intent profiles. |
+| Retrieval audit log | Completed | `src/search/retrievalAuditLog.ts`, `src/search/SearchPipeline.ts`, `tests/retrieval-audit-log.test.ts` | Monitoring dashboard consumption remains outside this task unless separately scoped. |
+| Git post-commit indexer parser | Completed as lightweight parser | `src/hooks/postCommitIndexer.ts`, `tests/post-commit-indexer.test.ts` | Automatic hook installation and scanner-triggered reindex orchestration are not proven by this plan; current module returns categorized changed files for callers. |
+| OpenAI-compatible embedding provider | Not reconciled in this cleanup | Not checked in this pass | Keep open until implementation and tests are verified. |
+| FTS metadata enrichment | Not reconciled in this cleanup | Not checked in this pass | Keep open until schema, sync path, and tests are verified. |
+
 ---
 
 ## File Structure
@@ -28,17 +42,17 @@
 | `src/api/embedding.ts` | Extract provider-agnostic interface, add OpenAI-compatible provider |
 | `src/search/fts.ts` | Add `language` and `symbols` columns to `chunks_fts` schema |
 | `src/search/HybridRecallEngine.ts` | Pass enriched metadata filter from FTS to vector search |
-| `src/search/QueryIntentClassifier.ts` | Refine weight profiles, add `code_search` intent |
+| `src/search/QueryIntentClassifier.ts` | Refine weight profiles; original `code_search` idea is superseded by current `symbol_lookup` / `navigation` / `architecture` profiles |
 | `src/search/config.ts` | Make RRF weights overridable via env vars |
 | `src/search/SearchPipelineCallbacks.ts` | Wire `rerankerRouter` instead of direct `getRerankerClient()` |
 | `src/search/SearchPipeline.ts` | Add audit log write step after retrieval completes |
-| `src/search/types.ts` | Add `QueryIntent = 'code_search'`, add audit-related types |
+| `src/search/types.ts` | Audit-related types and current query-intent union; original standalone `code_search` intent is not present |
 | `src/monitoring/retrievalMonitor.ts` | Consume audit log data for monitoring dashboards |
 | `src/scanner/index.ts` | Export incremental re-index function for git hook consumption |
 
 ---
 
-## Task 1: Local Rerank Provider (Ollama)
+## Task 1: Local Rerank Provider (Ollama) — Reconciled Completed
 
 **Files:**
 - Create: `src/api/localReranker.ts`
@@ -712,7 +726,9 @@ git commit -m "feat: enrich chunks_fts with language and symbols metadata"
 
 ---
 
-## Task 4: Dynamic RRF Weight Configuration
+## Task 4: Dynamic RRF Weight Configuration — Reconciled Completed
+
+**2026-04-25 reconciliation note:** The env-configurable RRF weights are implemented. The original standalone `code_search` intent was not added; current behavior routes code-oriented queries through `symbol_lookup`, `navigation`, and `architecture` profiles.
 
 **Files:**
 - Modify: `src/search/config.ts` (make weights env-configurable)
@@ -823,7 +839,7 @@ git commit -m "feat: make RRF weights env-configurable, document intent profiles
 
 ---
 
-## Task 5: Query-Level Retrieval Audit Log
+## Task 5: Query-Level Retrieval Audit Log — Reconciled Completed
 
 **Files:**
 - Create: `src/search/retrievalAuditLog.ts`
@@ -1095,7 +1111,9 @@ git commit -m "feat: add per-query retrieval audit log for debugging search qual
 
 ---
 
-## Task 6: Git Hook Auto-Indexing
+## Task 6: Git Hook Auto-Indexing — Parser Completed, Hook Orchestration Open
+
+**2026-04-25 reconciliation note:** Current implementation parses post-commit diff output and classifies changed code files. Installing hooks and invoking scanner reindex from the hook are still open unless covered by a separate task.
 
 **Files:**
 - Create: `src/hooks/postCommitIndexer.ts`

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type {
   GlobalMemory,
+  LongTermMemoryHistoryEvent,
   LongTermMemoryItem,
   LongTermMemoryScope,
   LongTermMemorySearchResult,
@@ -12,6 +13,7 @@ import { MemoryHubDatabase, type LongTermMemoryRow } from './MemoryHubDatabase.j
 
 const DEFAULT_GLOBAL_META_PREFIX = 'global:';
 const DEFAULT_LONG_TERM_MEMORY_STALE_DAYS = 30;
+const HISTORY_PROVENANCE_PREFIX = 'history:v1:';
 
 export interface LongTermMemoryServiceOptions {
   hub: MemoryHubDatabase;
@@ -48,6 +50,7 @@ export class LongTermMemoryService {
       ...input,
       durability: input.durability || 'stable',
       provenance: [...new Set(input.provenance || [])],
+      history: this.normalizeHistoryEvents(input.history),
       id: input.id || crypto.randomUUID(),
       createdAt: input.createdAt || now,
       updatedAt: input.updatedAt || now,
@@ -67,8 +70,12 @@ export class LongTermMemoryService {
         invalidates: this.mergeStringList(previous.invalidates, item.invalidates),
         confidence: Math.max(previous.confidence || 0, item.confidence || 0),
         source: this.mergeLongTermMemorySource(previous.source, item.source),
-        factKey: item.factKey || previous.factKey,
+        factKey: previous.factKey || item.factKey,
         invalidatedBy: item.invalidatedBy || previous.invalidatedBy,
+        history: this.mergeHistoryEvents(previous.history, item.history, [
+          this.createHistoryEvent('updated', item, now),
+          ...this.createVerifiedHistoryEvents(item, now),
+        ]),
         createdAt: previous?.createdAt || item.createdAt,
         updatedAt: now,
       };
@@ -91,20 +98,31 @@ export class LongTermMemoryService {
         durability: this.mergeDurability(previous.durability, item.durability),
         confidence: Math.max(previous.confidence || 0, item.confidence || 0),
         source: this.mergeLongTermMemorySource(previous.source, item.source),
-        factKey: item.factKey || previous.factKey,
+        factKey: previous.factKey || item.factKey,
         invalidatedBy: item.invalidatedBy || previous.invalidatedBy,
         lastVerifiedAt: item.lastVerifiedAt || previous.lastVerifiedAt,
         validFrom: item.validFrom || previous.validFrom,
         validUntil: item.validUntil || previous.validUntil,
+        history: this.mergeHistoryEvents(previous.history, item.history, [
+          this.createHistoryEvent('merged', item, now),
+          ...this.createVerifiedHistoryEvents(item, now),
+        ]),
         updatedAt: now,
       };
       await this.save(item.type, item.scope, items);
       return { memory: items[mergeIndex], action: 'merged' };
     }
 
-    items.push(item);
+    const createdItem: LongTermMemoryItem = {
+      ...item,
+      history: this.mergeHistoryEvents(item.history, [
+        this.createHistoryEvent('created', item, now),
+        ...this.createVerifiedHistoryEvents(item, now),
+      ]),
+    };
+    items.push(createdItem);
     await this.save(item.type, item.scope, items);
-    return { memory: item, action: 'created' };
+    return { memory: createdItem, action: 'created' };
   }
 
   async read(
@@ -395,6 +413,12 @@ export class LongTermMemoryService {
           `invalidated-at:${ended}`,
           ...(input.reason ? [`invalidated-reason:${input.reason}`] : []),
         ]),
+        history: this.mergeHistoryEvents(item.history, [
+          {
+            ...this.createHistoryEvent('invalidated', item, now),
+            reason: input.reason,
+          },
+        ]),
       };
       updatedMemory = updated;
       return updated;
@@ -454,6 +478,9 @@ export class LongTermMemoryService {
       if (!item.id || !item.title || !item.summary) {
         return [];
       }
+      const provenanceParts = this.splitProvenanceAndHistory(
+        Array.isArray(item.provenance) ? item.provenance.map(String) : [],
+      );
 
       return [
         {
@@ -476,7 +503,11 @@ export class LongTermMemoryService {
             item.durability === 'ephemeral' || item.durability === 'stable'
               ? item.durability
               : 'stable',
-          provenance: Array.isArray(item.provenance) ? item.provenance.map(String) : [],
+          provenance: provenanceParts.provenance,
+          history: this.mergeHistoryEvents(
+            provenanceParts.history,
+            this.normalizeHistoryEvents(item.history),
+          ),
           validFrom: item.validFrom ? String(item.validFrom) : undefined,
           validUntil: item.validUntil ? String(item.validUntil) : undefined,
           lastVerifiedAt: item.lastVerifiedAt ? String(item.lastVerifiedAt) : undefined,
@@ -523,6 +554,7 @@ export class LongTermMemoryService {
   }
 
   private mapLongTermMemoryRow(row: LongTermMemoryRow): LongTermMemoryItem {
+    const provenanceParts = this.splitProvenanceAndHistory(this.parseJsonArray(row.provenance));
     return {
       id: row.id,
       type: row.type,
@@ -539,7 +571,8 @@ export class LongTermMemoryService {
       invalidates: this.parseJsonArray(row.invalidates),
       invalidatedBy: row.invalidated_by ?? undefined,
       durability: row.durability,
-      provenance: this.parseJsonArray(row.provenance),
+      provenance: provenanceParts.provenance,
+      history: provenanceParts.history,
       validFrom: row.valid_from ?? undefined,
       validUntil: row.valid_until ?? undefined,
       lastVerifiedAt: row.last_verified_at ?? undefined,
@@ -569,7 +602,7 @@ export class LongTermMemoryService {
       invalidates: item.invalidates,
       invalidated_by: item.invalidatedBy,
       durability: item.durability,
-      provenance: item.provenance,
+      provenance: this.mergeStringList(item.provenance, this.encodeHistoryEvents(item.history)),
       valid_from: item.validFrom,
       valid_until: item.validUntil,
       last_verified_at: item.lastVerifiedAt,
@@ -615,21 +648,158 @@ export class LongTermMemoryService {
     if (a.factKey && b.factKey) {
       return a.type === b.type
         && a.scope === b.scope
-        && this.normalizeMemoryText(a.factKey) === this.normalizeMemoryText(b.factKey);
+        && this.normalizeFactKey(a.factKey) === this.normalizeFactKey(b.factKey);
     }
 
     return a.type === b.type
       && a.scope === b.scope
-      && this.normalizeMemoryText(a.title) === this.normalizeMemoryText(b.title)
-      && this.normalizeMemoryText(a.summary) === this.normalizeMemoryText(b.summary);
+      && this.getMemoryContentHash(a) === this.getMemoryContentHash(b);
   }
 
   private normalizeMemoryText(input: string): string {
     return input.toLowerCase().trim().replace(/\s+/g, ' ');
   }
 
+  private normalizeFactKey(input: string): string {
+    return input
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  private getMemoryContentHash(memory: Pick<LongTermMemoryItem, 'title' | 'summary'>): string {
+    const normalized = this.normalizeMemoryText(`${memory.title}\n${memory.summary}`);
+    return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+  }
+
   private mergeStringList(a?: string[], b?: string[]): string[] {
     return [...new Set([...(a || []), ...(b || [])].filter(Boolean))];
+  }
+
+  private createHistoryEvent(
+    action: LongTermMemoryHistoryEvent['action'],
+    item: Pick<LongTermMemoryItem, 'source' | 'confidence' | 'provenance' | 'factKey' | 'title' | 'summary'>,
+    at: string,
+  ): LongTermMemoryHistoryEvent {
+    return {
+      action,
+      at,
+      source: item.source,
+      confidence: item.confidence,
+      provenance: this.mergeStringList(item.provenance),
+      factKey: item.factKey,
+      summaryHash: this.getMemoryContentHash(item),
+    };
+  }
+
+  private createVerifiedHistoryEvents(
+    item: Pick<LongTermMemoryItem, 'lastVerifiedAt' | 'source' | 'confidence' | 'provenance' | 'factKey' | 'title' | 'summary'>,
+    at: string,
+  ): LongTermMemoryHistoryEvent[] {
+    if (!item.lastVerifiedAt) {
+      return [];
+    }
+    return [
+      {
+        ...this.createHistoryEvent('verified', item, at),
+        at: item.lastVerifiedAt,
+      },
+    ];
+  }
+
+  private mergeHistoryEvents(
+    ...eventGroups: Array<LongTermMemoryHistoryEvent[] | undefined>
+  ): LongTermMemoryHistoryEvent[] {
+    const merged: LongTermMemoryHistoryEvent[] = [];
+    const seen = new Set<string>();
+    for (const event of eventGroups.flatMap((events) => events || [])) {
+      const normalized = this.normalizeHistoryEvent(event);
+      if (!normalized) {
+        continue;
+      }
+      const key = JSON.stringify(normalized);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push(normalized);
+    }
+    return merged;
+  }
+
+  private normalizeHistoryEvents(events?: unknown): LongTermMemoryHistoryEvent[] {
+    if (!Array.isArray(events)) {
+      return [];
+    }
+    return events.flatMap((event) => {
+      const normalized = this.normalizeHistoryEvent(event);
+      return normalized ? [normalized] : [];
+    });
+  }
+
+  private normalizeHistoryEvent(event: unknown): LongTermMemoryHistoryEvent | null {
+    if (!event || typeof event !== 'object') {
+      return null;
+    }
+    const candidate = event as Partial<LongTermMemoryHistoryEvent>;
+    if (
+      candidate.action !== 'created'
+      && candidate.action !== 'merged'
+      && candidate.action !== 'updated'
+      && candidate.action !== 'invalidated'
+      && candidate.action !== 'verified'
+    ) {
+      return null;
+    }
+    if (!candidate.at) {
+      return null;
+    }
+    return {
+      action: candidate.action,
+      at: String(candidate.at),
+      source: candidate.source,
+      confidence: typeof candidate.confidence === 'number' ? candidate.confidence : undefined,
+      provenance: Array.isArray(candidate.provenance) ? candidate.provenance.map(String) : undefined,
+      factKey: candidate.factKey ? String(candidate.factKey) : undefined,
+      reason: candidate.reason ? String(candidate.reason) : undefined,
+      summaryHash: candidate.summaryHash ? String(candidate.summaryHash) : undefined,
+    };
+  }
+
+  private encodeHistoryEvents(events?: LongTermMemoryHistoryEvent[]): string[] {
+    return this.normalizeHistoryEvents(events).map((event) =>
+      `${HISTORY_PROVENANCE_PREFIX}${Buffer.from(JSON.stringify(event), 'utf8').toString('base64url')}`,
+    );
+  }
+
+  private splitProvenanceAndHistory(provenance: string[]): {
+    provenance: string[];
+    history: LongTermMemoryHistoryEvent[];
+  } {
+    const history: LongTermMemoryHistoryEvent[] = [];
+    const plain: string[] = [];
+    for (const item of provenance) {
+      if (!item.startsWith(HISTORY_PROVENANCE_PREFIX)) {
+        plain.push(item);
+        continue;
+      }
+      try {
+        const decoded = JSON.parse(
+          Buffer.from(item.slice(HISTORY_PROVENANCE_PREFIX.length), 'base64url').toString('utf8'),
+        ) as unknown;
+        const event = this.normalizeHistoryEvent(decoded);
+        if (event) {
+          history.push(event);
+        }
+      } catch {
+        plain.push(item);
+      }
+    }
+    return {
+      provenance: this.mergeStringList(plain),
+      history: this.mergeHistoryEvents(history),
+    };
   }
 
   private mergeDurability(

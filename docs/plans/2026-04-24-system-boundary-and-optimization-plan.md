@@ -140,8 +140,10 @@ ContextAtlas 不应扩张为：
 
 验收标准：
 
-- [ ] 每轮图谱或记忆改动都能跑同一组 benchmark。
-- [ ] 能明确区分“功能缺失”“解析错误”“召回排序差”“输出格式不稳定”。
+- [x] 每轮图谱或记忆改动都能跑同一组 benchmark。
+  - 关闭依据：`parity:benchmark` 默认使用内置 fixture，release smoke 已覆盖该命令；也支持 `--fixture` 跑同一组外部 golden case。
+- [x] 能明确区分“功能缺失”“解析错误”“召回排序差”“输出格式不稳定”。
+  - 关闭依据：benchmark summary 输出 `byFailureCategory`、`failureCategoryCoverage` 和 `benchmarkPassed`；文本报告显示四类 failure category 覆盖情况，JSON 报告提供稳定字段。
 
 ### P1：轻量图谱内核稳定化
 

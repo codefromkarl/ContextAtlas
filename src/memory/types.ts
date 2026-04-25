@@ -454,6 +454,19 @@ export type LongTermMemoryType =
   | 'evidence'
   | 'temporal-fact';
 export type LongTermMemoryStatus = 'active' | 'stale' | 'expired' | 'superseded';
+export type LongTermMemorySource = 'user-explicit' | 'agent-inferred' | 'tool-result';
+export type LongTermMemoryHistoryAction = 'created' | 'merged' | 'updated' | 'invalidated' | 'verified';
+
+export interface LongTermMemoryHistoryEvent {
+  action: LongTermMemoryHistoryAction;
+  at: string;
+  source?: LongTermMemorySource;
+  confidence?: number;
+  provenance?: string[];
+  factKey?: string;
+  reason?: string;
+  summaryHash?: string;
+}
 
 /**
  * 长期记忆条目
@@ -486,7 +499,7 @@ export interface LongTermMemoryItem {
   /** 作用域 */
   scope: LongTermMemoryScope;
   /** 记忆来源 */
-  source: 'user-explicit' | 'agent-inferred' | 'tool-result';
+  source: LongTermMemorySource;
   /** 置信度 */
   confidence: number;
   /** 外部链接 */
@@ -503,6 +516,8 @@ export interface LongTermMemoryItem {
   validUntil?: string;
   /** 上次核验时间 */
   lastVerifiedAt?: string;
+  /** 轻量治理事件历史 */
+  history?: LongTermMemoryHistoryEvent[];
   /** 创建时间 */
   createdAt: string;
   /** 更新时间 */

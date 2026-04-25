@@ -1,10 +1,10 @@
 # ContextAtlas 代码知识图谱功能设计
 
-> 版本: 0.2.0 | 状态: Partially Implemented | 日期: 2026-04-10
+> 版本: 0.2.1 | 状态: Baseline Implemented / Advanced Items Open | 日期: 2026-04-25
 
 ## 当前实现状态
 
-截至 2026-04-10，本文档已经不再只是纯设计稿，仓库中已有一版最小可用实现：
+截至 2026-04-25，本文档已经不再只是纯设计稿，仓库中已有一版最小可用实现：
 
 | 范围 | 状态 | 说明 |
 |------|------|------|
@@ -12,7 +12,7 @@
 | Phase 1 | ✅ 完成 | `symbols/relations/symbols_fts`、`GraphStore`、`SymbolExtractor`、scanner 持久化、`graph_impact` / `graph_context` 已落地 |
 | Phase 2 | ✅ 最小闭环完成 | `ChangeDetector` / `detect_changes`、`ExecutionTracer` / `graph_query` 已落地 |
 | Phase 3 | ✅ 第一阶段完成 | `GraphExpander` E3 已支持 graph-first / fallback-aware 扩展 |
-| Phase 4 | ⏸️ 未开始 | 多仓库联合图、API 契约分析、可视化仍是后续专题，不属于当前单仓闭环范围 |
+| Phase 4 | 🟡 部分被替代 | API 契约分析已由 system-boundary 计划 P5 以轻量派生扫描覆盖；多仓库联合图和可视化仍是后续专题 |
 
 当前已实现文件主要包括：
 - `src/graph/GraphStore.ts`
@@ -21,6 +21,17 @@
 - `src/graph/ExecutionTracer.ts`
 - `src/mcp/tools/codeGraph.ts`
 - `src/search/GraphExpander.ts`
+
+## 2026-04-25 清账说明
+
+本文档保留原始设计背景，但部分旧验收项已由当前代码或 `docs/plans/2026-04-24-system-boundary-and-optimization-plan.md` 覆盖：
+
+| 旧条目 | 当前状态 |
+|--------|----------|
+| Phase 1 基础图谱 | 已由 SQLite `symbols` / `relations` / `symbols_fts`、`GraphStore`、`SymbolExtractor`、`graph_impact`、`graph_context` 覆盖。 |
+| Phase 2 执行流与变更检测 | 已由 `ExecutionTracer` / `graph_query`、`ChangeDetector` / `detect_changes` 覆盖；多语言 provider 当前覆盖 TS/JS、Python、Go、Java，未达到原文“6+ 语言”表述。 |
+| Phase 3 图谱增强检索 | 已由 `GraphExpander` graph-first / fallback-aware 扩展覆盖；`graph_rename` 和“图扩展优于启发式 import 扩展”的 AB 证据仍未完成。 |
+| Phase 4 API 契约分析 | 被 system-boundary 计划 P5 的 `contract_analysis` 轻量派生扫描替代；不再按本文档原 Phase 4 的多仓库联合图路径推进。 |
 
 ## 文档目的
 
@@ -799,10 +810,10 @@ tests/graph/                         ← 测试
   修改文件、删除文件、空文件、解析失败文件
 
 **验收标准**：
-- [ ] `cw index` 后 SQLite 中有 `symbols` / `relations` / `symbols_fts`
-- [ ] `graph_impact("SearchService", { direction: "downstream" })` 至少能返回 `IMPORTS` / `HAS_METHOD` / 文件内 `CALLS`
-- [ ] `graph_context("SearchService")` 返回 callers + callees + 所属文件/父符号
-- [ ] 修改或删除文件后图谱正确更新，无孤立 relations
+- [x] `cw index` 后 SQLite 中有 `symbols` / `relations` / `symbols_fts`
+- [x] `graph_impact("SearchService", { direction: "downstream" })` 至少能返回 `IMPORTS` / `HAS_METHOD` / 文件内 `CALLS`
+- [x] `graph_context("SearchService")` 返回 callers + callees + 所属文件/父符号
+- [x] 修改或删除文件后图谱正确更新，无孤立 relations
 - [ ] 索引时间增长 < 5%
 
 **交付物**：
@@ -847,10 +858,11 @@ tests/graph/                         ← 测试
 - staged / unstaged / merge-base diff 场景测试
 
 **验收标准**：
-- [ ] `graph_query("认证流程")` 返回从入口到出口的主要执行链
-- [ ] `detect_changes({ scope: "staged" })` 返回变更符号和上下游影响
+- [x] `graph_query("认证流程")` 返回从入口到出口的主要执行链
+- [x] `detect_changes({ scope: "staged" })` 返回变更符号和上下游影响
 - [ ] 6+ 语言具备基础符号提取能力
-- [ ] unresolved 关系不会阻塞主流程，且会在输出中显式标记
+  - 当前状态：TS/JS、Python、Go、Java 已有 provider；原“6+ 语言”验收仍未完全关闭。
+- [x] unresolved 关系不会阻塞主流程，且会在输出中显式标记
 
 **交付物**：
 - 执行流追踪工具
@@ -892,8 +904,8 @@ tests/graph/                         ← 测试
 - symbol-to-chunk 映射测试
 
 **验收标准**：
-- [ ] 图谱可用时，E3 扩展优先走图查询
-- [ ] 图谱不可用时，现有检索结果无回归
+- [x] 图谱可用时，E3 扩展优先走图查询
+- [x] 图谱不可用时，现有检索结果无回归
 - [ ] 至少一组基准查询显示图扩展优于原启发式 import 扩展
 - [ ] `graph_rename` 能输出安全改名候选和风险点
 
@@ -920,7 +932,8 @@ tests/graph/                         ← 测试
 
 **验收标准**：
 - [ ] 多仓库检索或依赖分析可查询
-- [ ] API 契约与代码实现的偏差可被检测
+- [x] API 契约与代码实现的偏差可被检测
+  - 当前状态：已由 system-boundary 计划 P5 的 `contract_analysis`、route/tool map、impact 和 contract health 覆盖；不再要求按本文原 Phase 4 方案新增持久联合图。
 - [ ] 可视化视图不影响 CLI / MCP 主路径性能
 
 ### Phase 顺序与里程碑

@@ -53,6 +53,17 @@ test('runParityBenchmark summarizes cases by track, capability, and status', () 
   assert.equal(report.summary.byFailureCategory['parse-error'], 4);
   assert.equal(report.summary.byFailureCategory['ranking-drift'], 3);
   assert.equal(report.summary.byFailureCategory['unstable-output'], 3);
+  assert.equal(report.summary.failureCategoryCoverage.complete, true);
+  assert.deepEqual(report.summary.failureCategoryCoverage.missing, []);
+  assert.deepEqual(report.summary.failureCategoryCoverage.covered, [
+    'missing-capability',
+    'parse-error',
+    'ranking-drift',
+    'unstable-output',
+  ]);
+  assert.equal(report.summary.benchmarkPassed, true);
+  assert.equal(report.summary.memoryRetrievalGoldenCasePassCount, 1);
+  assert.equal(report.summary.memoryRetrievalGoldenCaseFailCount, 0);
   assert.equal(report.summary.byGoldenCase['symbol-lookup'], 1);
   assert.equal(report.summary.byGoldenCase['call-chain'], 1);
   assert.equal(report.summary.byGoldenCase['impact-analysis'], 1);
@@ -91,7 +102,10 @@ test('formatParityBenchmarkReport renders stable case details', () => {
   assert.match(text, /memory-retrieval=1/);
   assert.match(text, /Failure Categories/);
   assert.match(text, /missing-capability=5/);
+  assert.match(text, /Benchmark Passed: true/);
+  assert.match(text, /Failure Category Coverage: complete=true covered=missing-capability, parse-error, ranking-drift, unstable-output missing=none/);
   assert.match(text, /Memory Retrieval Golden Cases: 1/);
+  assert.match(text, /Memory Retrieval Golden Case Results: pass=1 fail=0/);
   assert.match(text, /contextatlas-long-term-memory-retrieval: passed=true top=active-p7-memory-benchmark expected=active-p7-memory-benchmark/);
   assert.match(text, /embeddingModeDisabled=true/);
   assert.match(text, /activeRanksBeforeStaleOrExpired=true/);

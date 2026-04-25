@@ -366,6 +366,175 @@ test('executeRecordLongTermMemory returns duplicate hints for similar memories',
   });
 });
 
+test('executeRecordLongTermMemory records lightweight history for create merge verify and invalidate', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const created = await executeRecordLongTermMemory({
+      type: 'temporal-fact',
+      title: 'Search rollout status',
+      summary: 'Search rollout is active for tenant A.',
+      tags: ['search'],
+      scope: 'project',
+      source: 'user-explicit',
+      confidence: 0.9,
+      lastVerifiedAt: '2099-01-01',
+      factKey: 'rollout:search',
+      format: 'json',
+    }, projectRoot);
+    const createdPayload = JSON.parse(created.content[0].text);
+    assert.deepEqual(
+      createdPayload.memory.history.map((event: { action: string }) => event.action),
+      ['created', 'verified'],
+    );
+
+    const merged = await executeRecordLongTermMemory({
+      type: 'temporal-fact',
+      title: 'Search rollout status',
+      summary: 'Search rollout is active for tenant A and tenant B.',
+      tags: ['search', 'tenant-b'],
+      scope: 'project',
+      source: 'tool-result',
+      confidence: 0.8,
+      factKey: 'rollout:search',
+      provenance: ['deploy-check:42'],
+      format: 'json',
+    }, projectRoot);
+    const mergedPayload = JSON.parse(merged.content[0].text);
+    assert.equal(mergedPayload.write_action, 'merged');
+    assert.ok(
+      mergedPayload.memory.history.some(
+        (event: { action: string; source?: string; confidence?: number }) =>
+          event.action === 'merged' && event.source === 'tool-result' && event.confidence === 0.8,
+      ),
+    );
+
+    const invalidated = await executeManageLongTermMemory({
+      action: 'invalidate',
+      types: ['temporal-fact'],
+      scope: 'project',
+      factKey: 'rollout:search',
+      ended: '2020-01-01',
+      reason: 'rollout replaced',
+      format: 'json',
+    }, projectRoot);
+    const invalidatedPayload = JSON.parse(invalidated.content[0].text);
+    assert.ok(
+      invalidatedPayload.memory.history.some(
+        (event: { action: string; reason?: string }) =>
+          event.action === 'invalidated' && event.reason === 'rollout replaced',
+      ),
+    );
+  });
+});
+
+test('executeRecordLongTermMemory merges normalized factKey duplicates with clear hints', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await executeRecordLongTermMemory({
+      type: 'temporal-fact',
+      title: 'User module migration status',
+      summary: 'User module migration is blocked on data backfill.',
+      tags: ['migration'],
+      scope: 'project',
+      source: 'agent-inferred',
+      confidence: 0.7,
+      factKey: 'migration:user-module',
+      format: 'json',
+    }, projectRoot);
+
+    const duplicate = await executeRecordLongTermMemory({
+      type: 'temporal-fact',
+      title: 'User module migration status',
+      summary: 'User module migration is blocked on data backfill.',
+      tags: ['migration', 'backfill'],
+      scope: 'project',
+      source: 'user-explicit',
+      confidence: 1,
+      factKey: 'migration user module',
+      provenance: ['handoff:2026-04-25'],
+      format: 'json',
+    }, projectRoot);
+
+    const duplicatePayload = JSON.parse(duplicate.content[0].text);
+    assert.equal(duplicatePayload.write_action, 'merged');
+    assert.ok(
+      duplicatePayload.duplicateHints.some((hint: { reason: string }) =>
+        hint.reason.includes('factKey'),
+      ),
+    );
+    assert.ok(
+      duplicatePayload.memory.history.some((event: { action: string }) => event.action === 'merged'),
+    );
+    assert.deepEqual(
+      duplicatePayload.memory.provenance.sort(),
+      ['handoff:2026-04-25'],
+    );
+    assert.equal(duplicatePayload.memory.source, 'user-explicit');
+    assert.equal(duplicatePayload.memory.confidence, 1);
+  });
+});
+
+test('executeManageLongTermMemory filters long-term memories by status and source', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    await executeRecordLongTermMemory({
+      type: 'feedback',
+      title: 'Verified workflow',
+      summary: 'Run target tests before handoff.',
+      tags: ['workflow'],
+      scope: 'project',
+      source: 'user-explicit',
+      confidence: 1,
+      lastVerifiedAt: '2099-01-01',
+      format: 'json',
+    }, projectRoot);
+
+    await executeRecordLongTermMemory({
+      type: 'feedback',
+      title: 'Old inferred workflow',
+      summary: 'Run a deprecated smoke test before handoff.',
+      tags: ['workflow'],
+      scope: 'project',
+      source: 'agent-inferred',
+      confidence: 0.5,
+      lastVerifiedAt: '2020-01-01',
+      format: 'json',
+    }, projectRoot);
+
+    const listResponse = await executeManageLongTermMemory({
+      action: 'list',
+      types: ['feedback'],
+      status: ['active'],
+      source: ['user-explicit'],
+      staleDays: 30,
+      format: 'json',
+    }, projectRoot);
+    const listPayload = JSON.parse(listResponse.content[0].text);
+    assert.equal(listPayload.result_count, 1);
+    assert.equal(listPayload.filters.status[0], 'active');
+    assert.equal(listPayload.filters.source[0], 'user-explicit');
+    assert.equal(listPayload.results[0].title, 'Verified workflow');
+
+    const findResponse = await executeManageLongTermMemory({
+      action: 'find',
+      query: 'workflow',
+      types: ['feedback'],
+      status: ['stale'],
+      source: ['agent-inferred'],
+      staleDays: 30,
+      format: 'json',
+    }, projectRoot);
+    const findPayload = JSON.parse(findResponse.content[0].text);
+    assert.equal(findPayload.result_count, 1);
+    assert.equal(findPayload.results[0].title, 'Old inferred workflow');
+    assert.equal(findPayload.results[0].status, 'stale');
+    assert.equal(findPayload.results[0].source, 'agent-inferred');
+  });
+});
+
 test('executeManageLongTermMemory handles error cases gracefully', async () => {
   await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));

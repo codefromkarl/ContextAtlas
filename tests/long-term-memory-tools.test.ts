@@ -753,6 +753,101 @@ test('manage_long_term_memory can invalidate an active temporal fact by factKey'
   });
 });
 
+test('long-term memory tools expose history, merge hints, and status/source filters', async () => {
+  await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
+    MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));
+
+    const first = await handleRecordLongTermMemory(
+      {
+        type: 'temporal-fact',
+        title: 'Search rollout status',
+        summary: 'Search rollout is active for tenant A.',
+        tags: ['search'],
+        scope: 'project',
+        source: 'agent-inferred',
+        confidence: 0.7,
+        factKey: 'rollout:search',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const firstPayload = JSON.parse(first.content[0].text);
+    assert.equal(firstPayload.memory.history[0].action, 'created');
+
+    const second = await handleRecordLongTermMemory(
+      {
+        type: 'temporal-fact',
+        title: 'Search rollout status',
+        summary: 'Search rollout is active for tenant A.',
+        tags: ['search', 'rollout'],
+        scope: 'project',
+        source: 'user-explicit',
+        confidence: 1,
+        factKey: 'rollout search',
+        format: 'json',
+      },
+      projectRoot,
+    );
+    const secondPayload = JSON.parse(second.content[0].text);
+    assert.equal(secondPayload.write_action, 'merged');
+    assert.ok(
+      secondPayload.duplicateHints.some((hint: { reason: string }) =>
+        hint.reason.includes('factKey'),
+      ),
+    );
+    assert.ok(
+      secondPayload.memory.history.some((event: { action: string }) => event.action === 'merged'),
+    );
+
+    await handleRecordLongTermMemory(
+      {
+        type: 'feedback',
+        title: 'Old inferred workflow',
+        summary: 'Run the old smoke test before handoff.',
+        tags: ['workflow'],
+        scope: 'project',
+        source: 'agent-inferred',
+        confidence: 0.5,
+        lastVerifiedAt: '2020-01-01',
+        format: 'json',
+      },
+      projectRoot,
+    );
+
+    const filtered = await handleManageLongTermMemory(
+      {
+        action: 'find',
+        query: 'workflow',
+        types: ['feedback'],
+        status: ['stale'],
+        source: ['agent-inferred'],
+        staleDays: 30,
+        format: 'json',
+      } as never,
+      projectRoot,
+    );
+    const filteredPayload = JSON.parse(filtered.content[0].text);
+    assert.equal(filteredPayload.result_count, 1);
+    assert.deepEqual(filteredPayload.filters.status, ['stale']);
+    assert.deepEqual(filteredPayload.filters.source, ['agent-inferred']);
+
+    const textList = await handleManageLongTermMemory(
+      {
+        action: 'list',
+        types: ['feedback'],
+        status: ['stale'],
+        source: ['agent-inferred'],
+        staleDays: 30,
+        format: 'markdown',
+      } as never,
+      projectRoot,
+    );
+    assert.match(textList.content[0].text, /Filters/);
+    assert.match(textList.content[0].text, /status=stale/);
+    assert.match(textList.content[0].text, /source=agent-inferred/);
+  });
+});
+
 test('agent diary tools can record, read, and find journal entries', async () => {
   await withTempProjects(async (projectRoot, _otherProjectRoot, dbPath) => {
     MemoryStore.setSharedHubForTests(new MemoryHubDatabase(dbPath));

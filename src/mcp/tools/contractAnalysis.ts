@@ -22,21 +22,45 @@ export async function handleContractAnalysis(
   args: ContractAnalysisInput,
   projectRoot: string,
 ) {
-  const report = analyzeContracts(projectRoot, {
-    tools: TOOLS.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-    })),
-  });
-  const payload = filterContractReport(report, {
-    action: args.action as ContractAnalysisAction,
-    route: args.route,
-    tool: args.tool,
-  });
+  let payload: unknown;
+
+  try {
+    const report = analyzeContracts(projectRoot, {
+      tools: TOOLS.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+      })),
+    });
+    payload = filterContractReport(report, {
+      action: args.action as ContractAnalysisAction,
+      route: args.route,
+      tool: args.tool,
+    });
+  } catch (error) {
+    payload = {
+      action: args.action,
+      health: {
+        status: 'missing',
+        routeCount: 0,
+        routeConsumerCount: 0,
+        toolCount: 0,
+        mappedToolCount: 0,
+        mismatchCount: 0,
+        issues: [`analysis-error:${formatHandlerError(error)}`],
+      },
+    };
+  }
 
   if (args.format === 'json') {
     return createTextResponse(JSON.stringify(payload, null, 2));
   }
 
   return createTextResponse(formatContractAnalysis(payload));
+}
+
+function formatHandlerError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.replace(/\s+/g, ' ').slice(0, 180);
+  }
+  return String(error).replace(/\s+/g, ' ').slice(0, 180);
 }

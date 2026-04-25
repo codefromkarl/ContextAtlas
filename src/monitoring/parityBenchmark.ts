@@ -104,10 +104,19 @@ export interface ParityBenchmarkReport {
     byCapability: Record<ParityBenchmarkCapability, number>;
     byStatus: Record<ParityBenchmarkStatus, number>;
     byFailureCategory: Record<ParityBenchmarkFailureCategory, number>;
+    failureCategoryCoverage: {
+      required: ParityBenchmarkFailureCategory[];
+      covered: ParityBenchmarkFailureCategory[];
+      missing: ParityBenchmarkFailureCategory[];
+      complete: boolean;
+    };
     byGoldenCase: Record<ParityBenchmarkGoldenCase, number>;
     evaluationRepositoryCount: number;
     evaluationLanguages: string[];
     memoryRetrievalGoldenCaseCount: number;
+    memoryRetrievalGoldenCasePassCount: number;
+    memoryRetrievalGoldenCaseFailCount: number;
+    benchmarkPassed: boolean;
   };
   trackLists: Record<ParityBenchmarkTrack, string[]>;
   evaluationRepositories: ParityBenchmarkRepository[];
@@ -659,11 +668,15 @@ export function summarizeParityBenchmark(
   if (missingRequiredGoldenCases.length > 0) {
     throw new Error(`Parity benchmark fixture is missing required golden cases: ${missingRequiredGoldenCases.join(', ')}`);
   }
+  const coveredFailureCategories = FAILURE_CATEGORIES.filter((category) => byFailureCategory[category] > 0);
+  const missingFailureCategories = FAILURE_CATEGORIES.filter((category) => byFailureCategory[category] === 0);
   const memoryRetrievalGoldenCases = evaluateMemoryRetrievalGoldenCases(fixture.cases);
   const failedMemoryRetrievalCases = memoryRetrievalGoldenCases.filter((result) => !result.passed);
   if (failedMemoryRetrievalCases.length > 0) {
     throw new Error(`Parity benchmark memory retrieval golden cases failed: ${failedMemoryRetrievalCases.map((result) => result.caseId).join(', ')}`);
   }
+  const memoryRetrievalGoldenCasePassCount = memoryRetrievalGoldenCases.length
+    - failedMemoryRetrievalCases.length;
 
   return {
     fixture: {
@@ -677,10 +690,20 @@ export function summarizeParityBenchmark(
       byCapability,
       byStatus,
       byFailureCategory,
+      failureCategoryCoverage: {
+        required: [...FAILURE_CATEGORIES],
+        covered: coveredFailureCategories,
+        missing: missingFailureCategories,
+        complete: missingFailureCategories.length === 0,
+      },
       byGoldenCase,
       evaluationRepositoryCount: evaluationRepositories.length,
       evaluationLanguages,
       memoryRetrievalGoldenCaseCount: memoryRetrievalGoldenCases.length,
+      memoryRetrievalGoldenCasePassCount,
+      memoryRetrievalGoldenCaseFailCount: failedMemoryRetrievalCases.length,
+      benchmarkPassed: missingFailureCategories.length === 0
+        && failedMemoryRetrievalCases.length === 0,
     },
     trackLists,
     evaluationRepositories,
@@ -722,9 +745,16 @@ export function formatParityBenchmarkReport(report: ParityBenchmarkReport): stri
   lines.push(`- Statuses: ${formatCounts(report.summary.byStatus)}`);
   lines.push(`- Golden Cases: ${formatCounts(report.summary.byGoldenCase)}`);
   lines.push(`- Failure Categories: ${formatCounts(report.summary.byFailureCategory)}`);
+  lines.push(`- Benchmark Passed: ${report.summary.benchmarkPassed}`);
+  lines.push(
+    `- Failure Category Coverage: complete=${report.summary.failureCategoryCoverage.complete} covered=${report.summary.failureCategoryCoverage.covered.join(', ') || 'none'} missing=${report.summary.failureCategoryCoverage.missing.join(', ') || 'none'}`,
+  );
   lines.push(`- Evaluation Repositories: ${report.summary.evaluationRepositoryCount}`);
   lines.push(`- Evaluation Languages: ${report.summary.evaluationLanguages.join(', ') || 'none'}`);
   lines.push(`- Memory Retrieval Golden Cases: ${report.summary.memoryRetrievalGoldenCaseCount}`);
+  lines.push(
+    `- Memory Retrieval Golden Case Results: pass=${report.summary.memoryRetrievalGoldenCasePassCount} fail=${report.summary.memoryRetrievalGoldenCaseFailCount}`,
+  );
   lines.push('');
   lines.push('Track Lists');
   for (const track of TRACKS) {

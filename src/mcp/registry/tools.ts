@@ -636,7 +636,7 @@ Manage long-term memories (find, list, prune, delete, invalidate, suggest).
 
 Actions:
 - find: Search by keyword query
-- list: List all memories with optional type/scope filters
+- list: List all memories with optional type/scope/status/source filters
 - prune: Remove expired/stale memories (dryRun=true by default)
 - delete: Remove a specific memory by id
 - invalidate: Mark an active memory as no longer valid
@@ -703,6 +703,22 @@ Examples:
           type: 'boolean',
           description: '[prune] Whether to prune stale memories',
           default: false,
+        },
+        status: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['active', 'stale', 'expired', 'superseded'],
+          },
+          description: '[find/list] Filter by computed memory status',
+        },
+        source: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['user-explicit', 'agent-inferred', 'tool-result'],
+          },
+          description: '[find/list] Filter by memory source',
         },
         staleDays: {
           type: 'number',

@@ -64,11 +64,36 @@ export function analyzeContracts(
   repoRoot: string,
   options: { tools?: ContractToolMetadata[] } = {},
 ): ContractAnalysisReport {
-  const files = readSourceFiles(repoRoot);
-  const routes = extractRoutes(files);
-  attachRouteConsumers(routes, files);
-  const tools = extractToolContracts(files, options.tools ?? []);
-  const health = buildContractHealth(routes, tools);
+  const issues: string[] = [];
+  const files = readSourceFiles(repoRoot, issues);
+  let routes: RouteContract[] = [];
+  let tools: ToolContract[] = [];
+
+  try {
+    routes = extractRoutes(files);
+  } catch (error) {
+    issues.push(`route-analysis-error:${formatAnalysisError(error)}`);
+  }
+
+  try {
+    attachRouteConsumers(routes, files);
+  } catch (error) {
+    issues.push(`consumer-analysis-error:${formatAnalysisError(error)}`);
+  }
+
+  try {
+    tools = extractToolContracts(files, options.tools ?? []);
+  } catch (error) {
+    issues.push(`tool-analysis-error:${formatAnalysisError(error)}`);
+    tools = (options.tools ?? []).map((tool) => ({
+      name: tool.name,
+      handlerName: null,
+      handlerFile: null,
+      description: normalizeDescription(tool.description ?? ''),
+    }));
+  }
+
+  const health = buildContractHealth(routes, tools, issues);
 
   return {
     routes,
@@ -94,12 +119,13 @@ export function filterContractReport(
       action: input.action,
       routes: routes.map((route) => ({
         ...route,
+        consumers: route.consumers.map((consumer) => ({
+          ...consumer,
+          mismatchKeys: findConsumerMismatchKeys(route, consumer),
+        })),
         mismatchKeys: findMismatchKeys(route),
-        risk: route.consumers.length >= 10 || findMismatchKeys(route).length >= 4
-          ? 'high'
-          : route.consumers.length >= 4 || findMismatchKeys(route).length > 0
-            ? 'medium'
-            : 'low',
+        risk: assessRouteRisk(route),
+        issues: buildRouteImpactIssues(route),
       })),
     };
   }
@@ -117,8 +143,8 @@ export function filterContractReport(
       action: input.action,
       tools: tools.map((tool) => ({
         ...tool,
-        risk: tool.handlerFile ? 'low' : 'medium',
-        issues: tool.handlerFile ? [] : ['handler-not-mapped'],
+        risk: assessToolRisk(tool),
+        issues: buildToolImpactIssues(tool),
       })),
     };
   }
@@ -132,7 +158,12 @@ export function filterContractReport(
 export function formatContractAnalysis(payload: unknown): string {
   const value = payload as {
     action?: string;
-    routes?: Array<RouteContract & { mismatchKeys?: string[]; risk?: string }>;
+    routes?: Array<RouteContract & {
+      mismatchKeys?: string[];
+      risk?: string;
+      issues?: string[];
+      consumers?: Array<RouteConsumerContract & { mismatchKeys?: string[] }>;
+    }>;
     tools?: Array<ToolContract & { risk?: string; issues?: string[] }>;
     health?: ContractHealthReport;
   };
@@ -160,8 +191,17 @@ export function formatContractAnalysis(payload: unknown): string {
       lines.push(`- ${route.method.toUpperCase()} ${route.route} -> ${route.handlerFile}${route.handlerName ? `:${route.handlerName}` : ''}${route.risk ? ` risk=${route.risk}` : ''}`);
       lines.push(`  responseKeys: ${route.responseKeys.join(', ') || 'none'}`);
       lines.push(`  consumers: ${route.consumers.length}`);
+      for (const consumer of route.consumers) {
+        const mismatchSuffix = consumer.mismatchKeys && consumer.mismatchKeys.length > 0
+          ? ` mismatch=${consumer.mismatchKeys.join(', ')}`
+          : '';
+        lines.push(`  - consumer ${consumer.filePath} accessed=${consumer.accessedKeys.join(', ') || 'none'}${mismatchSuffix}`);
+      }
       if (route.mismatchKeys && route.mismatchKeys.length > 0) {
         lines.push(`  mismatchKeys: ${route.mismatchKeys.join(', ')}`);
+      }
+      if (route.issues && route.issues.length > 0) {
+        lines.push(`  issues: ${route.issues.join(', ')}`);
       }
     }
   }
@@ -260,19 +300,30 @@ function findHandlerFile(files: SourceFile[], handlerName: string): string | nul
   return files.find((file) => needle.test(file.text))?.filePath ?? null;
 }
 
-function buildContractHealth(routes: RouteContract[], tools: ToolContract[]): ContractHealthReport {
+function buildContractHealth(
+  routes: RouteContract[],
+  tools: ToolContract[],
+  analysisIssues: string[] = [],
+): ContractHealthReport {
   const mismatchCount = routes.reduce((count, route) => count + findMismatchKeys(route).length, 0);
   const mappedToolCount = tools.filter((tool) => tool.handlerFile).length;
-  const issues: string[] = [];
+  const issues: string[] = [...analysisIssues];
   if (tools.length > 0 && mappedToolCount < tools.length) {
     issues.push(`unmapped-tools:${tools.length - mappedToolCount}`);
   }
   if (mismatchCount > 0) {
     issues.push(`response-shape-mismatches:${mismatchCount}`);
   }
+  const analysisUnavailable = issues.some((issue) => issue.startsWith('analysis-error:'))
+    && routes.length === 0
+    && mappedToolCount === 0;
 
   return {
-    status: routes.length === 0 && tools.length === 0 ? 'missing' : issues.length > 0 ? 'degraded' : 'ok',
+    status: analysisUnavailable || (routes.length === 0 && tools.length === 0)
+      ? 'missing'
+      : issues.length > 0
+        ? 'degraded'
+        : 'ok',
     routeCount: routes.length,
     routeConsumerCount: routes.reduce((count, route) => count + route.consumers.length, 0),
     toolCount: tools.length,
@@ -292,6 +343,42 @@ function findMismatchKeys(route: RouteContract): string[] {
     }
   }
   return Array.from(keys).sort();
+}
+
+function findConsumerMismatchKeys(route: RouteContract, consumer: RouteConsumerContract): string[] {
+  if (route.responseKeys.length === 0) return [];
+  const responseKeys = new Set(route.responseKeys);
+  return consumer.accessedKeys.filter((key) => !responseKeys.has(key)).sort();
+}
+
+function assessRouteRisk(route: RouteContract): 'low' | 'medium' | 'high' {
+  const mismatchKeys = findMismatchKeys(route);
+  if (route.consumers.length >= 10 || mismatchKeys.length >= 4) return 'high';
+  if (route.consumers.length >= 4 || mismatchKeys.length > 0) return 'medium';
+  if (route.consumers.length > 0 && route.responseKeys.length === 0) return 'medium';
+  return 'low';
+}
+
+function buildRouteImpactIssues(route: RouteContract): string[] {
+  const issues: string[] = [];
+  for (const key of findMismatchKeys(route)) {
+    issues.push(`response-shape-mismatch:${key}`);
+  }
+  if (route.consumers.length > 0 && route.responseKeys.length === 0) {
+    issues.push('response-shape-unknown');
+  }
+  if (route.consumers.length === 0) {
+    issues.push('no-detected-consumers');
+  }
+  return issues;
+}
+
+function assessToolRisk(tool: ToolContract): 'low' | 'medium' {
+  return tool.handlerFile ? 'low' : 'medium';
+}
+
+function buildToolImpactIssues(tool: ToolContract): string[] {
+  return tool.handlerFile ? [] : ['handler-not-mapped'];
 }
 
 function routeFromFilePath(filePath: string): string | null {
@@ -338,17 +425,25 @@ function extractJsonObjectBodies(text: string): string[] {
 
 function extractConsumerAccessKeys(text: string): string[] {
   const keys = new Set<string>();
-  for (const match of text.matchAll(/\b(?:data|json|result)\.([A-Za-z_$][A-Za-z0-9_$]*)\b/g)) {
+  for (const match of text.matchAll(/\b(?:data|json|result|payload)\.([A-Za-z_$][A-Za-z0-9_$]*)\b/g)) {
     keys.add(match[1]!);
   }
   return Array.from(keys).sort();
 }
 
-function readSourceFiles(repoRoot: string): SourceFile[] {
+function readSourceFiles(repoRoot: string, issues: string[]): SourceFile[] {
   const files: SourceFile[] = [];
 
   const visit = (absoluteDir: string, relativeDir: string) => {
-    for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true })) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+    } catch (error) {
+      issues.push(`analysis-error:${formatAnalysisError(error)}`);
+      return;
+    }
+
+    for (const entry of entries) {
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name)) {
           visit(path.join(absoluteDir, entry.name), path.posix.join(relativeDir, entry.name));
@@ -358,10 +453,14 @@ function readSourceFiles(repoRoot: string): SourceFile[] {
       if (!entry.isFile()) continue;
       if (!SOURCE_EXTENSIONS.has(path.extname(entry.name))) continue;
       const filePath = path.posix.join(relativeDir, entry.name);
-      files.push({
-        filePath,
-        text: fs.readFileSync(path.join(absoluteDir, entry.name), 'utf8'),
-      });
+      try {
+        files.push({
+          filePath,
+          text: fs.readFileSync(path.join(absoluteDir, entry.name), 'utf8'),
+        });
+      } catch (error) {
+        issues.push(`analysis-error:${filePath}:${formatAnalysisError(error)}`);
+      }
     }
   };
 
@@ -384,4 +483,12 @@ function normalizeDescription(description: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function formatAnalysisError(error: unknown): string {
+  if (error instanceof Error) {
+    const code = 'code' in error && typeof error.code === 'string' ? `${error.code}:` : '';
+    return `${code}${error.message}`.replace(/\s+/g, ' ').slice(0, 180);
+  }
+  return String(error).replace(/\s+/g, ' ').slice(0, 180);
 }

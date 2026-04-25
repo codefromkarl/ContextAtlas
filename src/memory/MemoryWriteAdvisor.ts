@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { DecisionRecord, FeatureMemory, LongTermMemoryItem, LongTermMemoryScope } from './types.js';
 import type { MemoryStore } from './MemoryStore.js';
 
@@ -96,15 +97,19 @@ export class MemoryWriteAdvisor {
       .map((item) => {
         const otherTerms = this.buildLongTermSimilarityTerms(item);
         const overlap = [...currentTerms].filter((term) => otherTerms.has(term));
-        const sameFactKey = Boolean(memory.factKey && item.factKey && this.normalizeText(memory.factKey) === this.normalizeText(item.factKey));
+        const sameFactKey = Boolean(memory.factKey && item.factKey && this.normalizeFactKey(memory.factKey) === this.normalizeFactKey(item.factKey));
         const sameTitle = this.normalizeText(item.title) === this.normalizeText(memory.title);
         const sameSummary = this.normalizeText(item.summary) === this.normalizeText(memory.summary);
+        const sameHash = this.getLongTermHash(item) === this.getLongTermHash(memory);
+        const summarySimilarity = this.calculateTextSimilarity(item.summary, memory.summary);
         const sharedLinks = (memory.links || []).filter((link) => (item.links || []).includes(link));
         const score =
           overlap.length / Math.max(1, Math.min(currentTerms.size, otherTerms.size))
           + (sameFactKey ? 0.7 : 0)
+          + (sameHash ? 0.45 : 0)
           + (sameTitle ? 0.18 : 0)
           + (sameSummary ? 0.22 : 0)
+          + (summarySimilarity >= 0.8 ? 0.2 : 0)
           + (sharedLinks.length > 0 ? 0.18 : 0);
 
         return {
@@ -112,8 +117,12 @@ export class MemoryWriteAdvisor {
           score,
           reason: sameFactKey
             ? `factKey 冲突/复用: ${item.factKey}`
+            : sameHash
+              ? `summary hash duplicate: ${this.getLongTermHash(item)}`
             : sameTitle && sameSummary
               ? '标题与摘要高度接近'
+              : summarySimilarity >= 0.8
+                ? `摘要高度相似: ${(summarySimilarity * 100).toFixed(0)}%`
               : sharedLinks.length > 0
                 ? `外部链接重叠: ${sharedLinks.slice(0, 2).join(', ')}`
                 : `关键词重叠: ${overlap.slice(0, 4).join(', ')}`,
@@ -207,5 +216,42 @@ export class MemoryWriteAdvisor {
 
   private normalizeText(input: string): string {
     return input.toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  private normalizeFactKey(input: string): string {
+    return input
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  private getLongTermHash(memory: Pick<LongTermMemoryItem, 'title' | 'summary'>): string {
+    return crypto
+      .createHash('sha256')
+      .update(this.normalizeText(`${memory.title}\n${memory.summary}`))
+      .digest('hex')
+      .slice(0, 16);
+  }
+
+  private calculateTextSimilarity(a: string, b: string): number {
+    const left = this.tokenize(a);
+    const right = this.tokenize(b);
+    if (left.size === 0 || right.size === 0) {
+      return 0;
+    }
+    const intersection = [...left].filter((token) => right.has(token)).length;
+    const union = new Set([...left, ...right]).size;
+    return union === 0 ? 0 : intersection / union;
+  }
+
+  private tokenize(input: string): Set<string> {
+    return new Set(
+      input
+        .toLowerCase()
+        .split(/[\s,./\\|[\]{}()"':;!?<>`~@#$%^&*+=-]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 3),
+    );
   }
 }

@@ -17,6 +17,8 @@ const longTermMemoryTypeSchema = z.enum([
   'temporal-fact',
 ]);
 const longTermMemoryScopeSchema = z.enum(['project', 'global-user']);
+const longTermMemoryStatusSchema = z.enum(['active', 'stale', 'expired', 'superseded']);
+const longTermMemorySourceSchema = z.enum(['user-explicit', 'agent-inferred', 'tool-result']);
 
 export const recordLongTermMemorySchema = z.object({
   type: longTermMemoryTypeSchema.describe('Long-term memory type'),
@@ -68,6 +70,14 @@ export const manageLongTermMemorySchema = z.object({
     .optional()
     .default(false)
     .describe('[prune] Whether to prune stale memories'),
+  status: z
+    .array(longTermMemoryStatusSchema)
+    .optional()
+    .describe('[find/list] Filter by computed memory status'),
+  source: z
+    .array(longTermMemorySourceSchema)
+    .optional()
+    .describe('[find/list] Filter by memory source'),
   staleDays: z
     .number()
     .optional()

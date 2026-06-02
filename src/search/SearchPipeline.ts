@@ -3,6 +3,7 @@ import type { Indexer } from '../indexer/index.js';
 import type { VectorStore } from '../vectorStore/index.js';
 import { ContextPacker } from './ContextPacker.js';
 import { HybridRecallEngine } from './HybridRecallEngine.js';
+import { getPostProcessor } from './IntentPostProcessor.js';
 import type { SearchPipelineCallbacks } from './SearchPipelineCallbacks.js';
 import {
   buildContextRequest,
@@ -274,26 +275,13 @@ export async function buildContextPackFromRuntime(
   timingMs.rerank = Date.now() - t0;
 
   t0 = Date.now();
-  const rerankedForCutoff = dedupeArchitectureRerankedFiles(
-    applyIntentCandidateBias(
-      reranked.chunks,
-      request.queryIntent,
-    ),
+  const rerankedForCutoff = applyIntentCandidateBias(
+    reranked.chunks,
     request.queryIntent,
   );
-  const initialSeeds = applySmartCutoff(rerankedForCutoff, request.activeConfig);
-  const architectureSeeds = ensureArchitectureFileDiversity(
-    initialSeeds,
-    rerankedForCutoff,
-    topM,
-    request.queryIntent,
-  );
-  const seeds = ensureSymbolLookupSourceDiversity(
-    architectureSeeds,
-    rerankedForCutoff,
-    topM,
-    request.queryIntent,
-  );
+  const cutoffSeeds = applySmartCutoff(rerankedForCutoff, request.activeConfig);
+  const postProcessor = getPostProcessor(request.queryIntent);
+  const seeds = postProcessor.process(cutoffSeeds, rerankedForCutoff, topM);
   timingMs.smartCutoff = Date.now() - t0;
 
   t0 = Date.now();

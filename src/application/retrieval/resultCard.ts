@@ -37,6 +37,7 @@ import type {
   ResultCardLongTermMemoryMatch,
 } from './retrievalTypes.js';
 
+// Also available as extracted module: import { rankFeatureMemoryMatches, ... } from './memoryMatcher.js';
 // ===========================================
 // 结果卡片核心构建
 // ===========================================

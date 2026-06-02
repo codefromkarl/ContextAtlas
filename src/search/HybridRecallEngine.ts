@@ -8,6 +8,9 @@ import { retrieveSkeletonChunks } from './SkeletonRecall.js';
 import type { LexicalStrategy, RetrievalStats, ScoredChunk, SearchConfig } from './types.js';
 import type { Indexer } from '../indexer/index.js';
 
+import { SmartFusionStrategy, type FusionStrategy } from './FusionStrategy.js';
+import { fuseRecallResults } from './rrfFusion.js';
+
 const tokenBoundaryRegexCache = new Map<string, RegExp>();
 
 function getTokenBoundaryRegex(token: string): RegExp {
@@ -76,85 +79,8 @@ function scoreFilePathBias(filePath: string, intent: QueryIntent): number {
   return 1;
 }
 
-export function fuseRecallResults(
-  vectorResults: (ScoredChunk & { _rank?: number })[],
-  lexicalResults: (ScoredChunk & { _rank?: number })[],
-  config: Pick<SearchConfig, 'rrfK0' | 'wVec' | 'wLex'>,
-): ScoredChunk[] {
-  const { rrfK0, wVec, wLex } = config;
-  const fusedScores = new Map<
-    string,
-    {
-      score: number;
-      chunk: ScoredChunk;
-      sources: Set<string>;
-    }
-  >();
-
-  const getKey = (chunk: ScoredChunk) => `${chunk.filePath}#${chunk.chunkIndex}`;
-
-  for (const result of vectorResults) {
-    const key = getKey(result);
-    const rank = result._rank ?? 0;
-    const rrfScore = wVec / (rrfK0 + rank);
-
-    const existing = fusedScores.get(key);
-    if (existing) {
-      existing.score += rrfScore;
-      existing.sources.add('vector');
-    } else {
-      fusedScores.set(key, {
-        score: rrfScore,
-        chunk: result,
-        sources: new Set(['vector']),
-      });
-    }
-  }
-
-  for (const result of lexicalResults) {
-    const key = getKey(result);
-    const rank = result._rank ?? 0;
-    const rrfScore = wLex / (rrfK0 + rank);
-
-    const existing = fusedScores.get(key);
-    if (existing) {
-      existing.score += rrfScore;
-      existing.sources.add('lexical');
-    } else {
-      fusedScores.set(key, {
-        score: rrfScore,
-        chunk: result,
-        sources: new Set(['lexical']),
-      });
-    }
-  }
-
-  const fused = Array.from(fusedScores.values())
-    .map(({ score, chunk, sources }) => ({
-      ...chunk,
-      score,
-      source: sources.has('vector')
-        ? ('vector' as const)
-        : sources.has('lexical')
-          ? ('lexical' as const)
-          : chunk.source,
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  if (isDebugEnabled()) {
-    logger.debug(
-      {
-        vectorCount: vectorResults.length,
-        lexicalCount: lexicalResults.length,
-        fusedCount: fused.length,
-        bothSources: Array.from(fusedScores.values()).filter((v) => v.sources.size > 1).length,
-      },
-      'RRF 融合完成',
-    );
-  }
-
-  return fused;
-}
+// Re-export for backward compatibility
+export { fuseRecallResults } from './rrfFusion.js';
 
 export interface HybridRecallEngineOptions {
   indexer: Indexer | null;
@@ -162,6 +88,7 @@ export interface HybridRecallEngineOptions {
   db: Database.Database | null;
   config: SearchConfig;
   extractQueryTokens: (query: string) => Set<string>;
+  fusionStrategy?: FusionStrategy;
 }
 
 export class HybridRecallEngine {
@@ -170,6 +97,7 @@ export class HybridRecallEngine {
   private readonly db: Database.Database | null;
   private readonly config: SearchConfig;
   private readonly extractQueryTokensFn: (query: string) => Set<string>;
+  private readonly fusionStrategy: FusionStrategy;
 
   constructor(options: HybridRecallEngineOptions) {
     this.indexer = options.indexer;
@@ -177,6 +105,7 @@ export class HybridRecallEngine {
     this.db = options.db;
     this.config = options.config;
     this.extractQueryTokensFn = options.extractQueryTokens;
+    this.fusionStrategy = options.fusionStrategy ?? new SmartFusionStrategy();
   }
 
   async hybridRetrieve(
@@ -234,68 +163,34 @@ export class HybridRecallEngine {
       '混合召回完成',
     );
 
-    if (queryIntent === 'symbol_lookup' && lexicalResults.length > 0) {
-      return {
-        chunks: lexicalResults,
-        stats: {
-          lexicalStrategy: lexicalOutcome.strategy,
-          vectorCount: vectorResults.length,
-          lexicalCount: lexicalOutcome.lexicalCount,
-          skeletonCount: lexicalOutcome.skeletonCount,
-          graphCount: lexicalOutcome.graphCount,
-          fusedCount: lexicalResults.length,
-          rerankInputCount: 0,
-          queryIntent: 'balanced',
-        },
-        timingMs: {
-          retrieveVector,
-          retrieveLexical,
-          retrieveFuse: 0,
-        },
-      };
-    }
+    const fusionOutput = this.fusionStrategy.fuse({
+      vectorResults,
+      lexicalResults,
+      config: this.config,
+      lexicalStrategy: lexicalOutcome.strategy,
+      queryIntent,
+      lexicalCount: lexicalOutcome.lexicalCount,
+      skeletonCount: lexicalOutcome.skeletonCount,
+      graphCount: lexicalOutcome.graphCount,
+      timingMs: {
+        retrieveVector,
+        retrieveLexical,
+      },
+    });
 
-    if (lexicalResults.length === 0) {
-      return {
-        chunks: vectorResults,
-        stats: {
-          lexicalStrategy: lexicalOutcome.strategy,
-          vectorCount: vectorResults.length,
-          lexicalCount: lexicalOutcome.lexicalCount,
-          skeletonCount: lexicalOutcome.skeletonCount,
-          graphCount: lexicalOutcome.graphCount,
-          fusedCount: vectorResults.length,
-          rerankInputCount: 0,
-          queryIntent: 'balanced',
-        },
-        timingMs: {
-          retrieveVector,
-          retrieveLexical,
-          retrieveFuse: 0,
-        },
-      };
-    }
-
-    const fuseStart = Date.now();
-    const fused = fuseRecallResults(vectorResults, lexicalResults, this.config);
-    const retrieveFuse = Date.now() - fuseStart;
     return {
-      chunks: fused,
+      chunks: fusionOutput.chunks,
       stats: {
         lexicalStrategy: lexicalOutcome.strategy,
         vectorCount: vectorResults.length,
         lexicalCount: lexicalOutcome.lexicalCount,
         skeletonCount: lexicalOutcome.skeletonCount,
         graphCount: lexicalOutcome.graphCount,
-        fusedCount: fused.length,
+        fusedCount: fusionOutput.chunks.length,
         rerankInputCount: 0,
         queryIntent: 'balanced',
       },
-      timingMs: {
-        retrieveVector,
-        retrieveLexical,
-        retrieveFuse,
-      },
+      timingMs: fusionOutput.timingMs,
     };
   }
 
